@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OpenWrt RMM</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=3">
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -158,7 +158,8 @@
 
           <nav class="device-tabs" aria-label="Разделы объекта">
             <button class="device-tab is-active" data-device-tab-target="overview" type="button">Обзор</button>
-            <button class="device-tab" data-device-tab-target="clients" type="button">Клиенты и сеть</button>
+            <button class="device-tab" data-device-tab-target="clients" type="button">Клиенты</button>
+            <button class="device-tab" data-device-tab-target="network" type="button">Сеть</button>
             <button class="device-tab" data-device-tab-target="operations" type="button">Операции</button>
             <button class="device-tab" data-device-tab-target="information" type="button">Сведения</button>
             <button class="device-tab" data-device-tab-target="expert" type="button">Эксперт</button>
@@ -269,21 +270,50 @@
             </div>
           </section>
 
-          <div class="two-column" data-device-tab="clients">
-            <section class="panel">
-              <div class="section-title">
-                <h2>Leases and Wi-Fi</h2>
+          <section class="panel" data-device-tab="clients">
+            <div class="section-title">
+              <div>
+                <h2>Подключенные устройства</h2>
+                <p class="section-subtitle">Клиенты DHCP и Wi-Fi объединены по MAC-адресу</p>
               </div>
-              <div id="clientList" class="table-list"></div>
-            </section>
+              <span id="clientSummary" class="summary-pill">0 клиентов</span>
+            </div>
+            <div class="client-toolbar">
+              <input id="clientSearch" type="search" placeholder="Поиск по имени, IP или MAC">
+              <div class="filters client-filters">
+                <button class="client-filter is-active" data-client-filter="all" type="button">Все</button>
+                <button class="client-filter" data-client-filter="wifi" type="button">Wi-Fi</button>
+                <button class="client-filter" data-client-filter="wired" type="button">Проводные</button>
+              </div>
+            </div>
+            <div class="client-table-head">
+              <span>Устройство</span>
+              <span>IP-адрес</span>
+              <span>MAC-адрес</span>
+              <span>Подключение</span>
+              <span>Состояние</span>
+            </div>
+            <div id="clientList" class="client-list"></div>
+          </section>
 
-            <section class="panel">
-              <div class="section-title">
-                <h2>Interface counters</h2>
+          <section class="panel" data-device-tab="network">
+            <div class="section-title">
+              <div>
+                <h2>Сеть и интерфейсы</h2>
+                <p class="section-subtitle">Адреса и трафик интерфейсов роутера</p>
               </div>
-              <div id="interfaceCounters" class="table-list"></div>
-            </section>
-          </div>
+              <span id="networkSummary" class="summary-pill">0 интерфейсов</span>
+            </div>
+            <div id="networkHealth" class="network-health"></div>
+            <div class="network-table-head">
+              <span>Интерфейс</span>
+              <span>Адреса</span>
+              <span>Получено</span>
+              <span>Передано</span>
+              <span>Ошибки</span>
+            </div>
+            <div id="interfaceCounters" class="network-list"></div>
+          </section>
 
           <section class="panel" data-device-tab="overview">
             <div class="section-title">
@@ -503,6 +533,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=9" defer></script>
+    <script src="/app.js?v=10" defer></script>
   </body>
 </html>

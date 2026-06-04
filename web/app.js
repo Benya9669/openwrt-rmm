@@ -4,6 +4,7 @@ const state = {
   selectedDeviceId: null,
   deviceTab: "overview",
   filter: "all",
+  clientFilter: "all",
   commandFilter: "all",
   commands: [],
   alerts: [],
@@ -52,7 +53,11 @@ const els = {
   connectivityStatus: document.querySelector("#connectivityStatus"),
   inventoryJson: document.querySelector("#inventoryJson"),
   clientList: document.querySelector("#clientList"),
+  clientSummary: document.querySelector("#clientSummary"),
+  clientSearch: document.querySelector("#clientSearch"),
   interfaceCounters: document.querySelector("#interfaceCounters"),
+  networkSummary: document.querySelector("#networkSummary"),
+  networkHealth: document.querySelector("#networkHealth"),
   fleetSearch: document.querySelector("#fleetSearch"),
   fleetGroupFilter: document.querySelector("#fleetGroupFilter"),
   fleetTagFilter: document.querySelector("#fleetTagFilter"),
@@ -464,39 +469,107 @@ function kbToMb(value) {
   return Math.round((Number(value || 0) / 1024) * 10) / 10;
 }
 
-function renderClients(device) {
+function formatBytes(value) {
+  let amount = Number(value || 0);
+  const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) {
+    amount /= 1024;
+    unit += 1;
+  }
+  return `${amount >= 10 || unit === 0 ? Math.round(amount) : amount.toFixed(1)} ${units[unit]}`;
+}
+
+function normalizedClients(device) {
   const leases = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases : [];
   const wifi = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients : [];
+  const byMac = new Map();
+  for (const lease of leases) {
+    const mac = String(lease.mac || "").toLowerCase();
+    const key = mac || `ip:${lease.ip || Math.random()}`;
+    byMac.set(key, {
+      name: lease.hostname && lease.hostname !== "*" ? lease.hostname : "",
+      ip: lease.ip || "-",
+      mac: lease.mac || "-",
+      connection: "Проводное / DHCP",
+      type: "wired",
+      online: true,
+    });
+  }
+  for (const station of wifi) {
+    const mac = String(station.mac || "").toLowerCase();
+    const existing = byMac.get(mac) || {};
+    byMac.set(mac || `wifi:${station.interface || Math.random()}`, {
+      ...existing,
+      name: existing.name || `Wi-Fi клиент ${station.mac || ""}`,
+      ip: existing.ip || "-",
+      mac: station.mac || existing.mac || "-",
+      connection: `Wi-Fi ${station.interface || ""}`.trim(),
+      type: "wifi",
+      online: true,
+    });
+  }
+  return [...byMac.values()];
+}
+
+function renderClients(device) {
+  const clients = normalizedClients(device);
+  const search = els.clientSearch.value.trim().toLowerCase();
+  const filtered = clients.filter((client) => {
+    if (state.clientFilter !== "all" && client.type !== state.clientFilter) return false;
+    return !search || [client.name, client.ip, client.mac, client.connection].join(" ").toLowerCase().includes(search);
+  });
   els.clientList.innerHTML = "";
-  if (leases.length === 0 && wifi.length === 0) {
-    els.clientList.textContent = "No client data";
+  const wifiCount = clients.filter((client) => client.type === "wifi").length;
+  els.clientSummary.textContent = `${clients.length} всего / ${wifiCount} Wi-Fi`;
+  if (filtered.length === 0) {
+    els.clientList.innerHTML = '<div class="inline-empty">Клиенты не найдены</div>';
     return;
   }
-  for (const lease of leases) {
+  for (const client of filtered) {
     const row = document.createElement("div");
-    row.className = "mini-row";
-    row.innerHTML = `<strong>${escapeHtml(lease.hostname || lease.ip || "dhcp-client")}</strong><span>${escapeHtml(lease.ip || "-")}</span><small>${escapeHtml(lease.mac || "-")}</small>`;
-    els.clientList.appendChild(row);
-  }
-  for (const client of wifi) {
-    const row = document.createElement("div");
-    row.className = "mini-row";
-    row.innerHTML = `<strong>Wi-Fi ${escapeHtml(client.interface || "")}</strong><span>${escapeHtml(client.mac || "-")}</span><small>${escapeHtml(client.access_point || "-")}</small>`;
+    row.className = "client-row";
+    row.innerHTML = `
+      <div class="client-name"><span class="client-icon">${client.type === "wifi" ? "⌁" : "▣"}</span><strong>${escapeHtml(client.name || client.ip || "Неизвестное устройство")}</strong></div>
+      <span>${escapeHtml(client.ip)}</span>
+      <code>${escapeHtml(client.mac)}</code>
+      <span>${escapeHtml(client.connection)}</span>
+      <span class="client-online"><i></i>В сети</span>
+    `;
     els.clientList.appendChild(row);
   }
 }
 
 function renderInterfaceCounters(device) {
   const counters = Array.isArray(device.metrics && device.metrics.interface_counters) ? device.metrics.interface_counters : [];
+  const addresses = Array.isArray(device.inventory && device.inventory.interfaces) ? device.inventory.interfaces : [];
+  const byName = new Map();
+  for (const address of addresses) {
+    if (!byName.has(address.name)) byName.set(address.name, []);
+    byName.get(address.name).push(address.address);
+  }
   els.interfaceCounters.innerHTML = "";
+  els.networkSummary.textContent = `${counters.length} интерфейсов`;
+  els.networkHealth.innerHTML = `
+    <div><span>WAN-адрес</span><strong>${escapeHtml(device.inventory && device.inventory.wan_ip ? device.inventory.wan_ip : "Нет данных")}</strong></div>
+    <div><span>Маршрут по умолчанию</span><strong>${escapeHtml(device.inventory && device.inventory.default_route ? device.inventory.default_route : "Нет данных")}</strong></div>
+    <div><span>Проверки связи</span><strong>${escapeHtml(formatConnectivity(device.metrics && device.metrics.connectivity_checks))}</strong></div>
+  `;
   if (counters.length === 0) {
-    els.interfaceCounters.textContent = "No interface counters";
+    els.interfaceCounters.innerHTML = '<div class="inline-empty">Нет данных об интерфейсах</div>';
     return;
   }
   for (const item of counters) {
     const row = document.createElement("div");
-    row.className = "mini-row";
-    row.innerHTML = `<strong>${escapeHtml(item.name)}</strong><span>rx ${escapeHtml(item.rx_packets || 0)} / tx ${escapeHtml(item.tx_packets || 0)}</span><small>err ${escapeHtml(item.rx_errors || 0)} / ${escapeHtml(item.tx_errors || 0)}</small>`;
+    const errors = Number(item.rx_errors || 0) + Number(item.tx_errors || 0);
+    row.className = "network-row";
+    row.innerHTML = `
+      <strong>${escapeHtml(item.name || "-")}</strong>
+      <span>${escapeHtml((byName.get(item.name) || []).join(", ") || "-")}</span>
+      <span>${escapeHtml(formatBytes(item.rx_bytes))}<small>${escapeHtml(item.rx_packets || 0)} пакетов</small></span>
+      <span>${escapeHtml(formatBytes(item.tx_bytes))}<small>${escapeHtml(item.tx_packets || 0)} пакетов</small></span>
+      <span class="${errors ? "interface-errors" : ""}">${escapeHtml(errors)}</span>
+    `;
     els.interfaceCounters.appendChild(row);
   }
 }
@@ -1117,6 +1190,16 @@ for (const button of document.querySelectorAll(".diagnostic-btn")) {
 for (const button of document.querySelectorAll(".device-tab")) {
   button.addEventListener("click", () => selectDeviceTab(button.dataset.deviceTabTarget));
 }
+
+for (const button of document.querySelectorAll(".client-filter")) {
+  button.addEventListener("click", () => {
+    state.clientFilter = button.dataset.clientFilter;
+    document.querySelectorAll(".client-filter").forEach((item) => item.classList.toggle("is-active", item === button));
+    renderClients(currentDevice());
+  });
+}
+
+els.clientSearch.addEventListener("input", () => renderClients(currentDevice()));
 
 for (const button of document.querySelectorAll(".filter")) {
   button.addEventListener("click", () => {
