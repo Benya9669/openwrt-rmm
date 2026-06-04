@@ -426,7 +426,7 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 		}
 		upstreamPath = r.URL.Path
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = io.WriteString(w, `<a href="/cgi-bin/luci/admin">LuCI</a><link href="/luci-static/test.css">`)
+		_, _ = io.WriteString(w, `<a href="/cgi-bin/luci/admin">LuCI</a><link href="/luci-static/test.css"><script>L = new LuCI({ "resource": "\/luci-static\/resources", "scriptname": "\/cgi-bin\/luci", "ubuspath": "\/ubus\/" });</script>`)
 	}))
 	defer upstream.Close()
 	upstreamURL, err := url.Parse(upstream.URL)
@@ -471,6 +471,12 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	prefix := "/luci/" + enrolled.DeviceID + "/" + session.ID
 	if !strings.Contains(body, `href="`+prefix+`/cgi-bin/luci/admin"`) || !strings.Contains(body, `href="`+prefix+`/luci-static/test.css"`) {
 		t.Fatalf("LuCI paths were not rewritten: %s", body)
+	}
+	escapedPrefix := strings.ReplaceAll(prefix, "/", `\/`)
+	for _, path := range []string{`\/luci-static\/resources`, `\/cgi-bin\/luci`, `\/ubus\/`} {
+		if !strings.Contains(body, escapedPrefix+path) {
+			t.Fatalf("escaped LuCI path %s was not rewritten: %s", path, body)
+		}
 	}
 
 	jar, err := cookiejar.New(nil)

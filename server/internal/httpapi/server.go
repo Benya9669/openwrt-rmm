@@ -1135,7 +1135,7 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 		removeCookie(req, luciRouteCookie)
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		if resp.StatusCode >= 400 {
+		if resp.StatusCode >= 400 && resp.Header.Get("X-LuCI-Login-Required") == "" {
 			logStructured(map[string]any{
 				"event":        "luci.upstream_error",
 				"request_id":   requestID(r.Context()),
@@ -1204,6 +1204,10 @@ func rewriteLuCIBody(body []byte, prefix string) []byte {
 	for _, marker := range []string{`="/`, `'/`, `url(/`} {
 		replacement := marker[:len(marker)-1] + prefix + "/"
 		body = bytes.ReplaceAll(body, []byte(marker), []byte(replacement))
+	}
+	escapedPrefix := strings.ReplaceAll(prefix, "/", `\/`)
+	for _, root := range []string{`\/cgi-bin\/luci`, `\/luci-static`, `\/ubus\/`} {
+		body = bytes.ReplaceAll(body, []byte(root), []byte(escapedPrefix+root))
 	}
 	return body
 }
