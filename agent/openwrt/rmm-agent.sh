@@ -608,39 +608,39 @@ remote_ssh_reverse_output() {
 }
 
 remote_ssh_stop_pid() {
-	session_id="$1"
-	expected_pid="$2"
-	pid_file="$TUNNEL_STATE_DIR/$session_id.pid"
-	[ -f "$pid_file" ] || return 0
-	pid="$(cat "$pid_file" 2>/dev/null)"
-	[ "$pid" = "$expected_pid" ] || return 0
-	case "$pid" in
+	stop_session_id="$1"
+	stop_expected_pid="$2"
+	stop_pid_file="$TUNNEL_STATE_DIR/$stop_session_id.pid"
+	[ -f "$stop_pid_file" ] || return 0
+	stop_pid="$(cat "$stop_pid_file" 2>/dev/null)"
+	[ "$stop_pid" = "$stop_expected_pid" ] || return 0
+	case "$stop_pid" in
 		''|*[!0-9]*)
-			rm -f "$pid_file"
+			rm -f "$stop_pid_file"
 			return 1
 			;;
 	esac
-	kill "$pid" >/dev/null 2>&1 || true
-	rm -f "$pid_file"
+	kill "$stop_pid" >/dev/null 2>&1 || true
+	rm -f "$stop_pid_file"
 }
 
 remote_ssh_stop_session() {
-	session_id="$1"
-	remote_port="${2:-}"
-	if ! safe_session_id "$session_id"; then
+	stop_session_id="$1"
+	stop_remote_port="${2:-}"
+	if ! safe_session_id "$stop_session_id"; then
 		printf 'remote session id is invalid\n'
 		return 2
 	fi
-	pid_file="$TUNNEL_STATE_DIR/$session_id.pid"
-	if [ ! -f "$pid_file" ]; then
-		if safe_port "$remote_port"; then
+	stop_pid_file="$TUNNEL_STATE_DIR/$stop_session_id.pid"
+	if [ ! -f "$stop_pid_file" ]; then
+		if safe_port "$stop_remote_port"; then
 			for cmdline in /proc/[0-9]*/cmdline; do
 				[ -f "$cmdline" ] || continue
 				command_line="$(tr '\000' ' ' < "$cmdline" 2>/dev/null)"
 				case "$command_line" in
-					*ssh*" -R $remote_port:"*|*dbclient*" -R $remote_port:"*)
-						pid="$(printf '%s' "$cmdline" | cut -d/ -f3)"
-						kill "$pid" >/dev/null 2>&1 || true
+					*ssh*" -R $stop_remote_port:"*|*dbclient*" -R $stop_remote_port:"*)
+						stop_pid="$(printf '%s' "$cmdline" | cut -d/ -f3)"
+						kill "$stop_pid" >/dev/null 2>&1 || true
 						printf 'remote ssh session stopped by port\n'
 						return 0
 						;;
@@ -650,8 +650,8 @@ remote_ssh_stop_session() {
 		printf 'remote ssh session is already stopped\n'
 		return 0
 	fi
-	pid="$(cat "$pid_file" 2>/dev/null)"
-	remote_ssh_stop_pid "$session_id" "$pid"
+	stop_pid="$(cat "$stop_pid_file" 2>/dev/null)"
+	remote_ssh_stop_pid "$stop_session_id" "$stop_pid"
 	printf 'remote ssh session stopped\n'
 }
 
