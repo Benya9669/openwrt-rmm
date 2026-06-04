@@ -425,6 +425,11 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 			t.Fatal("LuCI route cookie leaked to LuCI upstream")
 		}
 		upstreamPath = r.URL.Path
+		if r.URL.Path == "/luci-static/resources/luci.js" {
+			w.Header().Set("Content-Type", "application/javascript")
+			_, _ = io.WriteString(w, `const untouched = '/cgi-bin/luci';`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = io.WriteString(w, `<a href="/cgi-bin/luci/admin">LuCI</a><link href="/luci-static/test.css"><script>L = new LuCI({ "resource": "\/luci-static\/resources", "scriptname": "\/cgi-bin\/luci", "ubuspath": "\/ubus\/" });</script>`)
 	}))
@@ -509,6 +514,10 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	}
 	if upstreamPath != "/cgi-bin/luci/admin" {
 		t.Fatalf("LuCI fallback used upstream path %q", upstreamPath)
+	}
+	script := requestText(t, http.MethodGet, srv.URL+prefix+"/luci-static/resources/luci.js", "operator-test", nil, http.StatusOK)
+	if script != `const untouched = '/cgi-bin/luci';` {
+		t.Fatalf("LuCI JavaScript was unexpectedly rewritten: %s", script)
 	}
 }
 

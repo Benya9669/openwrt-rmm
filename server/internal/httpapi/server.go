@@ -1148,7 +1148,7 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 		}
 		rewriteLuCIHeaders(resp.Header, prefix)
 		contentType := resp.Header.Get("Content-Type")
-		if !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "javascript") && !strings.Contains(contentType, "text/css") {
+		if !strings.Contains(contentType, "text/html") {
 			return nil
 		}
 		body, err := io.ReadAll(resp.Body)
