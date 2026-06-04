@@ -87,6 +87,10 @@
     - [x] `route_show`;
     - [x] `interfaces_show`;
     - [x] `pkg_list_installed` / `opkg_list_installed`;
+    - [x] `pkg_update` / `opkg_update`;
+    - [x] `pkg_list_upgradable` / `opkg_list_upgradable`;
+    - [x] `pkg_install` / `opkg_install`;
+    - [x] `pkg_remove` / `opkg_remove`;
   - [ ] OpenWrt cross-build/package integration.
 
 ## Этап 2: MVP Server API

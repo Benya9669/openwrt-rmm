@@ -57,6 +57,10 @@ The Go agent is not the production command runner yet. It currently supports the
 - `route_show`
 - `interfaces_show`
 - `pkg_list_installed` / `opkg_list_installed`
+- `pkg_update` / `opkg_update`
+- `pkg_list_upgradable` / `opkg_list_upgradable`
+- `pkg_install` / `opkg_install`
+- `pkg_remove` / `opkg_remove`
 
 Other queued commands are reported as failed with a clear message until the shell allowlist is migrated command by command.
 

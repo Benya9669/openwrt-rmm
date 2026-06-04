@@ -317,6 +317,22 @@ func runCommand(ctx context.Context, cmd command) (string, int) {
 		return execCommand(ctx, 10*time.Second, "ip", "-o", "addr", "show")
 	case "pkg_list_installed", "opkg_list_installed":
 		return runPackageCommand(ctx, "list_installed")
+	case "pkg_update", "opkg_update":
+		return runPackageCommand(ctx, "update")
+	case "pkg_list_upgradable", "opkg_list_upgradable":
+		return runPackageCommand(ctx, "list_upgradable")
+	case "pkg_install", "opkg_install":
+		packageName := strings.TrimSpace(args["package"])
+		if !safePackageName(packageName) {
+			return "package name is invalid\n", 2
+		}
+		return runPackageCommand(ctx, "install", packageName)
+	case "pkg_remove", "opkg_remove":
+		packageName := strings.TrimSpace(args["package"])
+		if !safePackageName(packageName) {
+			return "package name is invalid\n", 2
+		}
+		return runPackageCommand(ctx, "remove", packageName)
 	default:
 		return fmt.Sprintf("go agent preview does not implement command %q yet; shell agent remains the production command runner\n", cmd.Type), 2
 	}
@@ -348,13 +364,51 @@ func safeHostName(value string) bool {
 	return true
 }
 
-func runPackageCommand(ctx context.Context, action string) (string, int) {
+func safePackageName(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '_', '.', '+', '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func runPackageCommand(ctx context.Context, action string, packageName ...string) (string, int) {
 	pm := packageManager()
+	pkg := ""
+	if len(packageName) > 0 {
+		pkg = packageName[0]
+	}
 	switch pm + ":" + action {
 	case "apk:list_installed":
 		return execCommand(ctx, 30*time.Second, "apk", "list", "-I")
+	case "apk:update":
+		return execCommand(ctx, 60*time.Second, "apk", "update")
+	case "apk:list_upgradable":
+		return execCommand(ctx, 30*time.Second, "apk", "list", "--upgradeable")
+	case "apk:install":
+		return execCommand(ctx, 120*time.Second, "apk", "add", pkg)
+	case "apk:remove":
+		return execCommand(ctx, 120*time.Second, "apk", "del", pkg)
 	case "opkg:list_installed":
 		return execCommand(ctx, 30*time.Second, "opkg", "list-installed")
+	case "opkg:update":
+		return execCommand(ctx, 60*time.Second, "opkg", "update")
+	case "opkg:list_upgradable":
+		return execCommand(ctx, 30*time.Second, "opkg", "list-upgradable")
+	case "opkg:install":
+		return execCommand(ctx, 120*time.Second, "opkg", "install", pkg)
+	case "opkg:remove":
+		return execCommand(ctx, 120*time.Second, "opkg", "remove", pkg)
 	default:
 		return "no supported package manager found\n", 2
 	}
