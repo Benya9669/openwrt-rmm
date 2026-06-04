@@ -1,0 +1,15 @@
+rmm.db
+*.db
+*.db-shm
+*.db-wal
+/bin/
+/dist/
+/tmp/
+/.gocache/
+/.gopath/
+rmm-server
+rmm-server.exe
+*.exe~
+deploy/tunnel/data/
+router_tunnel_key
+router_tunnel_key.pub

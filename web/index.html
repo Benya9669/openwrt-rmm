@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpenWrt RMM</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main id="loginView" class="login-view">
+      <form id="loginForm" class="login-form">
+        <div class="brand login-brand">
+          <div class="brand-mark">R</div>
+          <div>
+            <h1>OpenWrt RMM</h1>
+            <p>Operator access</p>
+          </div>
+        </div>
+        <label>
+          Username
+          <input id="loginUsername" type="text" autocomplete="username" value="admin" required>
+        </label>
+        <label>
+          Password
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="primary" type="submit">Sign in</button>
+        <p id="loginError" class="login-error"></p>
+      </form>
+    </main>
+
+    <div id="appShell" class="app-shell is-hidden">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">R</div>
+          <div>
+            <h1>OpenWrt RMM</h1>
+            <p id="apiState">API: checking</p>
+          </div>
+        </div>
+
+        <section class="panel auth-panel">
+          <div class="operator-row">
+            <div>
+              <small>Signed in as</small>
+              <strong id="operatorName">operator</strong>
+            </div>
+            <button id="logoutBtn" type="button">Sign out</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <h2>Devices</h2>
+            <button id="refreshBtn" type="button">Refresh</button>
+          </div>
+          <div class="filters">
+            <button class="filter is-active" data-filter="all" type="button">Все</button>
+            <button class="filter" data-filter="online" type="button">Онлайн</button>
+            <button class="filter" data-filter="offline" type="button">Офлайн</button>
+            <button class="filter" data-filter="alerts" type="button">Проблемы</button>
+          </div>
+          <div class="fleet-filter-grid">
+            <input id="fleetSearch" type="search" placeholder="Поиск по имени, ID, тегу">
+            <input id="fleetGroupFilter" type="text" placeholder="Группа">
+            <input id="fleetTagFilter" type="text" placeholder="Тег">
+          </div>
+          <div class="bulk-command-grid">
+            <select id="bulkCommandType">
+              <option value="ping">ping</option>
+              <option value="traceroute">traceroute</option>
+              <option value="pkg_list_installed">pkg_list_installed</option>
+            </select>
+            <input id="bulkCommandTarget" type="text" placeholder="цель">
+            <button id="sendBulkCommandBtn" type="button">Запустить для выбранных</button>
+          </div>
+          <div id="deviceList" class="device-list"></div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Fleet</p>
+            <h2 id="pageTitle">Devices</h2>
+          </div>
+          <div id="statusLine" class="status-line">Idle</div>
+        </header>
+
+        <section id="emptyState" class="empty-state">
+          <h2>No device selected</h2>
+          <p>Waiting for agent check-in.</p>
+        </section>
+
+          <section id="deviceView" class="device-view is-hidden">
+          <div class="device-header">
+            <div>
+              <p class="eyebrow">Device</p>
+              <h2 id="deviceName"></h2>
+              <p id="deviceMeta"></p>
+            </div>
+            <span id="deviceBadge" class="badge"></span>
+          </div>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Состояние роутера</h2>
+              <span class="summary-pill">кратко</span>
+            </div>
+            <div id="healthSummary" class="health-summary"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Группа и теги</h2>
+              <button id="saveFleetBtn" type="button">Сохранить</button>
+            </div>
+            <div class="fleet-form">
+              <label>
+                Group
+                <input id="fleetGroup" type="text" placeholder="core, lab, home">
+              </label>
+              <label>
+                Tags
+                <input id="fleetTags" type="text" placeholder="edge, vpn, test">
+              </label>
+            </div>
+          </section>
+
+          <div class="metrics-grid">
+            <div class="metric">
+              <span>Last seen</span>
+              <strong id="lastSeen">-</strong>
+            </div>
+            <div class="metric">
+              <span>Load average</span>
+              <strong id="loadAvg">-</strong>
+            </div>
+            <div class="metric">
+              <span>Uptime</span>
+              <strong id="uptime">-</strong>
+            </div>
+            <div class="metric">
+              <span>Default route</span>
+              <strong id="defaultRoute">-</strong>
+            </div>
+            <div class="metric">
+              <span>WAN IP</span>
+              <strong id="wanIp">-</strong>
+            </div>
+            <div class="metric">
+              <span>Memory</span>
+              <strong id="memoryUsage">-</strong>
+            </div>
+            <div class="metric">
+              <span>Disk</span>
+              <strong id="diskUsage">-</strong>
+            </div>
+            <div class="metric">
+              <span>Clients</span>
+              <strong id="clientCounts">-</strong>
+            </div>
+            <div class="metric">
+              <span>Connectivity</span>
+              <strong id="connectivityStatus">-</strong>
+            </div>
+          </div>
+
+          <div class="two-column">
+            <section class="panel">
+              <div class="section-title">
+                <h2>Inventory</h2>
+              </div>
+              <pre id="inventoryJson" class="code-block"></pre>
+            </section>
+
+            <section class="panel">
+              <div class="section-title">
+                <h2>Команда вручную</h2>
+              </div>
+              <div class="command-form">
+                <select id="commandType">
+                  <option value="ping">ping</option>
+                  <option value="traceroute">traceroute</option>
+                  <option value="route_show">show routes</option>
+                  <option value="interfaces_show">show interfaces</option>
+                  <option value="pkg_list_installed">pkg_list_installed</option>
+                  <option value="reboot">reboot</option>
+                </select>
+                <input id="commandTarget" type="text" placeholder="1.1.1.1">
+                <button id="sendCommandBtn" type="button">Запустить</button>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Быстрая диагностика</h2>
+              <span class="summary-pill">без SSH</span>
+            </div>
+            <div class="diagnostic-grid">
+              <button class="diagnostic-btn" data-diagnostic="ping_server" type="button">Проверить связь с сервером</button>
+              <button class="diagnostic-btn" data-diagnostic="ping_internet" type="button">Проверить интернет</button>
+              <button class="diagnostic-btn" data-diagnostic="traceroute_internet" type="button">Маршрут до интернета</button>
+              <button class="diagnostic-btn" data-diagnostic="show_routes" type="button">Показать маршруты</button>
+              <button class="diagnostic-btn" data-diagnostic="show_interfaces" type="button">Показать интерфейсы</button>
+            </div>
+          </section>
+
+          <div class="two-column">
+            <section class="panel">
+              <div class="section-title">
+                <h2>Leases and Wi-Fi</h2>
+              </div>
+              <div id="clientList" class="table-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title">
+                <h2>Interface counters</h2>
+              </div>
+              <div id="interfaceCounters" class="table-list"></div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Проблемы</h2>
+              <div class="section-actions">
+                <span id="alertSummary" class="summary-pill">0 active</span>
+                <button id="reloadAlertsBtn" type="button">Обновить</button>
+              </div>
+            </div>
+            <div id="alertList" class="table-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>История мониторинга</h2>
+              <button id="reloadMetricsHistoryBtn" type="button">Обновить</button>
+            </div>
+            <div id="metricsHistory" class="table-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>UCI configuration</h2>
+            </div>
+            <div class="uci-grid">
+              <label>
+                Package
+                <select id="uciConfig">
+                  <option value="network">network</option>
+                  <option value="wireless">wireless</option>
+                  <option value="dhcp">dhcp</option>
+                  <option value="firewall">firewall</option>
+                  <option value="system">system</option>
+                </select>
+              </label>
+              <label>
+                Section
+                <input id="uciSection" type="text" placeholder="lan or @wifi-iface[0]">
+              </label>
+              <label>
+                Option
+                <input id="uciOption" type="text" placeholder="ipaddr">
+              </label>
+              <label>
+                Value
+                <input id="uciValue" type="text" placeholder="192.168.1.1">
+              </label>
+              <label class="check-row">
+                <input id="uciCommitNow" type="checkbox">
+                Commit immediately
+              </label>
+            </div>
+            <div class="uci-actions">
+              <button id="uciBackupBtn" type="button">Backup</button>
+              <button id="uciPreviewBtn" type="button">Preview</button>
+              <button id="uciShowBtn" type="button">Show</button>
+              <button id="uciSetBtn" type="button">Stage set</button>
+              <button id="uciCommitBtn" type="button">Commit</button>
+              <button id="uciCommitConfirmedBtn" type="button">Commit + check</button>
+              <button id="uciRevertBtn" type="button">Revert</button>
+              <button id="uciRestoreBtn" type="button">Restore backup</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Packages</h2>
+            </div>
+            <div class="package-grid">
+              <select id="packageCommand">
+                <option value="pkg_list_installed">List installed</option>
+                <option value="pkg_update">Update package index</option>
+                <option value="pkg_list_upgradable">List upgradable</option>
+                <option value="pkg_install">Install package</option>
+                <option value="pkg_remove">Remove package</option>
+              </select>
+              <input id="packageName" type="text" placeholder="package name">
+              <button id="sendPackageCommandBtn" type="button">Queue</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Remote access</h2>
+              <div class="section-actions">
+                <span id="remoteSummary" class="summary-pill">0 sessions</span>
+                <button id="reloadRemoteSessionsBtn" type="button">Reload</button>
+              </div>
+            </div>
+            <div class="remote-form">
+              <label>
+                Tunnel server
+                <input id="remoteServerHost" type="text" placeholder="10.10.10.2">
+              </label>
+              <label>
+                Server SSH port
+                <input id="remoteServerPort" type="number" min="1" max="65535" value="2222">
+              </label>
+              <label>
+                Remote port
+                <input id="remotePort" type="number" min="1" max="65535" placeholder="auto">
+              </label>
+              <label>
+                Router SSH port
+                <input id="remoteLocalPort" type="number" min="1" max="65535" value="22">
+              </label>
+              <label>
+                Duration
+                <select id="remoteDuration">
+                  <option value="900">15 min</option>
+                  <option value="1800">30 min</option>
+                  <option value="3600">1 hour</option>
+                  <option value="7200">2 hours</option>
+                </select>
+              </label>
+              <button id="createRemoteSessionBtn" type="button">Open SSH access</button>
+            </div>
+            <div class="remote-hint">
+              Docker/Linux: tunnel endpoint must accept SSH for user <strong>rmm-tunnel</strong> and allow reverse ports.
+            </div>
+            <div id="remoteSessionList" class="table-list remote-session-list"></div>
+          </section>
+
+          <section id="commandsPanel" class="panel">
+            <div class="section-title">
+              <h2>UCI presets</h2>
+            </div>
+            <div class="preset-grid">
+              <div class="preset">
+                <h3>LAN IP</h3>
+                <input id="presetLanIp" type="text" placeholder="10.10.10.1/24">
+                <div>
+                  <button class="preset-btn" data-preset="lan_ip" data-action="preview" type="button">Preview</button>
+                  <button class="preset-btn" data-preset="lan_ip" data-action="stage" type="button">Stage</button>
+                </div>
+              </div>
+              <div class="preset">
+                <h3>Hostname</h3>
+                <input id="presetHostname" type="text" placeholder="OpenWrt">
+                <div>
+                  <button class="preset-btn" data-preset="hostname" data-action="preview" type="button">Preview</button>
+                  <button class="preset-btn" data-preset="hostname" data-action="stage" type="button">Stage</button>
+                </div>
+              </div>
+              <div class="preset">
+                <h3>Wi-Fi</h3>
+                <input id="presetWifiSsid" type="text" placeholder="SSID">
+                <input id="presetWifiKey" type="password" placeholder="Password">
+                <div>
+                  <button class="preset-btn" data-preset="wifi_ssid" data-action="preview" type="button">SSID preview</button>
+                  <button class="preset-btn" data-preset="wifi_ssid" data-action="stage" type="button">SSID stage</button>
+                  <button class="preset-btn" data-preset="wifi_key" data-action="preview" type="button">Key preview</button>
+                  <button class="preset-btn" data-preset="wifi_key" data-action="stage" type="button">Key stage</button>
+                </div>
+              </div>
+              <div class="preset">
+                <h3>DHCP LAN</h3>
+                <select id="presetDhcpLan">
+                  <option value="0">enabled</option>
+                  <option value="1">disabled</option>
+                </select>
+                <div>
+                  <button class="preset-btn" data-preset="dhcp_lan" data-action="preview" type="button">Preview</button>
+                  <button class="preset-btn" data-preset="dhcp_lan" data-action="stage" type="button">Stage</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>История команд</h2>
+              <div class="section-actions">
+                <span id="commandSummary" class="summary-pill">0 total</span>
+                <button id="reloadCommandsBtn" type="button">Обновить</button>
+              </div>
+            </div>
+            <div class="filters command-filters">
+              <button class="command-filter is-active" data-command-filter="all" type="button">All</button>
+              <button class="command-filter" data-command-filter="queued" type="button">Queued</button>
+              <button class="command-filter" data-command-filter="claimed" type="button">Running</button>
+              <button class="command-filter" data-command-filter="completed" type="button">Done</button>
+              <button class="command-filter" data-command-filter="failed" type="button">Failed</button>
+              <button class="command-filter" data-command-filter="expired" type="button">Expired</button>
+              <button class="command-filter" data-command-filter="cancelled" type="button">Cancelled</button>
+            </div>
+            <div id="commandList" class="table-list"></div>
+          </section>
+
+          <section id="commandDetailPanel" class="panel is-hidden">
+            <div class="section-title">
+              <h2>Command detail</h2>
+              <button id="copyCommandOutputBtn" type="button">Copy output</button>
+            </div>
+            <div id="commandDetailMeta" class="detail-meta"></div>
+            <pre id="commandDetailOutput" class="command-detail-output"></pre>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Audit</h2>
+              <div class="section-actions">
+                <span id="auditSummary" class="summary-pill">0 events</span>
+                <button id="reloadAuditBtn" type="button">Reload</button>
+              </div>
+            </div>
+            <div id="auditList" class="table-list"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js?v=8" defer></script>
+  </body>
+</html>

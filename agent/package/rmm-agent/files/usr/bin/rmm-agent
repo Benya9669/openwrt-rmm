@@ -1,0 +1,863 @@
+#!/bin/sh
+set -u
+
+CONFIG_FILE="${CONFIG_FILE:-/etc/rmm-agent.conf}"
+SERVER_URL="${SERVER_URL:-http://127.0.0.1:8080}"
+ENROLLMENT_TOKEN="${ENROLLMENT_TOKEN:-dev-enroll-token}"
+INTERVAL_SECONDS="${INTERVAL_SECONDS:-30}"
+DEVICE_ID="${DEVICE_ID:-}"
+DEVICE_TOKEN="${DEVICE_TOKEN:-}"
+LOCK_FILE="${LOCK_FILE:-/tmp/rmm-agent.lock}"
+SPOOL_DIR="${SPOOL_DIR:-/tmp/rmm-agent-results}"
+BACKUP_DIR="${BACKUP_DIR:-/tmp/rmm-agent-backups}"
+CHECK_TARGETS="${CHECK_TARGETS:-1.1.1.1 8.8.8.8}"
+TUNNEL_IDENTITY_FILE="${TUNNEL_IDENTITY_FILE:-/etc/rmm-agent/tunnel_key}"
+
+if [ -f "$CONFIG_FILE" ]; then
+	# shellcheck disable=SC1090
+	. "$CONFIG_FILE"
+fi
+
+log() {
+	printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
+}
+
+acquire_lock() {
+	if mkdir "$LOCK_FILE" 2>/dev/null; then
+		trap 'rm -rf "$LOCK_FILE"' EXIT INT TERM
+		return 0
+	fi
+	log "another rmm-agent instance is running"
+	return 1
+}
+
+json_escape() {
+	printf '%s' "$1" | awk '
+BEGIN { ORS = "" }
+{
+	gsub(/\\/, "\\\\")
+	gsub(/"/, "\\\"")
+	gsub(/\t/, "\\t")
+	gsub(/\r/, "\\r")
+	if (NR > 1) {
+		printf "\\n"
+	}
+	printf "%s", $0
+}'
+}
+
+json_object_or_empty() {
+	value="$1"
+	first="$(printf '%.1s' "$value")"
+	if [ "$first" = "{" ]; then
+		printf '%s' "$value"
+		return
+	fi
+	printf '{}'
+}
+
+json_array_or_empty() {
+	value="$1"
+	first="$(printf '%.1s' "$value")"
+	if [ "$first" = "[" ]; then
+		printf '%s' "$value"
+		return
+	fi
+	printf '[]'
+}
+
+http_post() {
+	url="$1"
+	body="$2"
+	auth="${3:-}"
+
+	if command -v curl >/dev/null 2>&1; then
+		if [ -n "$auth" ]; then
+			curl -fsS -X POST "$url" -H "Content-Type: application/json" -H "Authorization: Bearer $auth" -d "$body"
+		else
+			curl -fsS -X POST "$url" -H "Content-Type: application/json" -d "$body"
+		fi
+		return $?
+	fi
+
+	if command -v wget >/dev/null 2>&1; then
+		tmp="/tmp/rmm-agent-post-$$.json"
+		printf '%s' "$body" > "$tmp"
+		if [ -n "$auth" ]; then
+			wget -qO- --header="Content-Type: application/json" --header="Authorization: Bearer $auth" --post-file="$tmp" "$url"
+		else
+			wget -qO- --header="Content-Type: application/json" --post-file="$tmp" "$url"
+		fi
+		rm -f "$tmp"
+		return $?
+	fi
+
+	log "missing curl or wget"
+	return 1
+}
+
+http_get() {
+	url="$1"
+
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsS "$url"
+		return $?
+	fi
+
+	if command -v wget >/dev/null 2>&1; then
+		wget -qO- "$url"
+		return $?
+	fi
+
+	log "missing curl or wget"
+	return 1
+}
+
+hostname_value() {
+	hostname 2>/dev/null || printf 'unknown'
+}
+
+openwrt_version() {
+	if [ -f /etc/openwrt_release ]; then
+		. /etc/openwrt_release
+		printf '%s' "${DISTRIB_DESCRIPTION:-unknown}"
+		return
+	fi
+	printf 'unknown'
+}
+
+system_board_json() {
+	if command -v ubus >/dev/null 2>&1; then
+		ubus call system board 2>/dev/null || printf '{}'
+		return
+	fi
+	printf '{}'
+}
+
+system_info_json() {
+	if command -v ubus >/dev/null 2>&1; then
+		ubus call system info 2>/dev/null || printf '{}'
+		return
+	fi
+	printf '{}'
+}
+
+interfaces_json() {
+	ip -o addr show 2>/dev/null | awk '
+function esc(v) {
+	gsub(/\\/, "\\\\", v)
+	gsub(/"/, "\\\"", v)
+	gsub(/\t/, "\\t", v)
+	gsub(/\r/, "\\r", v)
+	return v
+}
+BEGIN { printf "["; first=1 }
+{
+	if (!first) { printf "," }
+	first=0
+	printf "{\"name\":\"%s\",\"family\":\"%s\",\"address\":\"%s\"}", esc($2), esc($3), esc($4)
+}
+END { printf "]" }'
+}
+
+default_route() {
+	ip route show default 2>/dev/null | head -n 1
+}
+
+wan_ip() {
+	route="$(default_route)"
+	dev="$(printf '%s' "$route" | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
+	[ -n "$dev" ] || return 0
+	ip -4 -o addr show dev "$dev" 2>/dev/null | awk 'NR == 1 { print $4 }'
+}
+
+memory_json() {
+	awk '
+BEGIN { total=0; free=0; available=0; buffers=0; cached=0 }
+$1=="MemTotal:" { total=$2 }
+$1=="MemFree:" { free=$2 }
+$1=="MemAvailable:" { available=$2 }
+$1=="Buffers:" { buffers=$2 }
+$1=="Cached:" { cached=$2 }
+END {
+	used=total-available
+	if (available==0) { used=total-free-buffers-cached }
+	printf "{\"total_kb\":%d,\"free_kb\":%d,\"available_kb\":%d,\"used_kb\":%d}", total, free, available, used
+}' /proc/meminfo 2>/dev/null
+}
+
+disk_json() {
+	df -k / 2>/dev/null | awk 'NR == 2 {
+	gsub(/\\/, "\\\\", $1)
+	gsub(/"/, "\\\"", $1)
+	found=1
+	printf "{\"filesystem\":\"%s\",\"total_kb\":%d,\"used_kb\":%d,\"available_kb\":%d,\"used_percent\":\"%s\"}", $1, $2, $3, $4, $5
+}
+END {
+	if (!found) { printf "{}" }
+}'
+}
+
+dhcp_leases_json() {
+	leases="/tmp/dhcp.leases"
+	[ -f "$leases" ] || { printf "[]"; return; }
+	awk '
+function esc(v) {
+	gsub(/\\/, "\\\\", v)
+	gsub(/"/, "\\\"", v)
+	gsub(/\t/, "\\t", v)
+	gsub(/\r/, "\\r", v)
+	return v
+}
+BEGIN { printf "["; first=1 }
+{
+	if (!first) { printf "," }
+	first=0
+	printf "{\"expires\":\"%s\",\"mac\":\"%s\",\"ip\":\"%s\",\"hostname\":\"%s\",\"client_id\":\"%s\"}", esc($1), esc($2), esc($3), esc($4), esc($5)
+}
+END { printf "]" }' "$leases"
+}
+
+wifi_clients_json() {
+	if command -v iwinfo >/dev/null 2>&1; then
+		for iface in $(iwinfo 2>/dev/null | awk '/^[^ ]/ { print $1 }'); do
+			iwinfo "$iface" assoclist 2>/dev/null | awk -v iface="$iface" '
+			/^[0-9A-Fa-f][0-9A-Fa-f]:/ {
+				gsub(/,$/, "", $1)
+				print iface "\t" $1
+			}'
+		done | awk '
+		function esc(v) {
+			gsub(/\\/, "\\\\", v)
+			gsub(/"/, "\\\"", v)
+			gsub(/\t/, "\\t", v)
+			gsub(/\r/, "\\r", v)
+			return v
+		}
+		BEGIN { printf "[" }
+		{
+			if (count > 0) { printf "," }
+			count++
+			printf "{\"interface\":\"%s\",\"mac\":\"%s\"}", esc($1), esc($2)
+		}
+		END { printf "]" }'
+		return
+	fi
+	printf "[]"
+}
+
+interface_counters_json() {
+	awk '
+function esc(v) {
+	gsub(/\\/, "\\\\", v)
+	gsub(/"/, "\\\"", v)
+	gsub(/\t/, "\\t", v)
+	gsub(/\r/, "\\r", v)
+	return v
+}
+BEGIN { printf "["; first=1 }
+NR > 2 {
+	gsub(":", "", $1)
+	if (!first) { printf "," }
+	first=0
+	printf "{\"name\":\"%s\",\"rx_bytes\":%d,\"rx_packets\":%d,\"rx_errors\":%d,\"tx_bytes\":%d,\"tx_packets\":%d,\"tx_errors\":%d}", esc($1), $2, $3, $4, $10, $11, $12
+}
+END { printf "]" }' /proc/net/dev 2>/dev/null
+}
+
+connectivity_checks_json() {
+	printf '['
+	first=1
+	for target in $CHECK_TARGETS; do
+		[ -n "$target" ] || continue
+		output="$(ping -c 3 -W 2 "$target" 2>&1 || true)"
+		loss="$(printf '%s' "$output" | awk -F',' '/packet loss/ {
+			for (i=1; i<=NF; i++) {
+				if ($i ~ /packet loss/) {
+					gsub(/[^0-9.]/, "", $i)
+					print $i
+				}
+			}
+		}' | tail -n 1)"
+		avg="$(printf '%s' "$output" | awk -F'=' '/min\/avg\/max|round-trip/ {
+			split($2, parts, "/")
+			gsub(/[^0-9.]/, "", parts[2])
+			print parts[2]
+		}' | tail -n 1)"
+		[ -n "$loss" ] || loss="100"
+		[ -n "$avg" ] || avg="0"
+		reachable="false"
+		awk "BEGIN { exit !($loss < 100) }" >/dev/null 2>&1 && reachable="true"
+		if [ "$first" -eq 0 ]; then
+			printf ','
+		fi
+		first=0
+		printf '{"target":"%s","reachable":%s,"packet_loss_percent":%s,"latency_ms":%s}' \
+			"$(json_escape "$target")" "$reachable" "$loss" "$avg"
+	done
+	printf ']'
+}
+
+build_inventory() {
+	hn="$(json_escape "$(hostname_value)")"
+	ver="$(json_escape "$(openwrt_version)")"
+	board="$(json_object_or_empty "$(system_board_json)")"
+	interfaces="$(json_array_or_empty "$(interfaces_json)")"
+	route="$(json_escape "$(default_route)")"
+	wan="$(json_escape "$(wan_ip)")"
+	leases="$(json_array_or_empty "$(dhcp_leases_json)")"
+	wifi="$(json_array_or_empty "$(wifi_clients_json)")"
+
+	printf '{"hostname":"%s","openwrt_version":"%s","board":%s,"interfaces":%s,"default_route":"%s","wan_ip":"%s","dhcp_leases":%s,"wifi_clients":%s}' \
+		"$hn" "$ver" "$board" "$interfaces" "$route" "$wan" "$leases" "$wifi"
+}
+
+build_metrics() {
+	info="$(json_object_or_empty "$(system_info_json)")"
+	loadavg="$(json_escape "$(cat /proc/loadavg 2>/dev/null)")"
+	uptime="$(json_escape "$(cat /proc/uptime 2>/dev/null)")"
+	memory="$(json_object_or_empty "$(memory_json)")"
+	disk="$(json_object_or_empty "$(disk_json)")"
+	counters="$(json_array_or_empty "$(interface_counters_json)")"
+	connectivity="$(json_array_or_empty "$(connectivity_checks_json)")"
+
+	printf '{"system":%s,"loadavg":"%s","uptime":"%s","memory":%s,"disk":%s,"interface_counters":%s,"connectivity_checks":%s}' "$info" "$loadavg" "$uptime" "$memory" "$disk" "$counters" "$connectivity"
+}
+
+save_config() {
+	umask 077
+	{
+		printf 'SERVER_URL="%s"\n' "$SERVER_URL"
+		printf 'ENROLLMENT_TOKEN="%s"\n' "$ENROLLMENT_TOKEN"
+		printf 'INTERVAL_SECONDS="%s"\n' "$INTERVAL_SECONDS"
+		printf 'CHECK_TARGETS="%s"\n' "$CHECK_TARGETS"
+		printf 'TUNNEL_IDENTITY_FILE="%s"\n' "$TUNNEL_IDENTITY_FILE"
+		printf 'DEVICE_ID="%s"\n' "$DEVICE_ID"
+		printf 'DEVICE_TOKEN="%s"\n' "$DEVICE_TOKEN"
+	} > "$CONFIG_FILE"
+}
+
+extract_json_string() {
+	key="$1"
+	sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+enroll() {
+	hn="$(json_escape "$(hostname_value)")"
+	ver="$(json_escape "$(openwrt_version)")"
+	body="$(printf '{"enrollment_token":"%s","hostname":"%s","openwrt_version":"%s"}' \
+		"$(json_escape "$ENROLLMENT_TOKEN")" "$hn" "$ver")"
+
+	response="$(http_post "$SERVER_URL/api/agent/enroll" "$body" "" || true)"
+	DEVICE_ID="$(printf '%s' "$response" | extract_json_string "device_id")"
+	DEVICE_TOKEN="$(printf '%s' "$response" | extract_json_string "device_token")"
+
+	if [ -z "$DEVICE_ID" ] || [ -z "$DEVICE_TOKEN" ]; then
+		log "enrollment failed: $response"
+		return 1
+	fi
+
+	save_config
+	log "enrolled as $DEVICE_ID"
+	return 0
+}
+
+command_arg_string() {
+	json="$1"
+	key="$2"
+	printf '%s' "$json" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+safe_uci_config() {
+	case "$1" in
+		network|wireless|dhcp|firewall|system)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+safe_uci_section() {
+	[ -n "$1" ] || return 1
+	clean="$(printf '%s' "$1" | tr -d 'A-Za-z0-9_.@[]-')"
+	[ -z "$clean" ]
+}
+
+safe_uci_option() {
+	[ -n "$1" ] || return 1
+	clean="$(printf '%s' "$1" | tr -d 'A-Za-z0-9_-')"
+	[ -z "$clean" ]
+}
+
+safe_package_name() {
+	[ -n "$1" ] || return 1
+	clean="$(printf '%s' "$1" | tr -d 'A-Za-z0-9_.+-')"
+	[ -z "$clean" ]
+}
+
+safe_host_name() {
+	[ -n "$1" ] || return 1
+	clean="$(printf '%s' "$1" | tr -d 'A-Za-z0-9_.:[]-')"
+	[ -z "$clean" ]
+}
+
+safe_port() {
+	case "$1" in
+		''|*[!0-9]*)
+			return 1
+			;;
+	esac
+	[ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
+safe_user_name() {
+	[ -n "$1" ] || return 1
+	clean="$(printf '%s' "$1" | tr -d 'A-Za-z0-9_.@-')"
+	[ -z "$clean" ]
+}
+
+package_manager() {
+	if command -v apk >/dev/null 2>&1; then
+		printf 'apk'
+		return
+	fi
+	if command -v opkg >/dev/null 2>&1; then
+		printf 'opkg'
+		return
+	fi
+	printf 'none'
+}
+
+run_package_command() {
+	action="$1"
+	package="$2"
+	pm="$(package_manager)"
+	case "$pm:$action" in
+		apk:list_installed)
+			apk list -I 2>&1
+			;;
+		apk:update)
+			apk update 2>&1
+			;;
+		apk:list_upgradable)
+			apk list --upgradeable 2>&1
+			;;
+		apk:install)
+			apk add "$package" 2>&1
+			;;
+		apk:remove)
+			apk del "$package" 2>&1
+			;;
+		opkg:list_installed)
+			opkg list-installed 2>&1
+			;;
+		opkg:update)
+			opkg update 2>&1
+			;;
+		opkg:list_upgradable)
+			opkg list-upgradable 2>&1
+			;;
+		opkg:install)
+			opkg install "$package" 2>&1
+			;;
+		opkg:remove)
+			opkg remove "$package" 2>&1
+			;;
+		*)
+			printf 'no supported package manager found\n'
+			return 2
+			;;
+	esac
+}
+
+uci_config_arg() {
+	config="$(command_arg_string "$1" "config")"
+	[ -n "$config" ] || config="network"
+	if ! safe_uci_config "$config"; then
+		printf 'uci config is not allowlisted\n'
+		return 1
+	fi
+	printf '%s' "$config"
+}
+
+uci_target_args() {
+	args="$1"
+	config="$(uci_config_arg "$args")" || return 2
+	section="$(command_arg_string "$args" "section")"
+	option="$(command_arg_string "$args" "option")"
+	value="$(command_arg_string "$args" "value")"
+	if ! safe_uci_section "$section" || ! safe_uci_option "$option"; then
+		printf 'uci section or option is invalid\n'
+		return 2
+	fi
+	UCI_CONFIG="$config"
+	UCI_SECTION="$section"
+	UCI_OPTION="$option"
+	UCI_VALUE="$value"
+	return 0
+}
+
+uci_backup_output() {
+	config="$1"
+	mkdir -p "$BACKUP_DIR"
+	uci export "$config" > "$BACKUP_DIR/$config.export" 2>/dev/null || true
+	printf 'BACKUP %s\n' "$config"
+	uci export "$config" 2>&1
+}
+
+uci_preview_output() {
+	args="$1"
+	uci_target_args "$args" || return $?
+	before="$(uci show "$UCI_CONFIG" 2>&1)"
+	mkdir -p "$BACKUP_DIR"
+	backup="$(uci export "$UCI_CONFIG" 2>&1)"
+	printf '%s\n' "$backup" > "$BACKUP_DIR/$UCI_CONFIG.export"
+	uci set "$UCI_CONFIG.$UCI_SECTION.$UCI_OPTION=$UCI_VALUE" 2>&1 || return $?
+	after="$(uci show "$UCI_CONFIG" 2>&1)"
+	diff_output=""
+	if command -v diff >/dev/null 2>&1; then
+		before_file="/tmp/rmm-agent-before-$$"
+		after_file="/tmp/rmm-agent-after-$$"
+		printf '%s\n' "$before" > "$before_file"
+		printf '%s\n' "$after" > "$after_file"
+		diff_output="$(diff -u "$before_file" "$after_file" 2>&1 || true)"
+		rm -f "$before_file" "$after_file"
+	fi
+	uci revert "$UCI_CONFIG" >/dev/null 2>&1 || true
+
+	printf 'PREVIEW %s.%s.%s\n' "$UCI_CONFIG" "$UCI_SECTION" "$UCI_OPTION"
+	printf '\nCHANGE\n'
+	printf '%s.%s.%s=%s\n' "$UCI_CONFIG" "$UCI_SECTION" "$UCI_OPTION" "$UCI_VALUE"
+	if [ -n "$diff_output" ]; then
+		printf '\nDIFF\n%s\n' "$diff_output"
+	fi
+	printf '\nBACKUP\n%s\n' "$backup"
+	printf '\nBEFORE\n%s\n' "$before"
+	printf '\nAFTER\n%s\n' "$after"
+}
+
+remote_ssh_reverse_output() {
+	args="$1"
+	session_id="$(command_arg_string "$args" "session_id")"
+	server_host="$(command_arg_string "$args" "server_host")"
+	server_port="$(command_arg_string "$args" "server_port")"
+	remote_port="$(command_arg_string "$args" "remote_port")"
+	local_host="$(command_arg_string "$args" "local_host")"
+	local_port="$(command_arg_string "$args" "local_port")"
+	server_user="$(command_arg_string "$args" "server_user")"
+	duration_seconds="$(command_arg_string "$args" "duration_seconds")"
+
+	[ -n "$server_port" ] || server_port="22"
+	[ -n "$local_host" ] || local_host="127.0.0.1"
+	[ -n "$local_port" ] || local_port="22"
+	[ -n "$server_user" ] || server_user="rmm-tunnel"
+	[ -n "$duration_seconds" ] || duration_seconds="900"
+
+	if ! safe_host_name "$server_host" || ! safe_host_name "$local_host" || ! safe_user_name "$server_user"; then
+		printf 'remote tunnel host or user is invalid\n'
+		return 2
+	fi
+	if ! safe_port "$server_port" || ! safe_port "$remote_port" || ! safe_port "$local_port" || ! safe_port "$duration_seconds"; then
+		printf 'remote tunnel port or duration is invalid\n'
+		return 2
+	fi
+
+	log_file="/tmp/rmm-remote-${session_id:-session}.log"
+	rm -f "$log_file"
+	identity_args=""
+	if [ -f "$TUNNEL_IDENTITY_FILE" ]; then
+		identity_args="-i $TUNNEL_IDENTITY_FILE"
+	fi
+	if command -v ssh >/dev/null 2>&1; then
+		# shellcheck disable=SC2086
+		(ssh $identity_args -N -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host"; printf 'ssh exited with code %s\n' "$?" >> "$log_file") >> "$log_file" 2>&1 &
+	elif command -v dbclient >/dev/null 2>&1; then
+		# shellcheck disable=SC2086
+		(dbclient $identity_args -N -y -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host"; printf 'dbclient exited with code %s\n' "$?" >> "$log_file") >> "$log_file" 2>&1 &
+	else
+		printf 'remote ssh reverse requires ssh or dbclient on router\n'
+		return 2
+	fi
+	pid="$!"
+	(sleep "$duration_seconds"; kill "$pid" >/dev/null 2>&1 || true) >/dev/null 2>&1 &
+	sleep 2
+	if ! kill -0 "$pid" >/dev/null 2>&1; then
+		printf 'remote ssh reverse failed to stay running\n'
+		cat "$log_file" 2>/dev/null
+		return 1
+	fi
+	printf 'remote ssh reverse started\n'
+	printf 'session=%s pid=%s\n' "$session_id" "$pid"
+	printf 'operator endpoint: %s:%s -> %s:%s\n' "$server_host" "$remote_port" "$local_host" "$local_port"
+	printf 'log=%s\n' "$log_file"
+	return 0
+}
+
+run_command() {
+	cmd_type="$1"
+	args="$2"
+
+	case "$cmd_type" in
+		ping)
+			target="$(command_arg_string "$args" "target")"
+			[ -n "$target" ] || target="1.1.1.1"
+			ping -c 4 "$target" 2>&1
+			return $?
+			;;
+		traceroute)
+			target="$(command_arg_string "$args" "target")"
+			[ -n "$target" ] || target="1.1.1.1"
+			traceroute "$target" 2>&1
+			return $?
+			;;
+		route_show)
+			ip route show 2>&1
+			return $?
+			;;
+		interfaces_show)
+			ip -o addr show 2>&1
+			return $?
+			;;
+		reboot)
+			printf 'reboot scheduled\n'
+			(sleep 2; reboot) >/dev/null 2>&1 &
+			return 0
+			;;
+		service_restart)
+			service="$(command_arg_string "$args" "service")"
+			case "$service" in
+				network|firewall|dnsmasq|dropbear|uhttpd)
+					"/etc/init.d/$service" restart 2>&1
+					return $?
+					;;
+				*)
+					printf 'service is not allowlisted\n'
+					return 2
+					;;
+			esac
+			;;
+		pkg_list_installed|opkg_list_installed)
+			run_package_command "list_installed" ""
+			return $?
+			;;
+		pkg_update|opkg_update)
+			run_package_command "update" ""
+			return $?
+			;;
+		pkg_list_upgradable|opkg_list_upgradable)
+			run_package_command "list_upgradable" ""
+			return $?
+			;;
+		pkg_install|opkg_install)
+			package="$(command_arg_string "$args" "package")"
+			if ! safe_package_name "$package"; then
+				printf 'package name is invalid\n'
+				return 2
+			fi
+			run_package_command "install" "$package"
+			return $?
+			;;
+		pkg_remove|opkg_remove)
+			package="$(command_arg_string "$args" "package")"
+			if ! safe_package_name "$package"; then
+				printf 'package name is invalid\n'
+				return 2
+			fi
+			run_package_command "remove" "$package"
+			return $?
+			;;
+		uci_show)
+			config="$(uci_config_arg "$args")" || return 2
+			uci show "$config" 2>&1
+			return $?
+			;;
+		uci_backup)
+			config="$(uci_config_arg "$args")" || return 2
+			uci_backup_output "$config"
+			return $?
+			;;
+		uci_preview)
+			uci_preview_output "$args"
+			return $?
+			;;
+		uci_set)
+			uci_target_args "$args" || return $?
+			commit="$(command_arg_string "$args" "commit")"
+			mkdir -p "$BACKUP_DIR"
+			backup="$(uci export "$UCI_CONFIG" 2>&1)"
+			printf '%s\n' "$backup" > "$BACKUP_DIR/$UCI_CONFIG.export"
+			uci set "$UCI_CONFIG.$UCI_SECTION.$UCI_OPTION=$UCI_VALUE" 2>&1 || return $?
+			printf 'BACKUP\n%s\n\n' "$backup"
+			if [ "$commit" = "true" ]; then
+				uci commit "$UCI_CONFIG" 2>&1
+				return $?
+			fi
+			printf 'uci set staged: %s.%s.%s\n' "$UCI_CONFIG" "$UCI_SECTION" "$UCI_OPTION"
+			return 0
+			;;
+		uci_commit)
+			config="$(uci_config_arg "$args")" || return 2
+			uci commit "$config" 2>&1
+			return $?
+			;;
+		uci_commit_confirmed)
+			config="$(uci_config_arg "$args")" || return 2
+			confirm_seconds="$(command_arg_string "$args" "confirm_seconds")"
+			[ -n "$confirm_seconds" ] || confirm_seconds="15"
+			backup_file="$BACKUP_DIR/$config.export"
+			uci commit "$config" 2>&1 || return $?
+			sleep "$confirm_seconds"
+			if http_get "$SERVER_URL/healthz" >/dev/null 2>&1; then
+				printf 'commit confirmed: server reachable after %s seconds\n' "$confirm_seconds"
+				return 0
+			fi
+			if [ -f "$backup_file" ]; then
+				uci import "$config" < "$backup_file" 2>&1
+				uci commit "$config" 2>&1
+				printf 'commit rolled back: server unreachable after %s seconds\n' "$confirm_seconds"
+				return 1
+			fi
+			printf 'server unreachable and no backup file found for %s\n' "$config"
+			return 1
+			;;
+		uci_revert)
+			config="$(uci_config_arg "$args")" || return 2
+			uci revert "$config" 2>&1
+			return $?
+			;;
+		uci_restore)
+			config="$(uci_config_arg "$args")" || return 2
+			backup_file="$BACKUP_DIR/$config.export"
+			if [ ! -f "$backup_file" ]; then
+				printf 'no backup file found for %s\n' "$config"
+				return 1
+			fi
+			uci import "$config" < "$backup_file" 2>&1
+			uci commit "$config" 2>&1
+			return $?
+			;;
+		remote_ssh_reverse)
+			remote_ssh_reverse_output "$args"
+			return $?
+			;;
+		*)
+			printf 'command type is not allowlisted\n'
+			return 2
+			;;
+	esac
+}
+
+send_command_result() {
+	command_id="$1"
+	status="$2"
+	exit_code="$3"
+	output="$4"
+	output="$(redact_sensitive_output "$output")"
+
+	body="$(printf '{"device_id":"%s","status":"%s","exit_code":%s,"output":"%s","result":{}}' \
+		"$(json_escape "$DEVICE_ID")" "$status" "$exit_code" "$(json_escape "$output")")"
+
+	if ! http_post "$SERVER_URL/api/agent/commands/$command_id/result" "$body" "$DEVICE_TOKEN" >/dev/null; then
+		log "failed to send result for $command_id"
+		spool_command_result "$command_id" "$body"
+	fi
+}
+
+spool_command_result() {
+	command_id="$1"
+	body="$2"
+	mkdir -p "$SPOOL_DIR"
+	printf '%s' "$body" > "$SPOOL_DIR/$command_id.json"
+}
+
+flush_spooled_results() {
+	[ -d "$SPOOL_DIR" ] || return 0
+	for file in "$SPOOL_DIR"/*.json; do
+		[ -f "$file" ] || continue
+		command_id="$(basename "$file" .json)"
+		body="$(cat "$file")"
+		if http_post "$SERVER_URL/api/agent/commands/$command_id/result" "$body" "$DEVICE_TOKEN" >/dev/null; then
+			rm -f "$file"
+		fi
+	done
+}
+
+redact_sensitive_output() {
+	printf '%s' "$1" | sed -E \
+		-e "s/((private_key|password|passwd|secret|psk|token)[^=]*=)'[^']*'/\\1'[redacted]'/Ig" \
+		-e "s/((private_key|password|passwd|secret|psk|token)[^=]*=)[^[:space:]]+/\\1[redacted]/Ig"
+}
+
+poll_next_command() {
+	body="$(printf '{"device_id":"%s"}' "$(json_escape "$DEVICE_ID")")"
+	http_post "$SERVER_URL/api/agent/commands/next" "$body" "$DEVICE_TOKEN" || true
+}
+
+process_command_line() {
+	line="$1"
+	command_id="$(printf '%s' "$line" | awk -F '	' '{print $1}')"
+	command_type="$(printf '%s' "$line" | awk -F '	' '{print $2}')"
+	args="$(printf '%s' "$line" | awk -F '	' '{print $3}')"
+
+	[ -n "$command_id" ] || return 1
+	[ -n "$command_type" ] || return 1
+	[ -n "$args" ] || args="{}"
+
+	output="$(run_command "$command_type" "$args")"
+	exit_code=$?
+	if [ "$exit_code" -eq 0 ]; then
+		status="completed"
+	else
+		status="failed"
+	fi
+	send_command_result "$command_id" "$status" "$exit_code" "$output"
+}
+
+process_commands() {
+	while true; do
+		line="$(poll_next_command)"
+		[ -n "$line" ] || break
+		process_command_line "$line" || break
+	done
+}
+
+heartbeat_once() {
+	flush_spooled_results
+	inventory="$(build_inventory)"
+	metrics="$(build_metrics)"
+	body="$(printf '{"device_id":"%s","inventory":%s,"metrics":%s}' \
+		"$(json_escape "$DEVICE_ID")" "$inventory" "$metrics")"
+
+	response="$(http_post "$SERVER_URL/api/agent/heartbeat" "$body" "$DEVICE_TOKEN" || true)"
+	if [ -z "$response" ]; then
+		log "heartbeat failed"
+		return 1
+	fi
+
+	process_commands
+	return 0
+}
+
+main() {
+	acquire_lock || exit 1
+	if [ -z "$DEVICE_ID" ] || [ -z "$DEVICE_TOKEN" ]; then
+		enroll || exit 1
+	fi
+
+	backoff="$INTERVAL_SECONDS"
+	while true; do
+		if heartbeat_once; then
+			backoff="$INTERVAL_SECONDS"
+		else
+			backoff=$((backoff * 2))
+			[ "$backoff" -le 300 ] || backoff=300
+		fi
+		sleep "$backoff"
+	done
+}
+
+if [ "${RMM_AGENT_LIB_ONLY:-0}" != "1" ]; then
+	main "$@"
+fi

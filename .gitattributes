@@ -1,0 +1,11 @@
+* text=auto
+
+*.sh text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+Dockerfile text eol=lf
+Caddyfile text eol=lf
+Makefile text eol=lf
+agent/openwrt/rmm-agent.init text eol=lf
+agent/package/rmm-agent/files/etc/init.d/rmm-agent text eol=lf
+agent/package/rmm-agent/files/usr/bin/rmm-agent text eol=lf

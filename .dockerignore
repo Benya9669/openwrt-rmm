@@ -1,0 +1,8 @@
+.git
+.env
+tmp
+*.db
+*.exe
+*.exe~
+node_modules
+deploy/tunnel/data

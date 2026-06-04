@@ -1,0 +1,23 @@
+services:
+  rmm-server:
+    environment:
+      RMM_COOKIE_SECURE: "true"
+
+  reverse-proxy:
+    image: caddy:2.10-alpine
+    environment:
+      RMM_DOMAIN: "${RMM_DOMAIN:?set RMM_DOMAIN in .env}"
+    ports:
+      - "${RMM_PROXY_HTTP_PORT:-80}:80"
+      - "${RMM_PROXY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/reverse-proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - rmm-server
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:

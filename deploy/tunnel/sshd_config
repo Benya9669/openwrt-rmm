@@ -1,0 +1,26 @@
+Port 22
+ListenAddress 0.0.0.0
+
+HostKey /data/ssh_host_ed25519_key
+HostKey /data/ssh_host_rsa_key
+
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthorizedKeysFile /data/authorized_keys
+
+AllowUsers rmm-tunnel
+AllowTcpForwarding remote
+GatewayPorts yes
+PermitTunnel no
+PermitTTY no
+X11Forwarding no
+AllowAgentForwarding no
+
+ClientAliveInterval 30
+ClientAliveCountMax 3
+LoginGraceTime 30
+MaxAuthTries 3
+LogLevel VERBOSE
+Subsystem sftp internal-sftp

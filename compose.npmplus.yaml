@@ -1,0 +1,4 @@
+services:
+  rmm-server:
+    environment:
+      RMM_COOKIE_SECURE: "true"

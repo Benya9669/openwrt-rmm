@@ -1,0 +1,7 @@
+{
+  "name": "rmm-openwrt",
+  "private": true,
+  "scripts": {
+    "check:web": "node --check web/app.js"
+  }
+}
