@@ -1183,7 +1183,7 @@ func rewriteLuCIHeaders(header http.Header, prefix string) {
 	}
 }
 
-func rewriteLuCICookie(cookie, prefix string) string {
+func rewriteLuCICookie(cookie, _ string) string {
 	parts := strings.Split(cookie, ";")
 	pathFound := false
 	for index := 1; index < len(parts); index++ {
@@ -1191,15 +1191,14 @@ func rewriteLuCICookie(cookie, prefix string) string {
 		if !strings.HasPrefix(strings.ToLower(attribute), "path=") {
 			continue
 		}
-		path := strings.TrimSpace(attribute[len("path="):])
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
-		parts[index] = " Path=" + prefix + path
+		// LuCI themes and JavaScript use absolute /cgi-bin, /ubus and
+		// /luci-static requests. The auth cookie must cover those fallback
+		// routes as well as the session-prefixed entry point.
+		parts[index] = " Path=/"
 		pathFound = true
 	}
 	if !pathFound {
-		parts = append(parts, " Path="+prefix+"/")
+		parts = append(parts, " Path=/")
 	}
 	return strings.Join(parts, ";")
 }

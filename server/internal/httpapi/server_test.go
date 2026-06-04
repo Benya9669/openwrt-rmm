@@ -432,7 +432,7 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 			w.WriteHeader(http.StatusFound)
 			return
 		}
-		if r.URL.Path == "/cgi-bin/luci/admin/status/overview" {
+		if r.URL.Path == "/cgi-bin/luci/admin/status/overview" || r.URL.Path == "/cgi-bin/luci/admin/menu" {
 			cookie, err := r.Cookie("sysauth")
 			authenticated = err == nil && cookie.Value == "session-token"
 			if !authenticated {
@@ -547,6 +547,19 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || !authenticated {
 		t.Fatalf("LuCI login cookie was not preserved, status=%d authenticated=%t", resp.StatusCode, authenticated)
+	}
+	menuReq, err := http.NewRequest(http.MethodGet, srv.URL+"/cgi-bin/luci/admin/menu", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuReq.Header.Set("Authorization", "Bearer operator-test")
+	menuResp, err := client.Do(menuReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = menuResp.Body.Close()
+	if menuResp.StatusCode != http.StatusOK || !authenticated {
+		t.Fatalf("LuCI auth cookie was not sent to absolute menu route, status=%d authenticated=%t", menuResp.StatusCode, authenticated)
 	}
 }
 
