@@ -1283,10 +1283,6 @@ select {
   border-right: 0;
 }
 
-.information-item:nth-last-child(-n + 4) {
-  border-bottom: 0;
-}
-
 .information-item span,
 .technical-details span {
   color: var(--muted);

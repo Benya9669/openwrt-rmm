@@ -1,6 +1,7 @@
 #!/bin/sh
 set -u
 
+AGENT_VERSION="${AGENT_VERSION:-0.4.0}"
 CONFIG_FILE="${CONFIG_FILE:-/etc/rmm-agent.conf}"
 SERVER_URL="${SERVER_URL:-http://127.0.0.1:8080}"
 ENROLLMENT_TOKEN="${ENROLLMENT_TOKEN:-dev-enroll-token}"
@@ -116,6 +117,31 @@ http_post() {
 
 	log "missing curl or wget"
 	return 1
+}
+
+http_post_status() {
+	url="$1"
+	body="$2"
+	auth="${3:-}"
+	tmp="/tmp/rmm-agent-http-$$.out"
+
+	if command -v curl >/dev/null 2>&1; then
+		if [ -n "$auth" ]; then
+			code="$(curl -sS -o "$tmp" -w '%{http_code}' -X POST "$url" -H "Content-Type: application/json" -H "Authorization: Bearer $auth" -d "$body" 2>/dev/null || true)"
+		else
+			code="$(curl -sS -o "$tmp" -w '%{http_code}' -X POST "$url" -H "Content-Type: application/json" -d "$body" 2>/dev/null || true)"
+		fi
+		rm -f "$tmp"
+		[ -n "$code" ] || code="000"
+		printf '%s' "$code"
+		return 0
+	fi
+
+	if http_post "$url" "$body" "$auth" >/dev/null; then
+		printf '200'
+	else
+		printf '000'
+	fi
 }
 
 http_get() {
@@ -355,8 +381,8 @@ build_inventory() {
 	leases="$(json_array_or_empty "$(dhcp_leases_json)")"
 	wifi="$(json_array_or_empty "$(wifi_clients_json)")"
 
-	printf '{"hostname":"%s","openwrt_version":"%s","board":%s,"interfaces":%s,"default_route":"%s","wan_ip":"%s","dhcp_leases":%s,"wifi_clients":%s}' \
-		"$hn" "$ver" "$board" "$interfaces" "$route" "$wan" "$leases" "$wifi"
+	printf '{"hostname":"%s","openwrt_version":"%s","agent_version":"%s","board":%s,"interfaces":%s,"default_route":"%s","wan_ip":"%s","dhcp_leases":%s,"wifi_clients":%s}' \
+		"$hn" "$ver" "$(json_escape "$AGENT_VERSION")" "$board" "$interfaces" "$route" "$wan" "$leases" "$wifi"
 }
 
 build_metrics() {
@@ -880,10 +906,20 @@ send_command_result() {
 	body="$(printf '{"device_id":"%s","status":"%s","exit_code":%s,"output":"%s","result":{}}' \
 		"$(json_escape "$DEVICE_ID")" "$status" "$exit_code" "$(json_escape "$output")")"
 
-	if ! http_post "$SERVER_URL/api/agent/commands/$command_id/result" "$body" "$DEVICE_TOKEN" >/dev/null; then
+	code="$(http_post_status "$SERVER_URL/api/agent/commands/$command_id/result" "$body" "$DEVICE_TOKEN")"
+	case "$code" in
+		2??)
+			return 0
+			;;
+		4??)
+			log "server rejected result for $command_id with HTTP $code"
+			return 0
+			;;
+		*)
 		log "failed to send result for $command_id"
 		spool_command_result "$command_id" "$body"
-	fi
+			;;
+	esac
 }
 
 spool_command_result() {
@@ -899,9 +935,16 @@ flush_spooled_results() {
 		[ -f "$file" ] || continue
 		command_id="$(basename "$file" .json)"
 		body="$(cat "$file")"
-		if http_post "$SERVER_URL/api/agent/commands/$command_id/result" "$body" "$DEVICE_TOKEN" >/dev/null; then
+		code="$(http_post_status "$SERVER_URL/api/agent/commands/$command_id/result" "$body" "$DEVICE_TOKEN")"
+		case "$code" in
+			2??)
 			rm -f "$file"
-		fi
+				;;
+			4??)
+				log "dropping rejected spooled result for $command_id with HTTP $code"
+				rm -f "$file"
+				;;
+		esac
 	done
 }
 

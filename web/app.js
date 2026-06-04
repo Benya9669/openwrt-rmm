@@ -21,6 +21,8 @@ const state = {
   presetReview: null,
 };
 
+const EXPECTED_AGENT_VERSION = "0.4.0";
+
 const els = {
   loginView: document.querySelector("#loginView"),
   loginForm: document.querySelector("#loginForm"),
@@ -59,6 +61,7 @@ const els = {
   infoTarget: document.querySelector("#infoTarget"),
   infoSystem: document.querySelector("#infoSystem"),
   infoKernel: document.querySelector("#infoKernel"),
+  infoAgentVersion: document.querySelector("#infoAgentVersion"),
   infoCreatedAt: document.querySelector("#infoCreatedAt"),
   infoLastSeenAt: document.querySelector("#infoLastSeenAt"),
   infoDeviceId: document.querySelector("#infoDeviceId"),
@@ -370,6 +373,16 @@ function deviceModel(device) {
     : "-";
 }
 
+function deviceAgentVersion(device) {
+  return device && device.inventory && device.inventory.agent_version ? String(device.inventory.agent_version) : "";
+}
+
+function agentVersionLabel(version) {
+  if (!version) return "неизвестна";
+  if (version === EXPECTED_AGENT_VERSION) return `${version} актуальная`;
+  return `${version} требуется обновление`;
+}
+
 function deviceClientCount(device) {
   const leases = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases.length : 0;
   const wifi = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients.length : 0;
@@ -399,6 +412,7 @@ function filteredDevices() {
         deviceDisplayName(device),
         device.id,
         device.openwrt_version,
+        deviceAgentVersion(device),
         deviceModel(device),
         device.inventory && device.inventory.wan_ip,
         device.group,
@@ -507,6 +521,7 @@ function renderDeviceInformation(device) {
   els.infoTarget.textContent = release.target || "-";
   els.infoSystem.textContent = board.system || "-";
   els.infoKernel.textContent = board.kernel || "-";
+  els.infoAgentVersion.textContent = agentVersionLabel(deviceAgentVersion(device));
   els.infoCreatedAt.textContent = formatDate(device.created_at);
   els.infoLastSeenAt.textContent = formatDate(device.last_seen_at);
   els.infoDeviceId.textContent = device.id || "-";
