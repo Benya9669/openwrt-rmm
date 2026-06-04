@@ -407,6 +407,7 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 
 func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	var upstreamPath string
+	var authenticated bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != "127.0.0.1" {
 			http.Error(w, "rejected host", http.StatusForbidden)
@@ -425,6 +426,20 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 			t.Fatal("LuCI route cookie leaked to LuCI upstream")
 		}
 		upstreamPath = r.URL.Path
+		if r.Method == http.MethodPost && r.URL.Path == "/cgi-bin/luci/" {
+			http.SetCookie(w, &http.Cookie{Name: "sysauth", Value: "session-token", Path: "/cgi-bin/luci"})
+			w.Header().Set("Location", "/cgi-bin/luci/admin/status/overview")
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+		if r.URL.Path == "/cgi-bin/luci/admin/status/overview" {
+			cookie, err := r.Cookie("sysauth")
+			authenticated = err == nil && cookie.Value == "session-token"
+			if !authenticated {
+				http.Error(w, "login required", http.StatusForbidden)
+				return
+			}
+		}
 		if r.URL.Path == "/luci-static/resources/luci.js" {
 			w.Header().Set("Content-Type", "application/javascript")
 			_, _ = io.WriteString(w, `const untouched = '/cgi-bin/luci';`)
@@ -517,6 +532,21 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	script := requestText(t, http.MethodGet, srv.URL+prefix+"/luci-static/resources/luci.js", "operator-test", nil, http.StatusOK)
 	if script != `const untouched = '/cgi-bin/luci';` {
 		t.Fatalf("LuCI JavaScript was unexpectedly rewritten: %s", script)
+	}
+
+	loginURL := srv.URL + prefix + "/cgi-bin/luci/"
+	req, err := http.NewRequest(http.MethodPost, loginURL, strings.NewReader("luci_username=root&luci_password=test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer operator-test")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !authenticated {
+		t.Fatalf("LuCI login cookie was not preserved, status=%d authenticated=%t", resp.StatusCode, authenticated)
 	}
 }
 

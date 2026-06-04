@@ -1179,10 +1179,29 @@ func rewriteLuCIHeaders(header http.Header, prefix string) {
 		header.Set("Location", prefix+location)
 	}
 	for index, cookie := range header.Values("Set-Cookie") {
-		cookie = strings.ReplaceAll(cookie, "Path=/;", "Path="+prefix+"/;")
-		cookie = strings.ReplaceAll(cookie, "Path=/ ", "Path="+prefix+"/ ")
-		header["Set-Cookie"][index] = cookie
+		header["Set-Cookie"][index] = rewriteLuCICookie(cookie, prefix)
 	}
+}
+
+func rewriteLuCICookie(cookie, prefix string) string {
+	parts := strings.Split(cookie, ";")
+	pathFound := false
+	for index := 1; index < len(parts); index++ {
+		attribute := strings.TrimSpace(parts[index])
+		if !strings.HasPrefix(strings.ToLower(attribute), "path=") {
+			continue
+		}
+		path := strings.TrimSpace(attribute[len("path="):])
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		parts[index] = " Path=" + prefix + path
+		pathFound = true
+	}
+	if !pathFound {
+		parts = append(parts, " Path="+prefix+"/")
+	}
+	return strings.Join(parts, ";")
 }
 
 func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
