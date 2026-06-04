@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OpenWrt RMM</title>
-    <link rel="stylesheet" href="/styles.css?v=4">
+    <link rel="stylesheet" href="/styles.css?v=5">
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -173,20 +173,92 @@
             <div id="healthSummary" class="health-summary"></div>
           </section>
 
+          <section class="panel device-information-panel" data-device-tab="information">
+            <div class="section-title">
+              <div>
+                <h2>Сведения об устройстве</h2>
+                <p class="section-subtitle">Основная информация, полученная от роутера</p>
+              </div>
+              <span id="informationStatus" class="badge">-</span>
+            </div>
+            <div class="information-grid">
+              <div class="information-item">
+                <span>Имя устройства</span>
+                <strong id="infoHostname">-</strong>
+              </div>
+              <div class="information-item">
+                <span>Модель</span>
+                <strong id="infoModel">-</strong>
+              </div>
+              <div class="information-item">
+                <span>Версия OpenWrt</span>
+                <strong id="infoOpenWrt">-</strong>
+              </div>
+              <div class="information-item">
+                <span>Платформа</span>
+                <strong id="infoTarget">-</strong>
+              </div>
+              <div class="information-item">
+                <span>Система</span>
+                <strong id="infoSystem">-</strong>
+              </div>
+              <div class="information-item">
+                <span>Версия ядра</span>
+                <strong id="infoKernel">-</strong>
+              </div>
+              <div class="information-item">
+                <span>Зарегистрирован</span>
+                <strong id="infoCreatedAt">-</strong>
+              </div>
+              <div class="information-item">
+                <span>Последний контакт</span>
+                <strong id="infoLastSeenAt">-</strong>
+              </div>
+            </div>
+          </section>
+
           <section class="panel" data-device-tab="information">
             <div class="section-title">
-              <h2>Группа и теги</h2>
-              <button id="saveFleetBtn" type="button">Сохранить</button>
+              <div>
+                <h2>Организация</h2>
+                <p class="section-subtitle">Группа и теги помогают находить и фильтровать объекты</p>
+              </div>
+              <button id="saveFleetBtn" class="primary" type="button">Сохранить</button>
             </div>
             <div class="fleet-form">
               <label>
-                Group
-                <input id="fleetGroup" type="text" placeholder="core, lab, home">
+                Группа
+                <input id="fleetGroup" type="text" placeholder="Офис, дом, филиал">
               </label>
               <label>
-                Tags
-                <input id="fleetTags" type="text" placeholder="edge, vpn, test">
+                Теги через запятую
+                <input id="fleetTags" type="text" placeholder="VPN, тестовый, резервный">
               </label>
+            </div>
+          </section>
+
+          <section class="panel" data-device-tab="information">
+            <div class="section-title">
+              <div>
+                <h2>Технические реквизиты</h2>
+                <p class="section-subtitle">Используются при диагностике и обращении в поддержку</p>
+              </div>
+            </div>
+            <div class="technical-details">
+              <div>
+                <span>ID устройства</span>
+                <code id="infoDeviceId">-</code>
+                <button class="copy-info-btn" data-copy-info="infoDeviceId" type="button">Копировать</button>
+              </div>
+              <div>
+                <span>Board name</span>
+                <code id="infoBoardName">-</code>
+                <button class="copy-info-btn" data-copy-info="infoBoardName" type="button">Копировать</button>
+              </div>
+              <div>
+                <span>Root filesystem</span>
+                <code id="infoRootfs">-</code>
+              </div>
             </div>
           </section>
 
@@ -228,6 +300,13 @@
               <strong id="connectivityStatus">-</strong>
             </div>
           </div>
+
+          <section class="expert-notice" data-device-tab="expert">
+            <div>
+              <strong>Экспертный режим</strong>
+              <span>Здесь находятся низкоуровневые команды и настройки OpenWrt. Ошибочное изменение может нарушить связь с роутером.</span>
+            </div>
+          </section>
 
           <div class="two-column" data-device-tab="expert">
             <section class="panel">
@@ -552,6 +631,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=11" defer></script>
+    <script src="/app.js?v=12" defer></script>
   </body>
 </html>

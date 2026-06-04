@@ -43,6 +43,18 @@ const els = {
   deviceName: document.querySelector("#deviceName"),
   deviceMeta: document.querySelector("#deviceMeta"),
   deviceBadge: document.querySelector("#deviceBadge"),
+  informationStatus: document.querySelector("#informationStatus"),
+  infoHostname: document.querySelector("#infoHostname"),
+  infoModel: document.querySelector("#infoModel"),
+  infoOpenWrt: document.querySelector("#infoOpenWrt"),
+  infoTarget: document.querySelector("#infoTarget"),
+  infoSystem: document.querySelector("#infoSystem"),
+  infoKernel: document.querySelector("#infoKernel"),
+  infoCreatedAt: document.querySelector("#infoCreatedAt"),
+  infoLastSeenAt: document.querySelector("#infoLastSeenAt"),
+  infoDeviceId: document.querySelector("#infoDeviceId"),
+  infoBoardName: document.querySelector("#infoBoardName"),
+  infoRootfs: document.querySelector("#infoRootfs"),
   healthSummary: document.querySelector("#healthSummary"),
   lastSeen: document.querySelector("#lastSeen"),
   loadAvg: document.querySelector("#loadAvg"),
@@ -424,9 +436,28 @@ function renderDeviceDetail(device) {
   els.fleetGroup.value = device.group || "";
   els.fleetTags.value = Array.isArray(device.tags) ? device.tags.join(", ") : "";
   els.inventoryJson.textContent = JSON.stringify(device.inventory || {}, null, 2);
+  renderDeviceInformation(device);
   renderHealthSummary(device);
   renderClients(device);
   renderInterfaceCounters(device);
+}
+
+function renderDeviceInformation(device) {
+  const board = device.inventory && device.inventory.board ? device.inventory.board : {};
+  const release = board.release || {};
+  els.informationStatus.textContent = device.online ? "На связи" : "Не на связи";
+  els.informationStatus.className = `badge ${device.online ? "online" : "offline"}`;
+  els.infoHostname.textContent = deviceDisplayName(device);
+  els.infoModel.textContent = board.model || "-";
+  els.infoOpenWrt.textContent = release.description || device.openwrt_version || "-";
+  els.infoTarget.textContent = release.target || "-";
+  els.infoSystem.textContent = board.system || "-";
+  els.infoKernel.textContent = board.kernel || "-";
+  els.infoCreatedAt.textContent = formatDate(device.created_at);
+  els.infoLastSeenAt.textContent = formatDate(device.last_seen_at);
+  els.infoDeviceId.textContent = device.id || "-";
+  els.infoBoardName.textContent = board.board_name || "-";
+  els.infoRootfs.textContent = board.rootfs_type || "-";
 }
 
 function formatMemory(memory) {
@@ -1223,6 +1254,15 @@ els.copyCommandOutputBtn.addEventListener("click", async () => {
   await navigator.clipboard.writeText(output);
   setStatus("Output copied");
 });
+
+for (const button of document.querySelectorAll(".copy-info-btn")) {
+  button.addEventListener("click", async () => {
+    const source = document.querySelector(`#${button.dataset.copyInfo}`);
+    if (!source) return;
+    await navigator.clipboard.writeText(source.textContent);
+    setStatus("Значение скопировано");
+  });
+}
 
 for (const button of document.querySelectorAll(".preset-btn")) {
   button.addEventListener("click", () => {

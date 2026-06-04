@@ -1134,6 +1134,100 @@ select {
   display: none;
 }
 
+.information-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.information-item {
+  display: grid;
+  gap: 6px;
+  min-height: 82px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+  padding: 14px;
+}
+
+.information-item:nth-child(4n) {
+  border-right: 0;
+}
+
+.information-item:nth-last-child(-n + 4) {
+  border-bottom: 0;
+}
+
+.information-item span,
+.technical-details span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.information-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.technical-details {
+  display: grid;
+  gap: 8px;
+}
+
+.technical-details > div {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid var(--line);
+  padding: 4px 0;
+}
+
+.technical-details > div:last-child {
+  border-bottom: 0;
+}
+
+.technical-details code {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-info-btn {
+  min-height: 30px;
+  color: var(--accent);
+}
+
+.expert-notice {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #715d31;
+  border-radius: 8px;
+  background: #342e22;
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.expert-notice div {
+  display: grid;
+  gap: 4px;
+}
+
+.expert-notice strong {
+  color: var(--warn);
+}
+
+.expert-notice span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .metric {
   min-width: 0;
   border: 1px solid var(--line);
@@ -1400,7 +1494,23 @@ select {
   }
 
   .client-toolbar,
-  .network-health {
+  .network-health,
+  .information-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .information-item,
+  .information-item:nth-child(4n),
+  .information-item:nth-last-child(-n + 4) {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .information-item:last-child {
+    border-bottom: 0;
+  }
+
+  .technical-details > div {
     grid-template-columns: 1fr;
   }
 
