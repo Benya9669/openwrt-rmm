@@ -158,6 +158,8 @@ CREATE TABLE IF NOT EXISTS remote_sessions (
 	server_host TEXT NOT NULL DEFAULT '',
 	server_port INTEGER NOT NULL DEFAULT 22,
 	remote_port INTEGER NOT NULL DEFAULT 0,
+	luci_port INTEGER NOT NULL DEFAULT 0,
+	luci_scheme TEXT NOT NULL DEFAULT 'http',
 	local_host TEXT NOT NULL DEFAULT '127.0.0.1',
 	local_port INTEGER NOT NULL DEFAULT 22,
 	command_id TEXT NOT NULL DEFAULT '',
@@ -198,6 +200,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_device_created_at ON audit_events(de
 		`ALTER TABLE remote_sessions ADD COLUMN server_host TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE remote_sessions ADD COLUMN server_port INTEGER NOT NULL DEFAULT 22`,
 		`ALTER TABLE remote_sessions ADD COLUMN remote_port INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE remote_sessions ADD COLUMN luci_port INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE remote_sessions ADD COLUMN luci_scheme TEXT NOT NULL DEFAULT 'http'`,
 		`ALTER TABLE remote_sessions ADD COLUMN local_host TEXT NOT NULL DEFAULT '127.0.0.1'`,
 		`ALTER TABLE remote_sessions ADD COLUMN local_port INTEGER NOT NULL DEFAULT 22`,
 		`ALTER TABLE remote_sessions ADD COLUMN command_id TEXT NOT NULL DEFAULT ''`,
@@ -832,6 +836,9 @@ func (s *Store) CreateRemoteSession(ctx context.Context, session model.RemoteSes
 	if session.ServerPort <= 0 {
 		session.ServerPort = 22
 	}
+	if session.LuCIScheme == "" {
+		session.LuCIScheme = "http"
+	}
 	if session.CreatedAt.IsZero() {
 		session.CreatedAt = parseTime(now)
 	}
@@ -840,9 +847,9 @@ func (s *Store) CreateRemoteSession(ctx context.Context, session model.RemoteSes
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO remote_sessions (id, device_id, target, status, server_host, server_port, remote_port, local_host, local_port, command_id, created_at, expires_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, session.ID, session.DeviceID, session.Target, session.Status, session.ServerHost, session.ServerPort, session.RemotePort, session.LocalHost, session.LocalPort, session.CommandID, session.CreatedAt.Format(time.RFC3339Nano), session.ExpiresAt.Format(time.RFC3339Nano), now)
+INSERT INTO remote_sessions (id, device_id, target, status, server_host, server_port, remote_port, luci_port, luci_scheme, local_host, local_port, command_id, created_at, expires_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, session.ID, session.DeviceID, session.Target, session.Status, session.ServerHost, session.ServerPort, session.RemotePort, session.LuCIPort, session.LuCIScheme, session.LocalHost, session.LocalPort, session.CommandID, session.CreatedAt.Format(time.RFC3339Nano), session.ExpiresAt.Format(time.RFC3339Nano), now)
 	if err != nil {
 		return model.RemoteSession{}, false, err
 	}
@@ -865,7 +872,7 @@ func (s *Store) ListRemoteSessions(ctx context.Context, deviceID string, opts Re
 		limit = 25
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, device_id, target, status, server_host, server_port, remote_port, local_host, local_port, command_id, created_at, expires_at, started_at, closed_at
+SELECT id, device_id, target, status, server_host, server_port, remote_port, luci_port, luci_scheme, local_host, local_port, command_id, created_at, expires_at, started_at, closed_at
 FROM remote_sessions
 WHERE device_id = ?
 ORDER BY created_at DESC
@@ -891,7 +898,7 @@ func (s *Store) GetRemoteSession(ctx context.Context, deviceID, sessionID string
 		return model.RemoteSession{}, false, err
 	}
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, device_id, target, status, server_host, server_port, remote_port, local_host, local_port, command_id, created_at, expires_at, started_at, closed_at
+SELECT id, device_id, target, status, server_host, server_port, remote_port, luci_port, luci_scheme, local_host, local_port, command_id, created_at, expires_at, started_at, closed_at
 FROM remote_sessions
 WHERE device_id = ? AND id = ?
 `, deviceID, sessionID)
@@ -1172,6 +1179,8 @@ func scanRemoteSession(s scanner) (model.RemoteSession, error) {
 		&session.ServerHost,
 		&session.ServerPort,
 		&session.RemotePort,
+		&session.LuCIPort,
+		&session.LuCIScheme,
 		&session.LocalHost,
 		&session.LocalPort,
 		&session.CommandID,

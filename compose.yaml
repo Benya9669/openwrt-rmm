@@ -13,6 +13,7 @@ services:
       RMM_OPERATOR_PASSWORD: "${RMM_OPERATOR_PASSWORD:-dev-operator-password}"
       RMM_SESSION_SECRET: "${RMM_SESSION_SECRET:-dev-session-secret-change-me}"
       RMM_COOKIE_SECURE: "${RMM_COOKIE_SECURE:-false}"
+      RMM_TUNNEL_HTTP_HOST: tunnel-ssh
     ports:
       - "${RMM_HTTP_BIND_IP:-0.0.0.0}:${RMM_HTTP_PORT:-18080}:8080"
     volumes:

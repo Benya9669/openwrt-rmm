@@ -29,6 +29,7 @@ func main() {
 		OperatorPassword: env("RMM_OPERATOR_PASSWORD", "dev-operator-password"),
 		SessionSecret:    env("RMM_SESSION_SECRET", "dev-session-secret-change-me"),
 		CookieSecure:     envBool("RMM_COOKIE_SECURE", false),
+		TunnelHTTPHost:   env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
 		StaticDir:        env("RMM_WEB_DIR", "web"),
 	})
 

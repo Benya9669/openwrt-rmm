@@ -463,6 +463,7 @@ Request:
   "server_port": 22,
   "remote_port": 22022,
   "local_port": 22,
+  "luci_scheme": "https",
   "duration_seconds": 900
 }
 ```
@@ -478,6 +479,8 @@ Response:
   "server_host": "10.10.10.2",
   "server_port": 22,
   "remote_port": 22022,
+  "luci_port": 22122,
+  "luci_scheme": "https",
   "local_host": "127.0.0.1",
   "local_port": 22,
   "command_id": "cmd_...",
@@ -493,14 +496,18 @@ GET /api/devices/{device_id}/remote-sessions?limit=25
 Authorization: Bearer dev-operator-token
 ```
 
-Close a session record:
+Close a session and queue tunnel termination on the agent:
 
 ```http
 POST /api/devices/{device_id}/remote-sessions/{session_id}/close
 Authorization: Bearer dev-operator-token
 ```
 
-The MVP close action updates server state and audit history. Active SSH processes stop by duration timeout on the agent side.
+Open LuCI for an active session through the authenticated RMM proxy:
+
+```http
+GET /luci/{device_id}/{session_id}/
+```
 
 ## Create Bulk Command
 

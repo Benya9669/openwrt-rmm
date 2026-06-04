@@ -10,6 +10,7 @@ Published ports:
 - `18080/tcp`: RMM API and web UI.
 - `2222/tcp`: router-to-server SSH tunnel connection.
 - `22000-22099/tcp`: temporary operator endpoints created by remote sessions.
+- `22100-22199/tcp`: internal LuCI proxy forwards; these are not published by Compose.
 
 ## 1. Configure Secrets
 

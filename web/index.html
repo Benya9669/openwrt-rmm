@@ -329,6 +329,13 @@
                 <input id="remoteLocalPort" type="number" min="1" max="65535" value="22">
               </label>
               <label>
+                LuCI protocol
+                <select id="remoteLuCIScheme">
+                  <option value="http">HTTP</option>
+                  <option value="https">HTTPS</option>
+                </select>
+              </label>
+              <label>
                 Duration
                 <select id="remoteDuration">
                   <option value="900">15 min</option>
@@ -337,10 +344,10 @@
                   <option value="7200">2 hours</option>
                 </select>
               </label>
-              <button id="createRemoteSessionBtn" type="button">Open SSH access</button>
+              <button id="createRemoteSessionBtn" type="button">Open remote access</button>
             </div>
             <div class="remote-hint">
-              Docker/Linux: tunnel endpoint must accept SSH for user <strong>rmm-tunnel</strong> and allow reverse ports.
+              Active sessions provide SSH and an authenticated Open LuCI button. Choose the protocol used by this router.
             </div>
             <div id="remoteSessionList" class="table-list remote-session-list"></div>
           </section>

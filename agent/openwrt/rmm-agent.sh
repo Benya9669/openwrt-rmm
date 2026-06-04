@@ -551,6 +551,8 @@ remote_ssh_reverse_output() {
 	server_host="$(command_arg_string "$args" "server_host")"
 	server_port="$(command_arg_string "$args" "server_port")"
 	remote_port="$(command_arg_string "$args" "remote_port")"
+	luci_port="$(command_arg_string "$args" "luci_port")"
+	luci_local_port="$(command_arg_string "$args" "luci_local_port")"
 	local_host="$(command_arg_string "$args" "local_host")"
 	local_port="$(command_arg_string "$args" "local_port")"
 	server_user="$(command_arg_string "$args" "server_user")"
@@ -559,6 +561,7 @@ remote_ssh_reverse_output() {
 	[ -n "$server_port" ] || server_port="22"
 	[ -n "$local_host" ] || local_host="127.0.0.1"
 	[ -n "$local_port" ] || local_port="22"
+	[ -n "$luci_local_port" ] || luci_local_port="80"
 	[ -n "$server_user" ] || server_user="rmm-tunnel"
 	[ -n "$duration_seconds" ] || duration_seconds="900"
 
@@ -566,7 +569,7 @@ remote_ssh_reverse_output() {
 		printf 'remote tunnel host or user is invalid\n'
 		return 2
 	fi
-	if ! safe_port "$server_port" || ! safe_port "$remote_port" || ! safe_port "$local_port" || ! safe_port "$duration_seconds"; then
+	if ! safe_port "$server_port" || ! safe_port "$remote_port" || ! safe_port "$luci_port" || ! safe_port "$local_port" || ! safe_port "$luci_local_port" || ! safe_port "$duration_seconds"; then
 		printf 'remote tunnel port or duration is invalid\n'
 		return 2
 	fi
@@ -582,10 +585,10 @@ remote_ssh_reverse_output() {
 	fi
 	if command -v ssh >/dev/null 2>&1; then
 		# shellcheck disable=SC2086
-		ssh $identity_args -N -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host" >> "$log_file" 2>&1 &
+		ssh $identity_args -N -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -R "$remote_port:$local_host:$local_port" -R "$luci_port:127.0.0.1:$luci_local_port" -p "$server_port" "$server_user@$server_host" >> "$log_file" 2>&1 &
 	elif command -v dbclient >/dev/null 2>&1; then
 		# shellcheck disable=SC2086
-		dbclient $identity_args -N -y -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host" >> "$log_file" 2>&1 &
+		dbclient $identity_args -N -y -R "$remote_port:$local_host:$local_port" -R "$luci_port:127.0.0.1:$luci_local_port" -p "$server_port" "$server_user@$server_host" >> "$log_file" 2>&1 &
 	else
 		printf 'remote ssh reverse requires ssh or dbclient on router\n'
 		return 2
@@ -603,6 +606,7 @@ remote_ssh_reverse_output() {
 	printf 'remote ssh reverse started\n'
 	printf 'session=%s pid=%s\n' "$session_id" "$pid"
 	printf 'operator endpoint: %s:%s -> %s:%s\n' "$server_host" "$remote_port" "$local_host" "$local_port"
+	printf 'LuCI proxy endpoint: %s:%s -> 127.0.0.1:%s\n' "$server_host" "$luci_port" "$luci_local_port"
 	printf 'log=%s\n' "$log_file"
 	return 0
 }

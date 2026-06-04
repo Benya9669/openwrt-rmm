@@ -1,14 +1,19 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -53,6 +58,7 @@ type Config struct {
 	OperatorPassword string
 	SessionSecret    string
 	CookieSecure     bool
+	TunnelHTTPHost   string
 	StaticDir        string
 }
 
@@ -64,6 +70,7 @@ type App struct {
 	operatorPassword string
 	sessionSecret    []byte
 	cookieSecure     bool
+	tunnelHTTPHost   string
 }
 
 type contextKey string
@@ -103,6 +110,7 @@ type remoteSessionRequest struct {
 	ServerPort      int    `json:"server_port"`
 	RemotePort      int    `json:"remote_port"`
 	LocalPort       int    `json:"local_port"`
+	LuCIScheme      string `json:"luci_scheme"`
 }
 
 type fleetRequest struct {
@@ -151,6 +159,10 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		operatorPassword: cfg.OperatorPassword,
 		sessionSecret:    []byte(cfg.SessionSecret),
 		cookieSecure:     cfg.CookieSecure,
+		tunnelHTTPHost:   strings.TrimSpace(cfg.TunnelHTTPHost),
+	}
+	if a.tunnelHTTPHost == "" {
+		a.tunnelHTTPHost = "tunnel-ssh"
 	}
 
 	mux := http.NewServeMux()
@@ -167,6 +179,8 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("POST /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("PATCH /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("GET /api/audit-events", a.operatorAuth(http.HandlerFunc(a.handleListAuditEvents)))
+	mux.Handle("GET /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
+	mux.Handle("POST /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -949,7 +963,16 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 	if remotePort <= 0 {
 		remotePort = randomRemotePort()
 	}
-	if !validTCPPort(serverPort) || !validTCPPort(localPort) || !validTCPPort(remotePort) {
+	luciPort := randomLuCIPort()
+	luciScheme := strings.ToLower(strings.TrimSpace(req.LuCIScheme))
+	if luciScheme == "" {
+		luciScheme = "http"
+	}
+	if luciScheme != "http" && luciScheme != "https" {
+		writeError(w, http.StatusBadRequest, "luci_scheme must be http or https")
+		return
+	}
+	if !validTCPPort(serverPort) || !validTCPPort(localPort) || !validTCPPort(remotePort) || !validTCPPort(luciPort) {
 		writeError(w, http.StatusBadRequest, "ports must be between 1 and 65535")
 		return
 	}
@@ -962,6 +985,8 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 		ServerHost: serverHost,
 		ServerPort: serverPort,
 		RemotePort: remotePort,
+		LuCIPort:   luciPort,
+		LuCIScheme: luciScheme,
 		LocalHost:  "127.0.0.1",
 		LocalPort:  localPort,
 		ExpiresAt:  expiresAt,
@@ -975,11 +1000,17 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	luciLocalPort := "80"
+	if session.LuCIScheme == "https" {
+		luciLocalPort = "443"
+	}
 	args := mustJSON(map[string]any{
 		"session_id":       session.ID,
 		"server_host":      session.ServerHost,
 		"server_port":      strconv.Itoa(session.ServerPort),
 		"remote_port":      strconv.Itoa(session.RemotePort),
+		"luci_port":        strconv.Itoa(session.LuCIPort),
+		"luci_local_port":  luciLocalPort,
 		"local_host":       session.LocalHost,
 		"local_port":       strconv.Itoa(session.LocalPort),
 		"server_user":      "rmm-tunnel",
@@ -1007,11 +1038,117 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 		"server_host": session.ServerHost,
 		"server_port": session.ServerPort,
 		"remote_port": session.RemotePort,
+		"luci_port":   session.LuCIPort,
+		"luci_scheme": session.LuCIScheme,
 		"local_port":  session.LocalPort,
 		"expires_at":  session.ExpiresAt,
 		"request_id":  requestID(r.Context()),
 	}))
 	writeJSON(w, http.StatusCreated, session)
+}
+
+func (a *App) handleLuCIProxy(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/luci/")
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		writeError(w, http.StatusNotFound, "LuCI session not found")
+		return
+	}
+	deviceID, sessionID := parts[0], parts[1]
+	session, found, err := a.store.GetRemoteSession(r.Context(), deviceID, sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load LuCI session")
+		return
+	}
+	if !found || session.Status != "active" || session.LuCIPort <= 0 {
+		writeError(w, http.StatusNotFound, "LuCI session is not active")
+		return
+	}
+
+	prefix := "/luci/" + deviceID + "/" + sessionID
+	scheme := session.LuCIScheme
+	if scheme == "" {
+		scheme = "http"
+	}
+	upstream, _ := url.Parse(scheme + "://" + a.tunnelHTTPHost + ":" + strconv.Itoa(session.LuCIPort))
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	if scheme == "https" {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // LuCI commonly uses a router-local self-signed certificate.
+		proxy.Transport = transport
+	}
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.URL.Path = "/"
+		if len(parts) == 3 && parts[2] != "" {
+			req.URL.Path += parts[2]
+		}
+		req.Host = upstream.Host
+		req.Header.Del("Accept-Encoding")
+		removeCookie(req, operatorSessionCookie)
+	}
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		rewriteLuCIHeaders(resp.Header, prefix)
+		contentType := resp.Header.Get("Content-Type")
+		if !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "javascript") && !strings.Contains(contentType, "text/css") {
+			return nil
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		_ = resp.Body.Close()
+		body = rewriteLuCIBody(body, prefix)
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		resp.ContentLength = int64(len(body))
+		resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
+		return nil
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		logStructured(map[string]any{
+			"event":      "luci.proxy_failed",
+			"request_id": requestID(r.Context()),
+			"device_id":  deviceID,
+			"session_id": sessionID,
+			"error":      err.Error(),
+		})
+		writeError(w, http.StatusBadGateway, "LuCI is unreachable through this session")
+	}
+	proxy.ServeHTTP(w, r)
+}
+
+func removeCookie(r *http.Request, name string) {
+	cookies := make([]string, 0)
+	for _, cookie := range r.Cookies() {
+		if cookie.Name != name {
+			cookies = append(cookies, cookie.Name+"="+cookie.Value)
+		}
+	}
+	if len(cookies) == 0 {
+		r.Header.Del("Cookie")
+		return
+	}
+	r.Header.Set("Cookie", strings.Join(cookies, "; "))
+}
+
+func rewriteLuCIHeaders(header http.Header, prefix string) {
+	if location := header.Get("Location"); strings.HasPrefix(location, "/") {
+		header.Set("Location", prefix+location)
+	}
+	for index, cookie := range header.Values("Set-Cookie") {
+		cookie = strings.ReplaceAll(cookie, "Path=/;", "Path="+prefix+"/;")
+		cookie = strings.ReplaceAll(cookie, "Path=/ ", "Path="+prefix+"/ ")
+		header["Set-Cookie"][index] = cookie
+	}
+}
+
+func rewriteLuCIBody(body []byte, prefix string) []byte {
+	for _, marker := range []string{`="/`, `'/`, `url(/`} {
+		replacement := marker[:len(marker)-1] + prefix + "/"
+		body = bytes.ReplaceAll(body, []byte(marker), []byte(replacement))
+	}
+	return body
 }
 
 func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
@@ -1032,6 +1169,7 @@ func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
 	closeCommand, commandFound, err := a.store.CreateCommand(r.Context(), deviceID, "remote_ssh_close", mustJSON(map[string]string{
 		"session_id":  session.ID,
 		"remote_port": strconv.Itoa(session.RemotePort),
+		"luci_port":   strconv.Itoa(session.LuCIPort),
 	}))
 	if err != nil || !commandFound {
 		writeError(w, http.StatusInternalServerError, "failed to queue remote session close")
@@ -1262,6 +1400,15 @@ func randomRemotePort() int {
 	}
 	value := int(b[0])<<8 | int(b[1])
 	return 22000 + (value % 100)
+}
+
+func randomLuCIPort() int {
+	var b [2]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return 22122
+	}
+	value := int(b[0])<<8 | int(b[1])
+	return 22100 + (value % 100)
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {

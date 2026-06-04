@@ -66,6 +66,7 @@ const els = {
   remoteServerPort: document.querySelector("#remoteServerPort"),
   remotePort: document.querySelector("#remotePort"),
   remoteLocalPort: document.querySelector("#remoteLocalPort"),
+  remoteLuCIScheme: document.querySelector("#remoteLuCIScheme"),
   remoteDuration: document.querySelector("#remoteDuration"),
   createRemoteSessionBtn: document.querySelector("#createRemoteSessionBtn"),
   reloadRemoteSessionsBtn: document.querySelector("#reloadRemoteSessionsBtn"),
@@ -667,6 +668,7 @@ function renderRemoteSessions(sessions) {
     const canClose = ["requested", "queued", "active"].includes(session.status);
     const endpoint = `${session.server_host || "-"}:${session.remote_port || "-"}`;
     const connectCommand = session.remote_port ? `ssh -p ${session.remote_port} root@${session.server_host || "server"}` : "-";
+    const canOpenLuCI = session.status === "active" && session.luci_port;
     const row = document.createElement("div");
     row.className = "row remote-session-row";
     row.innerHTML = `
@@ -678,10 +680,14 @@ function renderRemoteSessions(sessions) {
       <span>expires ${escapeHtml(formatShortDate(session.expires_at))}</span>
       <code>${escapeHtml(connectCommand)}</code>
       <div class="row-actions">
+        <button type="button" data-action="luci" ${canOpenLuCI ? "" : "disabled"}>Open LuCI</button>
         <button type="button" data-action="commands">Commands</button>
         <button type="button" data-action="close" ${canClose ? "" : "disabled"}>Close</button>
       </div>
     `;
+    row.querySelector('[data-action="luci"]').addEventListener("click", () => {
+      window.open(`/luci/${encodeURIComponent(session.device_id)}/${encodeURIComponent(session.id)}/`, "_blank", "noopener");
+    });
     row.querySelector('[data-action="commands"]').addEventListener("click", scrollToCommands);
     row.querySelector('[data-action="close"]').addEventListener("click", () => closeRemoteSession(session.id));
     els.remoteSessionList.appendChild(row);
@@ -796,6 +802,7 @@ async function createRemoteSession() {
   const serverPort = Number(els.remoteServerPort.value || 2222);
   const remotePort = Number(els.remotePort.value || 0);
   const localPort = Number(els.remoteLocalPort.value || 22);
+  const luciScheme = els.remoteLuCIScheme.value || "http";
   const durationSeconds = Number(els.remoteDuration.value || 900);
   if (!serverHost) {
     setStatus("Tunnel server is required");
@@ -811,6 +818,7 @@ async function createRemoteSession() {
       server_port: serverPort,
       remote_port: remotePort,
       local_port: localPort,
+      luci_scheme: luciScheme,
       duration_seconds: durationSeconds,
     }),
   });

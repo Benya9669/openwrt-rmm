@@ -5,6 +5,7 @@ Remote access is now implemented as an MVP reverse SSH session flow. The server 
 ## Current Capabilities
 
 - Temporary SSH access through an outbound reverse tunnel.
+- LuCI access through an authenticated RMM HTTP proxy over the same tunnel.
 - Session list and close action in the web UI.
 - Session audit with device, command id, endpoint, and expiration.
 - Automatic session expiration in the server store.
@@ -15,8 +16,8 @@ Remote access is now implemented as an MVP reverse SSH session flow. The server 
 1. Operator opens a remote SSH session for a device.
 2. Server creates a `remote_sessions` record with expiration.
 3. Server queues `remote_ssh_reverse` for the router.
-4. Agent runs `ssh` or `dbclient` and requests `-R remote_port:127.0.0.1:22`.
-5. Operator connects to the server endpoint shown by the UI.
+4. Agent runs `ssh` or `dbclient` and requests reverse forwards for router SSH and LuCI.
+5. Operator connects to SSH or opens LuCI through the authenticated RMM proxy.
 6. Session expires automatically on the router or is closed by an operator command.
 
 ## Docker/Linux Requirement
@@ -28,7 +29,9 @@ The reverse tunnel needs an SSH server reachable by the router. The default comm
 - remote router port: `22`
 - duration: `15 minutes`
 
-The included Compose stack exposes the SSH endpoint on port `2222` and remote-forwarded ports `22000-22099`. See [docker-compose.md](docker-compose.md) for deployment and router key installation.
+The included Compose stack exposes the SSH endpoint on port `2222` and operator SSH ports `22000-22099`. Internal LuCI ports `22100-22199` stay inside the Compose network. See [docker-compose.md](docker-compose.md) for deployment and router key installation.
+
+Select HTTP or HTTPS when opening the session to match the router's LuCI listener. HTTPS supports router-local self-signed certificates inside the tunnel.
 
 ## Safety Rules
 

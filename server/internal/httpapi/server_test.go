@@ -8,12 +8,15 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"rmm-openwrt/server/internal/httpapi"
+	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
 )
 
@@ -263,9 +266,10 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 	}
 
 	var uciCommand struct {
-		ID     string `json:"id"`
-		Type   string `json:"type"`
-		Status string `json:"status"`
+		ID     string          `json:"id"`
+		Type   string          `json:"type"`
+		Status string          `json:"status"`
+		Args   json.RawMessage `json:"args"`
 	}
 	requestJSON(t, http.MethodPost, srv.URL+"/api/devices/"+enrolled.DeviceID+"/commands", "operator-test", map[string]any{
 		"type": "uci_show",
@@ -305,6 +309,7 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 		ServerHost string `json:"server_host"`
 		ServerPort int    `json:"server_port"`
 		RemotePort int    `json:"remote_port"`
+		LuCIPort   int    `json:"luci_port"`
 		LocalPort  int    `json:"local_port"`
 	}
 	requestJSON(t, http.MethodPost, srv.URL+"/api/devices/"+enrolled.DeviceID+"/remote-sessions", "operator-test", map[string]any{
@@ -313,9 +318,10 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 		"server_port":      22,
 		"remote_port":      22022,
 		"local_port":       22,
+		"luci_scheme":      "https",
 		"duration_seconds": 900,
 	}, http.StatusCreated, &remoteSession)
-	if remoteSession.ID == "" || remoteSession.Status != "queued" || remoteSession.CommandID == "" || remoteSession.RemotePort != 22022 {
+	if remoteSession.ID == "" || remoteSession.Status != "queued" || remoteSession.CommandID == "" || remoteSession.RemotePort != 22022 || remoteSession.LuCIPort < 22100 || remoteSession.LuCIPort > 22199 {
 		t.Fatalf("unexpected remote session: %#v", remoteSession)
 	}
 	var remoteSessions struct {
@@ -332,6 +338,9 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 	requestJSON(t, http.MethodGet, srv.URL+"/api/devices/"+enrolled.DeviceID+"/commands/"+remoteSession.CommandID, "operator-test", nil, http.StatusOK, &uciCommand)
 	if uciCommand.Type != "remote_ssh_reverse" || uciCommand.Status != "queued" {
 		t.Fatalf("unexpected remote command: %#v", uciCommand)
+	}
+	if !strings.Contains(string(uciCommand.Args), `"luci_local_port":"443"`) || !strings.Contains(string(uciCommand.Args), `"luci_port":"`) {
+		t.Fatalf("remote command does not include LuCI HTTPS forward: %s", uciCommand.Args)
 	}
 	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/commands/"+remoteSession.CommandID+"/result", enrolled.DeviceToken, map[string]any{
 		"device_id": enrolled.DeviceID,
@@ -393,6 +402,60 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 	requestJSON(t, http.MethodGet, srv.URL+"/api/audit-events?device_id="+enrolled.DeviceID, "operator-test", nil, http.StatusOK, &audit)
 	if len(audit.Events) < 2 {
 		t.Fatalf("expected audit events, got %#v", audit.Events)
+	}
+}
+
+func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Cookie"), "rmm_operator_session=") {
+			t.Fatal("operator session cookie leaked to LuCI upstream")
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, `<a href="/cgi-bin/luci/admin">LuCI</a><link href="/luci-static/test.css">`)
+	}))
+	defer upstream.Close()
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, _ := strings.Cut(upstreamURL.Host, ":")
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "luci.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	enrolled, err := st.EnrollDevice(context.Background(), "router", "OpenWrt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, err := st.CreateRemoteSession(context.Background(), model.RemoteSession{
+		DeviceID:   enrolled.DeviceID,
+		Target:     "ssh",
+		Status:     "active",
+		ServerHost: "tunnel",
+		ServerPort: 2222,
+		RemotePort: 22000,
+		LuCIPort:   port,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		OperatorToken:  "operator-test",
+		TunnelHTTPHost: "127.0.0.1",
+	}))
+	defer srv.Close()
+
+	body := requestText(t, http.MethodGet, srv.URL+"/luci/"+enrolled.DeviceID+"/"+session.ID+"/", "operator-test", nil, http.StatusOK)
+	prefix := "/luci/" + enrolled.DeviceID + "/" + session.ID
+	if !strings.Contains(body, `href="`+prefix+`/cgi-bin/luci/admin"`) || !strings.Contains(body, `href="`+prefix+`/luci-static/test.css"`) {
+		t.Fatalf("LuCI paths were not rewritten: %s", body)
 	}
 }
 

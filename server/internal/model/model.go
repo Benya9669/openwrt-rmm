@@ -80,6 +80,8 @@ type RemoteSession struct {
 	ServerHost string     `json:"server_host,omitempty"`
 	ServerPort int        `json:"server_port,omitempty"`
 	RemotePort int        `json:"remote_port,omitempty"`
+	LuCIPort   int        `json:"luci_port,omitempty"`
+	LuCIScheme string     `json:"luci_scheme,omitempty"`
 	LocalHost  string     `json:"local_host,omitempty"`
 	LocalPort  int        `json:"local_port,omitempty"`
 	CommandID  string     `json:"command_id,omitempty"`
