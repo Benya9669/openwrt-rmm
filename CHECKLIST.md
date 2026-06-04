@@ -81,7 +81,12 @@
   - [x] enrollment/heartbeat;
   - [x] inventory/metrics MVP;
   - [x] command polling/result/spool;
-  - [ ] перенос allowlist команд из shell-agent;
+  - [~] перенос allowlist команд из shell-agent;
+    - [x] `ping`;
+    - [x] `traceroute`;
+    - [x] `route_show`;
+    - [x] `interfaces_show`;
+    - [x] `pkg_list_installed` / `opkg_list_installed`;
   - [ ] OpenWrt cross-build/package integration.
 
 ## Этап 2: MVP Server API

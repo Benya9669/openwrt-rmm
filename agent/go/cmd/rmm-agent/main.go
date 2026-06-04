@@ -272,11 +272,16 @@ func buildMetrics(targets []string) map[string]any {
 }
 
 func processCommand(ctx context.Context, client *http.Client, cfg config, cmd command) {
-	output := fmt.Sprintf("go agent preview does not implement command %q yet; shell agent remains the production command runner", cmd.Type)
+	output, exitCode := runCommand(ctx, cmd)
+	status := "completed"
+	if exitCode != 0 {
+		status = "failed"
+	}
+	output = redactSensitiveOutput(output)
 	result := map[string]any{
 		"device_id": cfg.DeviceID,
-		"status":    "failed",
-		"exit_code": 2,
+		"status":    status,
+		"exit_code": exitCode,
 		"output":    output,
 		"result":    map[string]any{"agent_version": agentVersion, "agent_runtime": "go"},
 	}
@@ -286,6 +291,127 @@ func processCommand(ctx context.Context, client *http.Client, cfg config, cmd co
 			logf("failed to spool result for %s: %v", cmd.ID, err)
 		}
 	}
+}
+
+func runCommand(ctx context.Context, cmd command) (string, int) {
+	args := map[string]string{}
+	if len(cmd.Args) > 0 {
+		_ = json.Unmarshal(cmd.Args, &args)
+	}
+	switch cmd.Type {
+	case "ping":
+		target := commandTarget(args, "1.1.1.1")
+		if !safeHostName(target) {
+			return "target is invalid\n", 2
+		}
+		return execCommand(ctx, 20*time.Second, "ping", "-c", "4", target)
+	case "traceroute":
+		target := commandTarget(args, "1.1.1.1")
+		if !safeHostName(target) {
+			return "target is invalid\n", 2
+		}
+		return execCommand(ctx, 45*time.Second, "traceroute", target)
+	case "route_show":
+		return execCommand(ctx, 10*time.Second, "ip", "route", "show")
+	case "interfaces_show":
+		return execCommand(ctx, 10*time.Second, "ip", "-o", "addr", "show")
+	case "pkg_list_installed", "opkg_list_installed":
+		return runPackageCommand(ctx, "list_installed")
+	default:
+		return fmt.Sprintf("go agent preview does not implement command %q yet; shell agent remains the production command runner\n", cmd.Type), 2
+	}
+}
+
+func commandTarget(args map[string]string, fallback string) string {
+	target := strings.TrimSpace(args["target"])
+	if target == "" {
+		return fallback
+	}
+	return target
+}
+
+func safeHostName(value string) bool {
+	if value == "" || len(value) > 255 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '.', '-', '_', ':', '[', ']':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func runPackageCommand(ctx context.Context, action string) (string, int) {
+	pm := packageManager()
+	switch pm + ":" + action {
+	case "apk:list_installed":
+		return execCommand(ctx, 30*time.Second, "apk", "list", "-I")
+	case "opkg:list_installed":
+		return execCommand(ctx, 30*time.Second, "opkg", "list-installed")
+	default:
+		return "no supported package manager found\n", 2
+	}
+}
+
+func packageManager() string {
+	if _, err := exec.LookPath("apk"); err == nil {
+		return "apk"
+	}
+	if _, err := exec.LookPath("opkg"); err == nil {
+		return "opkg"
+	}
+	return "none"
+}
+
+func execCommand(ctx context.Context, timeout time.Duration, name string, args ...string) (string, int) {
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, name, args...)
+	data, err := cmd.CombinedOutput()
+	output := string(data)
+	if cmdCtx.Err() == context.DeadlineExceeded {
+		return output + "\ncommand timed out\n", 124
+	}
+	if err == nil {
+		return output, 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return output, exitErr.ExitCode()
+	}
+	if output != "" {
+		return output, 1
+	}
+	return err.Error() + "\n", 1
+}
+
+func redactSensitiveOutput(output string) string {
+	words := []string{"private_key", "password", "passwd", "secret", "psk", "token"}
+	lines := strings.Split(output, "\n")
+	for i, line := range lines {
+		lower := strings.ToLower(line)
+		for _, word := range words {
+			if strings.Contains(lower, word) {
+				lines[i] = redactLine(line)
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func redactLine(line string) string {
+	if idx := strings.Index(line, "="); idx >= 0 {
+		return line[:idx+1] + "[redacted]"
+	}
+	return "[redacted]"
 }
 
 func sendCommandResult(ctx context.Context, client *http.Client, cfg config, commandID string, body any) error {

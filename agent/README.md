@@ -50,7 +50,15 @@ agent/go/cmd/rmm-agent
 
 It is protocol-compatible with the server for enrollment, heartbeat, inventory, metrics, command polling, command result reporting, lock handling, backoff, graceful shutdown, and result spooling.
 
-The Go agent is not the production command runner yet. It intentionally reports queued commands as failed with a clear message until the shell allowlist is migrated command by command.
+The Go agent is not the production command runner yet. It currently supports the first read-only command set:
+
+- `ping`
+- `traceroute`
+- `route_show`
+- `interfaces_show`
+- `pkg_list_installed` / `opkg_list_installed`
+
+Other queued commands are reported as failed with a clear message until the shell allowlist is migrated command by command.
 
 Build locally:
 
