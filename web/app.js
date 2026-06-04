@@ -10,6 +10,7 @@ const state = {
   alerts: [],
   remoteSessions: [],
   selectedCommand: null,
+  presetReview: null,
 };
 
 const els = {
@@ -120,6 +121,13 @@ const els = {
   presetWifiSsid: document.querySelector("#presetWifiSsid"),
   presetWifiKey: document.querySelector("#presetWifiKey"),
   presetDhcpLan: document.querySelector("#presetDhcpLan"),
+  presetReviewPanel: document.querySelector("#presetReviewPanel"),
+  presetReviewTitle: document.querySelector("#presetReviewTitle"),
+  presetReviewStatus: document.querySelector("#presetReviewStatus"),
+  presetReviewChange: document.querySelector("#presetReviewChange"),
+  presetReviewOutput: document.querySelector("#presetReviewOutput"),
+  cancelPresetReviewBtn: document.querySelector("#cancelPresetReviewBtn"),
+  applyPresetReviewBtn: document.querySelector("#applyPresetReviewBtn"),
   reloadCommandsBtn: document.querySelector("#reloadCommandsBtn"),
   reloadAuditBtn: document.querySelector("#reloadAuditBtn"),
   commandSummary: document.querySelector("#commandSummary"),
@@ -696,6 +704,7 @@ async function loadDevices() {
 async function selectDevice(id) {
   state.selectedDeviceId = id;
   state.deviceTab = "overview";
+  state.presetReview = null;
   renderDevices();
   renderDeviceDetail(currentDevice());
   await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
@@ -704,6 +713,7 @@ async function selectDevice(id) {
 function showFleet() {
   state.selectedDeviceId = null;
   state.selectedCommand = null;
+  state.presetReview = null;
   renderDevices();
   renderDeviceDetail(null);
 }
@@ -738,6 +748,7 @@ async function loadCommands() {
   const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands?limit=50`);
   state.commands = data.commands || [];
   renderCommands(state.commands);
+  renderPresetReview();
   if (state.selectedCommand) {
     const refreshed = state.commands.find((command) => command.id === state.selectedCommand.id);
     state.selectedCommand = refreshed || null;
@@ -933,13 +944,14 @@ function uciSetArgs() {
 async function createDeviceCommand(type, args, options = {}) {
   if (!state.selectedDeviceId) return;
   if (!options.skipConfirm && !confirmDanger(type)) return;
-  await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands`, {
+  const command = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands`, {
     method: "POST",
     body: JSON.stringify({ type, args }),
   });
   if (!options.skipRefresh) {
     await Promise.all([loadCommands(), loadAudit(), loadAlerts()]);
   }
+  return command;
 }
 
 async function sendBulkCommand() {
@@ -1093,18 +1105,117 @@ function presetCommand(preset) {
   }
 }
 
-async function sendPresetCommand(preset, action) {
+function presetLabel(preset) {
+  return {
+    lan_ip: "LAN-адрес",
+    hostname: "Имя устройства",
+    wifi_ssid: "Название Wi-Fi",
+    wifi_key: "Пароль Wi-Fi",
+    dhcp_lan: "DHCP-сервер",
+  }[preset] || preset;
+}
+
+function presetDisplayValue(preset, value) {
+  if (preset === "wifi_key") return "Новый пароль будет установлен";
+  if (preset === "dhcp_lan") return value === "0" ? "Включен" : "Отключен";
+  return value;
+}
+
+function presetSafeOutput(review, output) {
+  if (review.preset !== "wifi_key") return output || "";
+  return String(output || "").replaceAll(review.args.value, "********");
+}
+
+async function reviewPreset(preset) {
   const args = presetCommand(preset);
   if (!args) return;
   if (!args.value) {
-    setStatus("Preset value is required");
+    setStatus("Заполните значение настройки");
     return;
   }
-  const type = action === "preview" ? "uci_preview" : "uci_set";
-  if (!confirmDanger(type)) return;
-  setStatus(`Queueing ${preset} ${action}`);
-  await createDeviceCommand(type, args, { skipConfirm: true });
-  setStatus(`${preset} ${action} queued`);
+  setStatus("Проверка изменения");
+  const command = await createDeviceCommand("uci_preview", args, { skipConfirm: true });
+  state.presetReview = { preset, args, previewCommandId: command.id, applyCommandIds: [] };
+  renderPresetReview();
+  els.presetReviewPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+  setStatus("Изменение отправлено на проверку");
+}
+
+function renderPresetReview() {
+  const review = state.presetReview;
+  if (!review) {
+    els.presetReviewPanel.classList.add("is-hidden");
+    return;
+  }
+  els.presetReviewPanel.classList.remove("is-hidden");
+  els.presetReviewTitle.textContent = presetLabel(review.preset);
+  els.presetReviewChange.innerHTML = `
+    <span>${escapeHtml(`${review.args.config}.${review.args.section}.${review.args.option}`)}</span>
+    <strong>${escapeHtml(presetDisplayValue(review.preset, review.args.value))}</strong>
+  `;
+  const preview = state.commands.find((command) => command.id === review.previewCommandId);
+  const applying = review.applyCommandIds.map((id) => state.commands.find((command) => command.id === id)).filter(Boolean);
+  const applyFailed = applying.some((command) => ["failed", "cancelled", "expired"].includes(command.status));
+  const applyDone = applying.length === 2 && applying.every((command) => command.status === "completed");
+  if (applyFailed) {
+    els.presetReviewStatus.textContent = "Ошибка применения";
+    els.presetReviewOutput.textContent = presetSafeOutput(review, applying.map((command) => command.output || `${command.type}: ${command.status}`).join("\n\n"));
+    els.applyPresetReviewBtn.disabled = true;
+    return;
+  }
+  if (applyDone) {
+    els.presetReviewStatus.textContent = "Применено безопасно";
+    els.presetReviewOutput.textContent = presetSafeOutput(review, applying.map((command) => command.output || `${command.type}: completed`).join("\n\n"));
+    els.applyPresetReviewBtn.disabled = true;
+    return;
+  }
+  if (applying.length) {
+    els.presetReviewStatus.textContent = "Применяется";
+    els.presetReviewOutput.textContent = "Настройка применяется. После commit confirmed роутер проверит связь с сервером.";
+    els.applyPresetReviewBtn.disabled = true;
+    return;
+  }
+  if (!preview || ["queued", "claimed"].includes(preview.status)) {
+    els.presetReviewStatus.textContent = "Проверяется";
+    els.presetReviewOutput.textContent = "Ожидание результата проверки от роутера...";
+    els.applyPresetReviewBtn.disabled = true;
+    return;
+  }
+  if (preview.status !== "completed") {
+    els.presetReviewStatus.textContent = "Проверка не пройдена";
+    els.presetReviewOutput.textContent = presetSafeOutput(review, preview.output || `Статус: ${preview.status}`);
+    els.applyPresetReviewBtn.disabled = true;
+    return;
+  }
+  els.presetReviewStatus.textContent = "Готово к применению";
+  els.presetReviewOutput.textContent = presetSafeOutput(review, preview.output || "Изменение проверено");
+  els.applyPresetReviewBtn.disabled = false;
+}
+
+async function applyPresetReview() {
+  const review = state.presetReview;
+  if (!review) return;
+  const preview = state.commands.find((command) => command.id === review.previewCommandId);
+  if (!preview || preview.status !== "completed") {
+    setStatus("Сначала дождитесь успешной проверки");
+    return;
+  }
+  if (!window.confirm("Применить проверенное изменение? При потере связи роутер автоматически восстановит конфигурацию.")) return;
+  const staged = await createDeviceCommand("uci_set", review.args, { skipConfirm: true, skipRefresh: true });
+  const confirmed = await createDeviceCommand("uci_commit_confirmed", {
+    config: review.args.config,
+    confirm_seconds: "15",
+  }, { skipConfirm: true, skipRefresh: true });
+  review.applyCommandIds = [staged.id, confirmed.id];
+  await Promise.all([loadCommands(), loadAudit(), loadAlerts()]);
+  renderPresetReview();
+  setStatus("Безопасное применение запущено");
+}
+
+function cancelPresetReview() {
+  state.presetReview = null;
+  renderPresetReview();
+  setStatus("Изменение отменено");
 }
 
 async function cancelCommand(commandId) {
@@ -1264,11 +1375,13 @@ for (const button of document.querySelectorAll(".copy-info-btn")) {
   });
 }
 
-for (const button of document.querySelectorAll(".preset-btn")) {
+for (const button of document.querySelectorAll(".preset-review-btn")) {
   button.addEventListener("click", () => {
-    sendPresetCommand(button.dataset.preset, button.dataset.action).catch((error) => setStatus(error.message));
+    reviewPreset(button.dataset.preset).catch((error) => setStatus(error.message));
   });
 }
+els.applyPresetReviewBtn.addEventListener("click", () => applyPresetReview().catch((error) => setStatus(error.message)));
+els.cancelPresetReviewBtn.addEventListener("click", cancelPresetReview);
 
 for (const button of document.querySelectorAll(".diagnostic-btn")) {
   button.addEventListener("click", () => {

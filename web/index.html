@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OpenWrt RMM</title>
-    <link rel="stylesheet" href="/styles.css?v=5">
+    <link rel="stylesheet" href="/styles.css?v=6">
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -548,44 +548,55 @@
             </div>
             <div class="preset-grid">
               <div class="preset">
-                <h3>LAN IP</h3>
+                <h3>LAN-адрес</h3>
+                <p>Изменяет адрес локальной сети роутера</p>
                 <input id="presetLanIp" type="text" placeholder="10.10.10.1/24">
-                <div>
-                  <button class="preset-btn" data-preset="lan_ip" data-action="preview" type="button">Preview</button>
-                  <button class="preset-btn" data-preset="lan_ip" data-action="stage" type="button">Stage</button>
-                </div>
+                <button class="preset-review-btn" data-preset="lan_ip" type="button">Проверить изменение</button>
               </div>
               <div class="preset">
-                <h3>Hostname</h3>
+                <h3>Имя устройства</h3>
+                <p>Изменяет hostname роутера</p>
                 <input id="presetHostname" type="text" placeholder="OpenWrt">
-                <div>
-                  <button class="preset-btn" data-preset="hostname" data-action="preview" type="button">Preview</button>
-                  <button class="preset-btn" data-preset="hostname" data-action="stage" type="button">Stage</button>
-                </div>
+                <button class="preset-review-btn" data-preset="hostname" type="button">Проверить изменение</button>
               </div>
               <div class="preset">
-                <h3>Wi-Fi</h3>
+                <h3>Название Wi-Fi</h3>
+                <p>Изменяет SSID основной беспроводной сети</p>
                 <input id="presetWifiSsid" type="text" placeholder="SSID">
-                <input id="presetWifiKey" type="password" placeholder="Password">
-                <div>
-                  <button class="preset-btn" data-preset="wifi_ssid" data-action="preview" type="button">SSID preview</button>
-                  <button class="preset-btn" data-preset="wifi_ssid" data-action="stage" type="button">SSID stage</button>
-                  <button class="preset-btn" data-preset="wifi_key" data-action="preview" type="button">Key preview</button>
-                  <button class="preset-btn" data-preset="wifi_key" data-action="stage" type="button">Key stage</button>
-                </div>
+                <button class="preset-review-btn" data-preset="wifi_ssid" type="button">Проверить изменение</button>
               </div>
               <div class="preset">
-                <h3>DHCP LAN</h3>
+                <h3>Пароль Wi-Fi</h3>
+                <p>Изменяет пароль основной беспроводной сети</p>
+                <input id="presetWifiKey" type="password" placeholder="Новый пароль">
+                <button class="preset-review-btn" data-preset="wifi_key" type="button">Проверить изменение</button>
+              </div>
+              <div class="preset">
+                <h3>DHCP-сервер</h3>
+                <p>Включает или отключает выдачу адресов в LAN</p>
                 <select id="presetDhcpLan">
-                  <option value="0">enabled</option>
-                  <option value="1">disabled</option>
+                  <option value="0">Включен</option>
+                  <option value="1">Отключен</option>
                 </select>
-                <div>
-                  <button class="preset-btn" data-preset="dhcp_lan" data-action="preview" type="button">Preview</button>
-                  <button class="preset-btn" data-preset="dhcp_lan" data-action="stage" type="button">Stage</button>
-                </div>
+                <button class="preset-review-btn" data-preset="dhcp_lan" type="button">Проверить изменение</button>
               </div>
             </div>
+            <section id="presetReviewPanel" class="preset-review-panel is-hidden">
+              <div class="preset-review-header">
+                <div>
+                  <span>Подготовленное изменение</span>
+                  <strong id="presetReviewTitle">-</strong>
+                </div>
+                <span id="presetReviewStatus" class="summary-pill">Проверка</span>
+              </div>
+              <div id="presetReviewChange" class="preset-review-change"></div>
+              <pre id="presetReviewOutput" class="preset-review-output">Ожидание результата проверки...</pre>
+              <div class="preset-review-actions">
+                <button id="cancelPresetReviewBtn" type="button">Отменить</button>
+                <button id="applyPresetReviewBtn" class="primary" type="button" disabled>Применить безопасно</button>
+              </div>
+              <p class="preset-safety-note">После применения роутер проверит связь с сервером. Если связь пропадет, конфигурация будет автоматически восстановлена.</p>
+            </section>
           </section>
 
           <section id="commandsPanel" class="panel" data-device-tab="expert">
@@ -631,6 +642,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=12" defer></script>
+    <script src="/app.js?v=13" defer></script>
   </body>
 </html>
