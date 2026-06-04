@@ -222,10 +222,31 @@ wifi_clients_json() {
 	if command -v iwinfo >/dev/null 2>&1; then
 		for iface in $(iwinfo 2>/dev/null | awk '/^[^ ]/ { print $1 }'); do
 			iwinfo "$iface" assoclist 2>/dev/null | awk -v iface="$iface" '
+			function flush() {
+				if (mac != "") {
+					print iface "\t" mac "\t" signal "\t" rx "\t" tx
+				}
+			}
 			/^[0-9A-Fa-f][0-9A-Fa-f]:/ {
+				flush()
 				gsub(/,$/, "", $1)
-				print iface "\t" $1
-			}'
+				mac=$1
+				signal=$2
+				rx=""
+				tx=""
+				next
+			}
+			/^[[:space:]]*RX:/ {
+				sub(/^[[:space:]]*RX:[[:space:]]*/, "")
+				rx=$0
+				next
+			}
+			/^[[:space:]]*TX:/ {
+				sub(/^[[:space:]]*TX:[[:space:]]*/, "")
+				tx=$0
+				next
+			}
+			END { flush() }'
 		done | awk '
 		function esc(v) {
 			gsub(/\\/, "\\\\", v)
@@ -234,11 +255,15 @@ wifi_clients_json() {
 			gsub(/\r/, "\\r", v)
 			return v
 		}
-		BEGIN { printf "[" }
+		BEGIN { FS="\t"; printf "[" }
 		{
 			if (count > 0) { printf "," }
 			count++
-			printf "{\"interface\":\"%s\",\"mac\":\"%s\"}", esc($1), esc($2)
+			printf "{\"interface\":\"%s\",\"mac\":\"%s\"", esc($1), esc($2)
+			if ($3 != "") { printf ",\"signal_dbm\":\"%s\"", esc($3) }
+			if ($4 != "") { printf ",\"rx_rate\":\"%s\"", esc($4) }
+			if ($5 != "") { printf ",\"tx_rate\":\"%s\"", esc($5) }
+			printf "}"
 		}
 		END { printf "]" }'
 		return

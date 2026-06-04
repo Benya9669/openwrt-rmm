@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OpenWrt RMM</title>
-    <link rel="stylesheet" href="/styles.css?v=7">
+    <link rel="stylesheet" href="/styles.css?v=8">
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -381,6 +381,7 @@
               <span>IP-адрес</span>
               <span>MAC-адрес</span>
               <span>Подключение</span>
+              <span>Сигнал / скорость</span>
               <span>Состояние</span>
             </div>
             <div id="clientList" class="client-list"></div>
@@ -410,7 +411,6 @@
               <h2>Проблемы</h2>
               <div class="section-actions">
                 <span id="alertSummary" class="summary-pill">0 active</span>
-                <button id="reloadAlertsBtn" type="button">Обновить</button>
               </div>
             </div>
             <div id="alertList" class="table-list"></div>
@@ -419,9 +419,9 @@
           <section class="panel" data-device-tab="overview">
             <div class="section-title">
               <h2>История мониторинга</h2>
-              <button id="reloadMetricsHistoryBtn" type="button">Обновить</button>
+              <span id="metricsHistorySummary" class="summary-pill">12 замеров</span>
             </div>
-            <div id="metricsHistory" class="table-list"></div>
+            <div id="metricsHistory" class="metrics-chart-grid"></div>
           </section>
 
           <section class="panel" data-device-tab="expert">
@@ -493,7 +493,6 @@
               </div>
               <div class="section-actions">
                 <span id="remoteSummary" class="summary-pill">Нет активных сессий</span>
-                <button id="reloadRemoteSessionsBtn" class="icon-button" type="button" title="Обновить сессии" aria-label="Обновить сессии">↻</button>
               </div>
             </div>
             <div class="remote-quick-form">
@@ -604,7 +603,6 @@
               <h2>История команд</h2>
               <div class="section-actions">
                 <span id="commandSummary" class="summary-pill">0 total</span>
-                <button id="reloadCommandsBtn" type="button">Обновить</button>
               </div>
             </div>
             <div class="filters command-filters">
@@ -623,6 +621,7 @@
               </select>
             </div>
             <div id="commandList" class="table-list"></div>
+            <button id="loadMoreCommandsBtn" class="load-more-btn is-hidden" type="button">Загрузить ещё</button>
           </section>
 
           <section id="commandDetailPanel" class="panel is-hidden" data-device-tab="expert">
@@ -639,15 +638,15 @@
               <h2>Audit</h2>
               <div class="section-actions">
                 <span id="auditSummary" class="summary-pill">0 events</span>
-                <button id="reloadAuditBtn" type="button">Reload</button>
               </div>
             </div>
             <div id="auditList" class="table-list"></div>
+            <button id="loadMoreAuditBtn" class="load-more-btn is-hidden" type="button">Загрузить ещё</button>
           </section>
         </section>
       </main>
     </div>
 
-    <script src="/app.js?v=14" defer></script>
+    <script src="/app.js?v=15" defer></script>
   </body>
 </html>

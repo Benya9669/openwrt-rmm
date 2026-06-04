@@ -7,7 +7,14 @@ const state = {
   clientFilter: "all",
   commandFilter: "all",
   commandStatusFilter: "",
+  commandLimit: 25,
+  commandOffset: 0,
+  commandHasMore: false,
+  auditLimit: 25,
+  auditOffset: 0,
+  auditHasMore: false,
   commands: [],
+  auditEvents: [],
   alerts: [],
   remoteSessions: [],
   selectedCommand: null,
@@ -83,10 +90,9 @@ const els = {
   fleetGroup: document.querySelector("#fleetGroup"),
   fleetTags: document.querySelector("#fleetTags"),
   saveFleetBtn: document.querySelector("#saveFleetBtn"),
-  reloadAlertsBtn: document.querySelector("#reloadAlertsBtn"),
   alertSummary: document.querySelector("#alertSummary"),
   alertList: document.querySelector("#alertList"),
-  reloadMetricsHistoryBtn: document.querySelector("#reloadMetricsHistoryBtn"),
+  metricsHistorySummary: document.querySelector("#metricsHistorySummary"),
   metricsHistory: document.querySelector("#metricsHistory"),
   commandType: document.querySelector("#commandType"),
   commandTarget: document.querySelector("#commandTarget"),
@@ -101,7 +107,6 @@ const els = {
   remoteLuCIScheme: document.querySelector("#remoteLuCIScheme"),
   remoteDuration: document.querySelector("#remoteDuration"),
   createRemoteSessionBtn: document.querySelector("#createRemoteSessionBtn"),
-  reloadRemoteSessionsBtn: document.querySelector("#reloadRemoteSessionsBtn"),
   remoteSummary: document.querySelector("#remoteSummary"),
   remoteSessionList: document.querySelector("#remoteSessionList"),
   uciConfig: document.querySelector("#uciConfig"),
@@ -129,10 +134,10 @@ const els = {
   presetReviewOutput: document.querySelector("#presetReviewOutput"),
   cancelPresetReviewBtn: document.querySelector("#cancelPresetReviewBtn"),
   applyPresetReviewBtn: document.querySelector("#applyPresetReviewBtn"),
-  reloadCommandsBtn: document.querySelector("#reloadCommandsBtn"),
-  reloadAuditBtn: document.querySelector("#reloadAuditBtn"),
   commandSummary: document.querySelector("#commandSummary"),
   commandStatusFilter: document.querySelector("#commandStatusFilter"),
+  loadMoreCommandsBtn: document.querySelector("#loadMoreCommandsBtn"),
+  loadMoreAuditBtn: document.querySelector("#loadMoreAuditBtn"),
   auditSummary: document.querySelector("#auditSummary"),
   commandList: document.querySelector("#commandList"),
   commandDetailPanel: document.querySelector("#commandDetailPanel"),
@@ -598,6 +603,8 @@ function normalizedClients(device) {
       ip: existing.ip || "-",
       mac: station.mac || existing.mac || "-",
       connection: `Wi-Fi ${station.interface || ""}`.trim(),
+      signal: station.signal_dbm ? `${station.signal_dbm} dBm` : "",
+      rate: [station.rx_rate ? `RX ${station.rx_rate}` : "", station.tx_rate ? `TX ${station.tx_rate}` : ""].filter(Boolean).join(" / "),
       type: "wifi",
       online: true,
     });
@@ -627,6 +634,7 @@ function renderClients(device) {
       <span>${escapeHtml(client.ip)}</span>
       <code>${escapeHtml(client.mac)}</code>
       <span>${escapeHtml(client.connection)}</span>
+      <span>${escapeHtml([client.signal, client.rate].filter(Boolean).join(" · ") || "-")}</span>
       <span class="client-online"><i></i>В сети</span>
     `;
     els.clientList.appendChild(row);
@@ -676,15 +684,41 @@ async function loadMetricsHistory() {
 function renderMetricsHistory(samples) {
   els.metricsHistory.innerHTML = "";
   if (samples.length === 0) {
-    els.metricsHistory.textContent = "No history yet";
+    els.metricsHistorySummary.textContent = "Нет замеров";
+    els.metricsHistory.innerHTML = '<div class="inline-empty">История мониторинга появится после нескольких heartbeat от агента</div>';
     return;
   }
-  for (const sample of samples) {
-    const row = document.createElement("div");
-    row.className = "mini-row";
-    row.innerHTML = `<strong>${escapeHtml(formatDate(sample.created_at))}</strong><span>${escapeHtml(formatMemory(sample.metrics && sample.metrics.memory))}</span><small>${escapeHtml(formatDisk(sample.metrics && sample.metrics.disk))}</small>`;
-    els.metricsHistory.appendChild(row);
-  }
+  els.metricsHistorySummary.textContent = `${samples.length} замеров`;
+  const ordered = [...samples].reverse();
+  const memoryPoints = ordered.map((sample) => {
+    const memory = sample.metrics && sample.metrics.memory;
+    return memory && memory.total_kb ? Math.round((Number(memory.used_kb || 0) / Number(memory.total_kb)) * 100) : 0;
+  });
+  const diskPoints = ordered.map((sample) => {
+    const disk = sample.metrics && sample.metrics.disk;
+    return disk && disk.used_percent ? Number(String(disk.used_percent).replace("%", "")) : 0;
+  });
+  const latencyPoints = ordered.map((sample) => {
+    const checks = Array.isArray(sample.metrics && sample.metrics.connectivity_checks) ? sample.metrics.connectivity_checks : [];
+    return Math.max(0, ...checks.filter((check) => check.reachable).map((check) => Number(check.latency_ms || 0)));
+  });
+  els.metricsHistory.appendChild(metricChart("Память", "%", memoryPoints, "warn"));
+  els.metricsHistory.appendChild(metricChart("Хранилище", "%", diskPoints, "good"));
+  els.metricsHistory.appendChild(metricChart("Задержка", "ms", latencyPoints, "accent"));
+}
+
+function metricChart(label, unit, points, tone) {
+  const max = Math.max(1, ...points);
+  const card = document.createElement("div");
+  card.className = `metric-chart ${tone}`;
+  const latest = points.length ? points[points.length - 1] : 0;
+  card.innerHTML = `
+    <div class="metric-chart-title"><span>${escapeHtml(label)}</span><strong>${escapeHtml(latest)} ${escapeHtml(unit)}</strong></div>
+    <div class="metric-bars">
+      ${points.map((point) => `<i style="height:${Math.max(4, Math.round((point / max) * 100))}%"></i>`).join("")}
+    </div>
+  `;
+  return card;
 }
 
 async function loadAlerts() {
@@ -746,6 +780,10 @@ async function selectDevice(id) {
   state.selectedDeviceId = id;
   state.deviceTab = "overview";
   state.presetReview = null;
+  state.commandOffset = 0;
+  state.auditOffset = 0;
+  state.commands = [];
+  state.auditEvents = [];
   renderDevices();
   renderDeviceDetail(currentDevice());
   await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
@@ -755,6 +793,10 @@ function showFleet() {
   state.selectedDeviceId = null;
   state.selectedCommand = null;
   state.presetReview = null;
+  state.commandOffset = 0;
+  state.auditOffset = 0;
+  state.commands = [];
+  state.auditEvents = [];
   renderDevices();
   renderDeviceDetail(null);
 }
@@ -784,17 +826,27 @@ function openLuciOrRemoteAccess() {
   setStatus("Создайте удаленную сессию, затем откройте LuCI");
 }
 
-async function loadCommands() {
+async function loadCommands(options = {}) {
   if (!state.selectedDeviceId) return;
-  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands?limit=50`);
-  state.commands = data.commands || [];
+  const append = Boolean(options.append);
+  const offset = append ? state.commandOffset : 0;
+  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands?limit=${state.commandLimit}&offset=${offset}`);
+  const nextCommands = data.commands || [];
+  state.commands = append ? [...state.commands, ...nextCommands] : nextCommands;
+  state.commandOffset = offset + nextCommands.length;
+  state.commandHasMore = nextCommands.length === state.commandLimit;
   renderCommands(state.commands);
+  renderCommandLoadMore();
   renderPresetReview();
   if (state.selectedCommand) {
     const refreshed = state.commands.find((command) => command.id === state.selectedCommand.id);
     state.selectedCommand = refreshed || null;
     renderCommandDetail(state.selectedCommand);
   }
+}
+
+function renderCommandLoadMore() {
+  els.loadMoreCommandsBtn.classList.toggle("is-hidden", !state.commandHasMore);
 }
 
 function renderCommands(commands) {
@@ -878,10 +930,22 @@ function outputSummary(output) {
   return firstLine.length > 90 ? `${firstLine.slice(0, 90)}...` : firstLine;
 }
 
-async function loadAudit() {
+async function loadAudit(options = {}) {
   if (!state.selectedDeviceId) return;
-  const data = await api(`/api/audit-events?device_id=${encodeURIComponent(state.selectedDeviceId)}&limit=50`);
-  renderAudit(data.audit_events || []);
+  const append = Boolean(options.append);
+  const offset = append ? state.auditOffset : 0;
+  const data = await api(`/api/audit-events?device_id=${encodeURIComponent(state.selectedDeviceId)}&limit=${state.auditLimit}&offset=${offset}`);
+  const events = data.audit_events || [];
+  const allEvents = append ? [...state.auditEvents || [], ...events] : events;
+  state.auditEvents = allEvents;
+  state.auditOffset = offset + events.length;
+  state.auditHasMore = events.length === state.auditLimit;
+  renderAudit(allEvents);
+  renderAuditLoadMore();
+}
+
+function renderAuditLoadMore() {
+  els.loadMoreAuditBtn.classList.toggle("is-hidden", !state.auditHasMore);
 }
 
 function renderAudit(events) {
@@ -1382,11 +1446,8 @@ els.backToFleetBtn.addEventListener("click", showFleet);
 els.quickDiagnosticBtn.addEventListener("click", () => selectDeviceTab("operations"));
 els.openLuciBtn.addEventListener("click", openLuciOrRemoteAccess);
 els.runFullDiagnosticBtn.addEventListener("click", () => runFullDiagnostic().catch((error) => setStatus(error.message)));
-els.reloadCommandsBtn.addEventListener("click", () => loadCommands().catch((error) => setStatus(error.message)));
-els.reloadAuditBtn.addEventListener("click", () => loadAudit().catch((error) => setStatus(error.message)));
-els.reloadAlertsBtn.addEventListener("click", () => loadAlerts().catch((error) => setStatus(error.message)));
-els.reloadMetricsHistoryBtn.addEventListener("click", () => loadMetricsHistory().catch((error) => setStatus(error.message)));
-els.reloadRemoteSessionsBtn.addEventListener("click", () => loadRemoteSessions().catch((error) => setStatus(error.message)));
+els.loadMoreCommandsBtn.addEventListener("click", () => loadCommands({ append: true }).catch((error) => setStatus(error.message)));
+els.loadMoreAuditBtn.addEventListener("click", () => loadAudit({ append: true }).catch((error) => setStatus(error.message)));
 els.sendCommandBtn.addEventListener("click", () => sendCommand().catch((error) => setStatus(error.message)));
 els.sendBulkCommandBtn.addEventListener("click", () => sendBulkCommand().catch((error) => setStatus(error.message)));
 els.saveFleetBtn.addEventListener("click", () => saveFleetMetadata().catch((error) => setStatus(error.message)));

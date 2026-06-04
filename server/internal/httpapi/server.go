@@ -839,7 +839,8 @@ func (a *App) handleListCommands(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	commands, found, err := a.store.ListCommands(r.Context(), deviceID, store.CommandListOptions{Limit: limit})
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	commands, found, err := a.store.ListCommands(r.Context(), deviceID, store.CommandListOptions{Limit: limit, Offset: offset})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load commands")
 		return
@@ -1243,9 +1244,11 @@ func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	events, err := a.store.ListAuditEvents(r.Context(), store.AuditListOptions{
 		DeviceID: r.URL.Query().Get("device_id"),
 		Limit:    limit,
+		Offset:   offset,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load audit events")

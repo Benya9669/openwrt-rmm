@@ -21,7 +21,8 @@ type Store struct {
 }
 
 type CommandListOptions struct {
-	Limit int
+	Limit  int
+	Offset int
 }
 
 type MetricHistoryOptions struct {
@@ -31,6 +32,7 @@ type MetricHistoryOptions struct {
 type AuditListOptions struct {
 	DeviceID string
 	Limit    int
+	Offset   int
 }
 
 type AlertListOptions struct {
@@ -741,14 +743,18 @@ func (s *Store) ListCommands(ctx context.Context, deviceID string, opts CommandL
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
 
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at
 FROM commands
 WHERE device_id = ?
 ORDER BY created_at DESC
-LIMIT ?
-`, deviceID, limit)
+LIMIT ? OFFSET ?
+`, deviceID, limit, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -988,6 +994,10 @@ func (s *Store) ListAuditEvents(ctx context.Context, opts AuditListOptions) ([]m
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
 
 	query := `
 SELECT id, actor, action, device_id, command_id, details_json, created_at
@@ -998,8 +1008,8 @@ FROM audit_events
 		query += `WHERE device_id = ?` + "\n"
 		args = append(args, opts.DeviceID)
 	}
-	query += `ORDER BY created_at DESC LIMIT ?`
-	args = append(args, limit)
+	query += `ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
