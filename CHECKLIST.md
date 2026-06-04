@@ -16,9 +16,9 @@
 - [x] Shell-agent для OpenWrt.
 - [x] HTTP polling вместо постоянного соединения.
 - [x] Operator bearer token для MVP.
-- [~] Command lifecycle: timeout, retry, history.
+- [x] Command lifecycle: timeout, retry, history.
 - [x] OpenWrt package skeleton.
-- [~] Минимальный web UI.
+- [x] Минимальный web UI.
 
 ## Этап 0: Подготовка проекта
 
@@ -54,13 +54,13 @@
   - [x] `ubus call system info`;
   - [x] `/proc/loadavg`;
   - [x] `/proc/uptime`.
-- [~] Добавить расширенный сбор метрик:
-  - [ ] memory usage в нормализованном виде;
-  - [ ] disk usage;
-  - [ ] WAN IP;
-  - [ ] DHCP leases;
-  - [ ] Wi-Fi clients;
-  - [ ] interface counters/errors.
+- [x] Добавить расширенный сбор метрик:
+  - [x] memory usage в нормализованном виде;
+  - [x] disk usage;
+  - [x] WAN IP;
+  - [x] DHCP leases;
+  - [x] Wi-Fi clients;
+  - [x] interface counters/errors.
 - [x] Реализовать polling команд.
 - [x] Реализовать отправку результата команды.
 - [x] Добавить allowlist команд на агенте:
@@ -111,15 +111,15 @@
 - [x] Добавить статус `cancelled`.
 - [x] Добавить отмену команды.
 - [x] Добавить basic audit log.
-- [ ] Добавить request id.
-- [ ] Добавить structured logging.
+- [x] Добавить request id.
+- [x] Добавить structured logging.
 - [ ] Добавить graceful shutdown.
 
 ## Этап 3: MVP Web UI
 
-- [ ] Выбрать frontend stack.
+- [x] Выбрать frontend stack: static HTML/CSS/JS.
 - [x] Создать `web/`.
-- [~] Добавить настройку API base URL.
+- [x] Добавить настройку API base URL: same-origin API.
 - [x] Добавить ввод/хранение operator token для MVP.
 - [x] Реализовать список устройств.
 - [x] Показать online/offline.
@@ -140,9 +140,9 @@
 - [x] Добавить поля/индексы для lifecycle, если текущей схемы недостаточно.
 - [x] Определить таймаут `claimed` команд.
 - [x] Вернуть зависшие `claimed` команды в `queued` или `expired`.
-- [ ] Добавить `expires_at`.
+- [x] Добавить `expires_at`.
 - [x] Добавить `attempt_count`.
-- [ ] Добавить `max_attempts`.
+- [x] Добавить `max_attempts`.
 - [x] Добавить `cancelled`.
 - [x] Добавить endpoint отмены команды.
 - [x] Добавить command history per device.
@@ -160,7 +160,7 @@
   - [x] `/etc/rmm-agent.conf`;
   - [ ] `/etc/config/rmm-agent`.
 - [ ] Добавить postinst/prerm scripts.
-- [ ] Проверить установку на OpenWrt.
+- [~] Проверить установку на OpenWrt.
 - [x] Описать build/install flow в `docs/openwrt.md`.
 
 ## Этап 6: Security Hardening
@@ -171,7 +171,7 @@
 - [x] Allowlist команд на сервере.
 - [x] Allowlist команд на агенте.
 - [x] Redaction sensitive command output.
-- [~] Audit log для operator actions.
+- [x] Audit log для operator actions.
 - [ ] Audit log для agent actions.
 - [ ] Token rotation для устройств.
 - [ ] Secure enrollment flow вместо постоянного shared token.
@@ -185,63 +185,63 @@
 
 ## Этап 7: OpenWrt Configuration Management
 
-- [~] Спроектировать safe UCI operation model.
+- [x] Спроектировать safe UCI operation model.
 - [x] Добавить read-only UCI inventory command.
 - [x] Добавить backup текущей конфигурации.
-- [~] Добавить preview diff.
-- [~] Добавить apply/commit/revert workflow.
+- [x] Добавить preview diff.
+- [x] Добавить apply/commit/revert workflow.
 - [x] Добавить restore из последнего локального backup.
 - [x] Добавить commit with connectivity confirmation.
-- [~] Управление Wi-Fi SSID.
+- [x] Управление Wi-Fi SSID.
 - [ ] Управление firewall rules.
-- [~] Управление DHCP.
+- [x] Управление DHCP.
 - [ ] Управление static routes.
 - [ ] Тесты на недопустимые изменения.
 
 ## Этап 8: Monitoring And Alerts
 
 - [x] Online/offline detection на основе `last_seen_at`.
-- [~] Базовые system metrics через heartbeat.
+- [x] Базовые system metrics через heartbeat.
 - [ ] История heartbeat.
-- [ ] Хранение временных рядов метрик.
-- [ ] WAN status.
-- [ ] Packet loss checks.
-- [ ] Latency checks.
-- [ ] Alert rules.
-- [ ] Alert state.
+- [x] Хранение временных рядов метрик.
+- [x] WAN status.
+- [x] Packet loss checks.
+- [x] Latency checks.
+- [x] Alert rules.
+- [x] Alert state.
 - [ ] Email notification.
 - [ ] Telegram notification.
 - [ ] Webhook notification.
 
 ## Этап 9: Remote Access
 
-- [ ] Спроектировать reverse tunnel.
-- [ ] Выбрать транспорт tunnel.
-- [ ] Временный SSH-доступ через сервер.
+- [x] Спроектировать reverse tunnel.
+- [x] Выбрать транспорт tunnel.
+- [x] Временный SSH-доступ через сервер.
 - [ ] Browser-based terminal.
-- [ ] TCP port forwarding.
-- [ ] Доступ к LuCI через tunnel.
-- [ ] Ограничение доступа по времени.
-- [ ] Audit events для remote sessions.
+- [x] TCP port forwarding.
+- [x] Доступ к LuCI через tunnel.
+- [x] Ограничение доступа по времени.
+- [x] Audit events для remote sessions.
 
 ## Этап 10: Packages And Updates
 
 - [x] Команда `opkg_list_installed`.
 - [ ] Нормализованный список установленных пакетов.
-- [ ] `opkg update`.
-- [ ] Проверка доступных обновлений.
-- [ ] Установка пакета.
-- [ ] Удаление пакета.
+- [x] `opkg update`.
+- [x] Проверка доступных обновлений.
+- [x] Установка пакета.
+- [x] Удаление пакета.
 - [ ] История изменений пакетов.
-- [ ] Защита опасных операций подтверждением.
-- [ ] Совместимость с конкретными версиями OpenWrt.
+- [x] Защита опасных операций подтверждением.
+- [~] Совместимость с конкретными версиями OpenWrt.
 
 ## Этап 11: Fleet Management
 
-- [ ] Группы устройств.
-- [ ] Теги.
-- [ ] Поиск и фильтры.
-- [ ] Массовые команды.
+- [x] Группы устройств.
+- [x] Теги.
+- [x] Поиск и фильтры.
+- [x] Массовые команды.
 - [ ] Rollout limits.
 - [ ] Canary-группы.
 - [ ] Политики.
@@ -250,13 +250,13 @@
 
 ## Этап 12: Production Hardening
 
-- [ ] Structured logging.
+- [x] Structured logging.
 - [ ] Server metrics.
 - [ ] Health checks глубже, чем `/healthz`.
 - [ ] DB backup/restore.
 - [ ] Версионированные миграции.
 - [ ] Graceful shutdown.
-- [ ] Retry policies.
+- [~] Retry policies.
 - [ ] E2E tests agent-server.
 - [ ] Load tests.
 - [ ] CI pipeline.
@@ -277,15 +277,15 @@
 - [x] Basic audit log.
 - [x] Web UI показывает устройство online.
 - [x] OpenWrt package устанавливает агент как service.
-- [ ] MVP проверен на реальном OpenWrt-устройстве.
+- [x] MVP проверен на реальном OpenWrt-устройстве.
 
 ## Ближайшие задачи
 
 1. [ ] Собрать `rmm-agent.ipk` в OpenWrt buildroot.
-2. [ ] Проверить агента на реальном OpenWrt.
+2. [x] Проверить агента на реальном OpenWrt.
 3. [x] Создать минимальный web UI.
-4. [ ] Добавить расширенные metrics/inventory.
-5. [ ] Добавить `max_attempts` и более явный command expiry.
+4. [x] Добавить расширенные metrics/inventory.
+5. [x] Добавить `max_attempts` и более явный command expiry.
 6. [x] Начать UCI managed configuration.
 7. [x] Добавить UCI backup command.
 8. [x] Добавить UCI preview command.
