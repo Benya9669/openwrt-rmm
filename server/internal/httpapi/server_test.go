@@ -412,6 +412,12 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 			http.Error(w, "rejected host", http.StatusForbidden)
 			return
 		}
+		for _, header := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Port", "X-Forwarded-Proto", "X-Real-IP", "Origin", "Referer"} {
+			if r.Header.Get(header) != "" {
+				http.Error(w, "rejected forwarded request", http.StatusForbidden)
+				return
+			}
+		}
 		if strings.Contains(r.Header.Get("Cookie"), "rmm_operator_session=") {
 			t.Fatal("operator session cookie leaked to LuCI upstream")
 		}
@@ -478,6 +484,14 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 			t.Fatal(err)
 		}
 		req.Header.Set("Authorization", "Bearer operator-test")
+		req.Header.Set("Forwarded", "for=203.0.113.10;proto=https")
+		req.Header.Set("X-Forwarded-For", "203.0.113.10")
+		req.Header.Set("X-Forwarded-Host", "rmm.example.test")
+		req.Header.Set("X-Forwarded-Port", "443")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Real-IP", "203.0.113.10")
+		req.Header.Set("Origin", "https://rmm.example.test")
+		req.Header.Set("Referer", "https://rmm.example.test/luci/")
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)

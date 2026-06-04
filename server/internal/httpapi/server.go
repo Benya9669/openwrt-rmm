@@ -1122,6 +1122,15 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 		req.Host = "127.0.0.1"
 		req.Header.Set("Host", "127.0.0.1")
 		req.Header.Del("Accept-Encoding")
+		req.Header.Del("Forwarded")
+		req.Header.Del("X-Forwarded-Host")
+		req.Header.Del("X-Forwarded-Port")
+		req.Header.Del("X-Forwarded-Proto")
+		req.Header.Del("X-Real-IP")
+		req.Header.Del("Origin")
+		req.Header.Del("Referer")
+		// A nil slice tells ReverseProxy not to append the operator address.
+		req.Header["X-Forwarded-For"] = nil
 		removeCookie(req, operatorSessionCookie)
 		removeCookie(req, luciRouteCookie)
 	}
