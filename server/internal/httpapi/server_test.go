@@ -406,10 +406,15 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 }
 
 func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
+	var upstreamPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Cookie"), "rmm_operator_session=") {
 			t.Fatal("operator session cookie leaked to LuCI upstream")
 		}
+		if strings.Contains(r.Header.Get("Cookie"), "rmm_luci_route=") {
+			t.Fatal("LuCI route cookie leaked to LuCI upstream")
+		}
+		upstreamPath = r.URL.Path
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = io.WriteString(w, `<a href="/cgi-bin/luci/admin">LuCI</a><link href="/luci-static/test.css">`)
 	}))
@@ -456,6 +461,30 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	prefix := "/luci/" + enrolled.DeviceID + "/" + session.ID
 	if !strings.Contains(body, `href="`+prefix+`/cgi-bin/luci/admin"`) || !strings.Contains(body, `href="`+prefix+`/luci-static/test.css"`) {
 		t.Fatalf("LuCI paths were not rewritten: %s", body)
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	for _, path := range []string{prefix + "/", "/cgi-bin/luci/admin"} {
+		req, err := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer operator-test")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("LuCI route %s returned %d", path, resp.StatusCode)
+		}
+	}
+	if upstreamPath != "/cgi-bin/luci/admin" {
+		t.Fatalf("LuCI fallback used upstream path %q", upstreamPath)
 	}
 }
 

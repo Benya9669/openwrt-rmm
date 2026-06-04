@@ -76,6 +76,7 @@ type App struct {
 type contextKey string
 
 const requestIDContextKey contextKey = "request_id"
+const luciRouteCookie = "rmm_luci_route"
 
 type enrollRequest struct {
 	EnrollmentToken string `json:"enrollment_token"`
@@ -181,6 +182,10 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("GET /api/audit-events", a.operatorAuth(http.HandlerFunc(a.handleListAuditEvents)))
 	mux.Handle("GET /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
 	mux.Handle("POST /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
+	for _, path := range []string{"/cgi-bin/", "/luci-static/", "/ubus/", "/ubus"} {
+		mux.Handle("GET "+path, a.operatorAuth(http.HandlerFunc(a.handleLuCIFallback)))
+		mux.Handle("POST "+path, a.operatorAuth(http.HandlerFunc(a.handleLuCIFallback)))
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -1055,6 +1060,37 @@ func (a *App) handleLuCIProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	deviceID, sessionID := parts[0], parts[1]
+	http.SetCookie(w, &http.Cookie{
+		Name:     luciRouteCookie,
+		Value:    deviceID + "|" + sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   a.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   2 * 60 * 60,
+	})
+	upstreamPath := "/"
+	if len(parts) == 3 && parts[2] != "" {
+		upstreamPath += parts[2]
+	}
+	a.proxyLuCI(w, r, deviceID, sessionID, upstreamPath)
+}
+
+func (a *App) handleLuCIFallback(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(luciRouteCookie)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no active LuCI route selected")
+		return
+	}
+	deviceID, sessionID, ok := strings.Cut(cookie.Value, "|")
+	if !ok || deviceID == "" || sessionID == "" {
+		writeError(w, http.StatusNotFound, "invalid LuCI route")
+		return
+	}
+	a.proxyLuCI(w, r, deviceID, sessionID, r.URL.Path)
+}
+
+func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessionID, upstreamPath string) {
 	session, found, err := a.store.GetRemoteSession(r.Context(), deviceID, sessionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load LuCI session")
@@ -1080,15 +1116,24 @@ func (a *App) handleLuCIProxy(w http.ResponseWriter, r *http.Request) {
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
-		req.URL.Path = "/"
-		if len(parts) == 3 && parts[2] != "" {
-			req.URL.Path += parts[2]
-		}
+		req.URL.Path = upstreamPath
 		req.Host = upstream.Host
 		req.Header.Del("Accept-Encoding")
 		removeCookie(req, operatorSessionCookie)
+		removeCookie(req, luciRouteCookie)
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.StatusCode >= 400 {
+			logStructured(map[string]any{
+				"event":        "luci.upstream_error",
+				"request_id":   requestID(r.Context()),
+				"device_id":    deviceID,
+				"session_id":   sessionID,
+				"path":         upstreamPath,
+				"status":       resp.StatusCode,
+				"content_type": resp.Header.Get("Content-Type"),
+			})
+		}
 		rewriteLuCIHeaders(resp.Header, prefix)
 		contentType := resp.Header.Get("Content-Type")
 		if !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "javascript") && !strings.Contains(contentType, "text/css") {
