@@ -408,6 +408,10 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	var upstreamPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "127.0.0.1" {
+			http.Error(w, "rejected host", http.StatusForbidden)
+			return
+		}
 		if strings.Contains(r.Header.Get("Cookie"), "rmm_operator_session=") {
 			t.Fatal("operator session cookie leaked to LuCI upstream")
 		}

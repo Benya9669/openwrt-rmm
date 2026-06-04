@@ -1117,7 +1117,10 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.URL.Path = upstreamPath
-		req.Host = upstream.Host
+		// uhttpd's RFC1918/DNS-rebinding protection rejects LuCI CGI requests
+		// whose Host points at the Docker tunnel service instead of the router.
+		req.Host = "127.0.0.1"
+		req.Header.Set("Host", "127.0.0.1")
 		req.Header.Del("Accept-Encoding")
 		removeCookie(req, operatorSessionCookie)
 		removeCookie(req, luciRouteCookie)
