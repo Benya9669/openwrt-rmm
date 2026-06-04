@@ -1,6 +1,6 @@
 # OpenWrt RMM Agent
 
-MVP shell agent for OpenWrt.
+Production MVP shell agent for OpenWrt, plus an experimental Go agent preview.
 
 The agent uses outbound HTTP polling:
 
@@ -38,6 +38,30 @@ DEVICE_TOKEN="..."
 
 ```sh
 sh ./agent/openwrt/rmm-agent.sh
+```
+
+## Go Agent Preview
+
+The Go agent lives at:
+
+```text
+agent/go/cmd/rmm-agent
+```
+
+It is protocol-compatible with the server for enrollment, heartbeat, inventory, metrics, command polling, command result reporting, lock handling, backoff, graceful shutdown, and result spooling.
+
+The Go agent is not the production command runner yet. It intentionally reports queued commands as failed with a clear message until the shell allowlist is migrated command by command.
+
+Build locally:
+
+```sh
+go build -o ./tmp/rmm-agent-go ./agent/go/cmd/rmm-agent
+```
+
+Run once against an existing config:
+
+```sh
+./tmp/rmm-agent-go -config /etc/rmm-agent.conf -once
 ```
 
 ## OpenWrt Package

@@ -74,6 +74,15 @@
 - [x] Добавить backoff при сетевых ошибках.
 - [x] Добавить lock-файл, чтобы не запускать несколько копий агента.
 - [ ] Добавить shell syntax check в CI/dev scripts.
+- [~] Начать Go-agent migration:
+  - [x] skeleton `agent/go/cmd/rmm-agent`;
+  - [x] config `/etc/rmm-agent.conf`;
+  - [x] lock/backoff/graceful shutdown;
+  - [x] enrollment/heartbeat;
+  - [x] inventory/metrics MVP;
+  - [x] command polling/result/spool;
+  - [ ] перенос allowlist команд из shell-agent;
+  - [ ] OpenWrt cross-build/package integration.
 
 ## Этап 2: MVP Server API
 
