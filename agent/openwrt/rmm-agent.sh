@@ -12,6 +12,7 @@ SPOOL_DIR="${SPOOL_DIR:-/tmp/rmm-agent-results}"
 BACKUP_DIR="${BACKUP_DIR:-/tmp/rmm-agent-backups}"
 CHECK_TARGETS="${CHECK_TARGETS:-1.1.1.1 8.8.8.8}"
 TUNNEL_IDENTITY_FILE="${TUNNEL_IDENTITY_FILE:-/etc/rmm-agent/tunnel_key}"
+TUNNEL_STATE_DIR="${TUNNEL_STATE_DIR:-/tmp/rmm-agent-tunnels}"
 
 if [ -f "$CONFIG_FILE" ]; then
 	# shellcheck disable=SC1090
@@ -418,6 +419,12 @@ safe_user_name() {
 	[ -z "$clean" ]
 }
 
+safe_session_id() {
+	[ -n "$1" ] || return 1
+	clean="$(printf '%s' "$1" | tr -d 'A-Za-z0-9_-')"
+	[ -z "$clean" ]
+}
+
 package_manager() {
 	if command -v apk >/dev/null 2>&1; then
 		printf 'apk'
@@ -555,7 +562,7 @@ remote_ssh_reverse_output() {
 	[ -n "$server_user" ] || server_user="rmm-tunnel"
 	[ -n "$duration_seconds" ] || duration_seconds="900"
 
-	if ! safe_host_name "$server_host" || ! safe_host_name "$local_host" || ! safe_user_name "$server_user"; then
+	if ! safe_session_id "$session_id" || ! safe_host_name "$server_host" || ! safe_host_name "$local_host" || ! safe_user_name "$server_user"; then
 		printf 'remote tunnel host or user is invalid\n'
 		return 2
 	fi
@@ -565,6 +572,9 @@ remote_ssh_reverse_output() {
 	fi
 
 	log_file="/tmp/rmm-remote-${session_id:-session}.log"
+	mkdir -p "$TUNNEL_STATE_DIR"
+	pid_file="$TUNNEL_STATE_DIR/$session_id.pid"
+	remote_ssh_stop_session "$session_id" >/dev/null 2>&1 || true
 	rm -f "$log_file"
 	identity_args=""
 	if [ -f "$TUNNEL_IDENTITY_FILE" ]; then
@@ -572,18 +582,20 @@ remote_ssh_reverse_output() {
 	fi
 	if command -v ssh >/dev/null 2>&1; then
 		# shellcheck disable=SC2086
-		(ssh $identity_args -N -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host"; printf 'ssh exited with code %s\n' "$?" >> "$log_file") >> "$log_file" 2>&1 &
+		ssh $identity_args -N -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host" >> "$log_file" 2>&1 &
 	elif command -v dbclient >/dev/null 2>&1; then
 		# shellcheck disable=SC2086
-		(dbclient $identity_args -N -y -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host"; printf 'dbclient exited with code %s\n' "$?" >> "$log_file") >> "$log_file" 2>&1 &
+		dbclient $identity_args -N -y -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host" >> "$log_file" 2>&1 &
 	else
 		printf 'remote ssh reverse requires ssh or dbclient on router\n'
 		return 2
 	fi
 	pid="$!"
-	(sleep "$duration_seconds"; kill "$pid" >/dev/null 2>&1 || true) >/dev/null 2>&1 &
+	printf '%s\n' "$pid" > "$pid_file"
+	(sleep "$duration_seconds"; remote_ssh_stop_pid "$session_id" "$pid") >/dev/null 2>&1 &
 	sleep 2
 	if ! kill -0 "$pid" >/dev/null 2>&1; then
+		rm -f "$pid_file"
 		printf 'remote ssh reverse failed to stay running\n'
 		cat "$log_file" 2>/dev/null
 		return 1
@@ -593,6 +605,61 @@ remote_ssh_reverse_output() {
 	printf 'operator endpoint: %s:%s -> %s:%s\n' "$server_host" "$remote_port" "$local_host" "$local_port"
 	printf 'log=%s\n' "$log_file"
 	return 0
+}
+
+remote_ssh_stop_pid() {
+	session_id="$1"
+	expected_pid="$2"
+	pid_file="$TUNNEL_STATE_DIR/$session_id.pid"
+	[ -f "$pid_file" ] || return 0
+	pid="$(cat "$pid_file" 2>/dev/null)"
+	[ "$pid" = "$expected_pid" ] || return 0
+	case "$pid" in
+		''|*[!0-9]*)
+			rm -f "$pid_file"
+			return 1
+			;;
+	esac
+	kill "$pid" >/dev/null 2>&1 || true
+	rm -f "$pid_file"
+}
+
+remote_ssh_stop_session() {
+	session_id="$1"
+	remote_port="${2:-}"
+	if ! safe_session_id "$session_id"; then
+		printf 'remote session id is invalid\n'
+		return 2
+	fi
+	pid_file="$TUNNEL_STATE_DIR/$session_id.pid"
+	if [ ! -f "$pid_file" ]; then
+		if safe_port "$remote_port"; then
+			for cmdline in /proc/[0-9]*/cmdline; do
+				[ -f "$cmdline" ] || continue
+				command_line="$(tr '\000' ' ' < "$cmdline" 2>/dev/null)"
+				case "$command_line" in
+					*ssh*" -R $remote_port:"*|*dbclient*" -R $remote_port:"*)
+						pid="$(printf '%s' "$cmdline" | cut -d/ -f3)"
+						kill "$pid" >/dev/null 2>&1 || true
+						printf 'remote ssh session stopped by port\n'
+						return 0
+						;;
+				esac
+			done
+		fi
+		printf 'remote ssh session is already stopped\n'
+		return 0
+	fi
+	pid="$(cat "$pid_file" 2>/dev/null)"
+	remote_ssh_stop_pid "$session_id" "$pid"
+	printf 'remote ssh session stopped\n'
+}
+
+remote_ssh_close_output() {
+	args="$1"
+	session_id="$(command_arg_string "$args" "session_id")"
+	remote_port="$(command_arg_string "$args" "remote_port")"
+	remote_ssh_stop_session "$session_id" "$remote_port"
 }
 
 run_command() {
@@ -740,6 +807,10 @@ run_command() {
 			;;
 		remote_ssh_reverse)
 			remote_ssh_reverse_output "$args"
+			return $?
+			;;
+		remote_ssh_close)
+			remote_ssh_close_output "$args"
 			return $?
 			;;
 		*)

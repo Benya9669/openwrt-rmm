@@ -329,6 +329,7 @@ Allowed command types:
 - `uci_revert`
 - `uci_restore`
 - `remote_ssh_reverse`
+- `remote_ssh_close`
 
 Package commands are package-manager aware on the agent. OpenWrt 25.12+ uses `apk`; older releases usually use `opkg`. Legacy `opkg_*` command names are still accepted for compatibility, but the UI uses `pkg_*`.
 

@@ -17,7 +17,7 @@ Remote access is now implemented as an MVP reverse SSH session flow. The server 
 3. Server queues `remote_ssh_reverse` for the router.
 4. Agent runs `ssh` or `dbclient` and requests `-R remote_port:127.0.0.1:22`.
 5. Operator connects to the server endpoint shown by the UI.
-6. Session expires automatically or is closed by the operator.
+6. Session expires automatically on the router or is closed by an operator command.
 
 ## Docker/Linux Requirement
 

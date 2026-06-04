@@ -1020,7 +1020,7 @@ func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	session, found, err := a.store.CloseRemoteSession(r.Context(), deviceID, sessionID)
+	session, found, err := a.store.GetRemoteSession(r.Context(), deviceID, sessionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to close remote session")
 		return
@@ -1029,9 +1029,24 @@ func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "remote session not found")
 		return
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "remote_session.close", deviceID, session.CommandID, mustJSON(map[string]string{
-		"session_id": sessionID,
-		"request_id": requestID(r.Context()),
+	closeCommand, commandFound, err := a.store.CreateCommand(r.Context(), deviceID, "remote_ssh_close", mustJSON(map[string]string{
+		"session_id":  session.ID,
+		"remote_port": strconv.Itoa(session.RemotePort),
+	}))
+	if err != nil || !commandFound {
+		writeError(w, http.StatusInternalServerError, "failed to queue remote session close")
+		return
+	}
+	session, _, err = a.store.CloseRemoteSession(r.Context(), deviceID, sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to close remote session")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "remote_session.close", deviceID, closeCommand.ID, mustJSON(map[string]string{
+		"session_id":       sessionID,
+		"open_command_id":  session.CommandID,
+		"close_command_id": closeCommand.ID,
+		"request_id":       requestID(r.Context()),
 	}))
 	writeJSON(w, http.StatusOK, session)
 }
@@ -1090,7 +1105,7 @@ func bearerToken(r *http.Request) (string, bool) {
 
 func AllowedCommandType(t string) bool {
 	switch t {
-	case "ping", "traceroute", "route_show", "interfaces_show", "reboot", "service_restart", "pkg_list_installed", "pkg_update", "pkg_list_upgradable", "pkg_install", "pkg_remove", "opkg_list_installed", "opkg_update", "opkg_list_upgradable", "opkg_install", "opkg_remove", "uci_show", "uci_backup", "uci_preview", "uci_set", "uci_commit", "uci_commit_confirmed", "uci_revert", "uci_restore", "remote_ssh_reverse":
+	case "ping", "traceroute", "route_show", "interfaces_show", "reboot", "service_restart", "pkg_list_installed", "pkg_update", "pkg_list_upgradable", "pkg_install", "pkg_remove", "opkg_list_installed", "opkg_update", "opkg_list_upgradable", "opkg_install", "opkg_remove", "uci_show", "uci_backup", "uci_preview", "uci_set", "uci_commit", "uci_commit_confirmed", "uci_revert", "uci_restore", "remote_ssh_reverse", "remote_ssh_close":
 		return true
 	default:
 		return false

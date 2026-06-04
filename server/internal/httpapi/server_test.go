@@ -348,6 +348,22 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 	if remoteSession.Status != "closed" {
 		t.Fatalf("expected closed remote session, got %#v", remoteSession)
 	}
+	var commandsAfterClose struct {
+		Commands []struct {
+			Type string          `json:"type"`
+			Args json.RawMessage `json:"args"`
+		} `json:"commands"`
+	}
+	requestJSON(t, http.MethodGet, srv.URL+"/api/devices/"+enrolled.DeviceID+"/commands", "operator-test", nil, http.StatusOK, &commandsAfterClose)
+	foundRemoteClose := false
+	for _, command := range commandsAfterClose.Commands {
+		if command.Type == "remote_ssh_close" && strings.Contains(string(command.Args), remoteSession.ID) {
+			foundRemoteClose = true
+		}
+	}
+	if !foundRemoteClose {
+		t.Fatalf("expected remote_ssh_close command, got %#v", commandsAfterClose.Commands)
+	}
 
 	var devices struct {
 		Devices []struct {
