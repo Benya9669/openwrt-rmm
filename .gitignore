@@ -8,8 +8,8 @@ rmm.db
 /tmp/
 /.gocache/
 /.gopath/
-rmm-server
-rmm-server.exe
+/rmm-server
+/rmm-server.exe
 *.exe~
 deploy/tunnel/data/
 secrets/
