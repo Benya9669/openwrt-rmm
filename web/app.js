@@ -22,10 +22,17 @@ const els = {
   apiState: document.querySelector("#apiState"),
   refreshBtn: document.querySelector("#refreshBtn"),
   deviceList: document.querySelector("#deviceList"),
+  fleetView: document.querySelector("#fleetView"),
+  fleetTotalCount: document.querySelector("#fleetTotalCount"),
+  fleetOnlineCount: document.querySelector("#fleetOnlineCount"),
+  fleetOfflineCount: document.querySelector("#fleetOfflineCount"),
+  fleetAlertCount: document.querySelector("#fleetAlertCount"),
+  navAlertCount: document.querySelector("#navAlertCount"),
   statusLine: document.querySelector("#statusLine"),
   pageTitle: document.querySelector("#pageTitle"),
   emptyState: document.querySelector("#emptyState"),
   deviceView: document.querySelector("#deviceView"),
+  backToFleetBtn: document.querySelector("#backToFleetBtn"),
   deviceName: document.querySelector("#deviceName"),
   deviceMeta: document.querySelector("#deviceMeta"),
   deviceBadge: document.querySelector("#deviceBadge"),
@@ -269,6 +276,26 @@ function deviceDisplayName(device) {
   return device.id || "unknown";
 }
 
+function deviceModel(device) {
+  return device && device.inventory && device.inventory.board && device.inventory.board.model
+    ? device.inventory.board.model
+    : "-";
+}
+
+function deviceClientCount(device) {
+  const leases = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases.length : 0;
+  const wifi = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients.length : 0;
+  return { leases, wifi, total: Math.max(leases, wifi) };
+}
+
+function deviceWanSummary(device) {
+  const wanIP = device.inventory && device.inventory.wan_ip;
+  const checks = Array.isArray(device.metrics && device.metrics.connectivity_checks) ? device.metrics.connectivity_checks : [];
+  if (!device.online) return { label: "Нет данных", className: "offline" };
+  if (checks.some((check) => !check.reachable)) return { label: wanIP || "Есть потери связи", className: "warning" };
+  return { label: wanIP || "Подключено", className: "online" };
+}
+
 function filteredDevices() {
   const search = els.fleetSearch.value.trim().toLowerCase();
   const group = els.fleetGroupFilter.value.trim().toLowerCase();
@@ -284,6 +311,8 @@ function filteredDevices() {
         deviceDisplayName(device),
         device.id,
         device.openwrt_version,
+        deviceModel(device),
+        device.inventory && device.inventory.wan_ip,
         device.group,
         ...(device.tags || []),
       ].join(" ").toLowerCase();
@@ -296,27 +325,46 @@ function filteredDevices() {
 function renderDevices() {
   const devices = filteredDevices();
   els.deviceList.innerHTML = "";
+  const online = state.devices.filter((device) => device.online).length;
+  const alerts = state.devices.filter((device) => device.active_alerts).length;
+  els.fleetTotalCount.textContent = state.devices.length;
+  els.fleetOnlineCount.textContent = online;
+  els.fleetOfflineCount.textContent = state.devices.length - online;
+  els.fleetAlertCount.textContent = alerts;
+  els.navAlertCount.textContent = alerts;
 
   if (devices.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "device-item";
-    empty.textContent = "No devices";
-    els.deviceList.appendChild(empty);
+    els.emptyState.classList.remove("is-hidden");
     return;
   }
+  els.emptyState.classList.add("is-hidden");
 
   for (const device of devices) {
     const displayName = deviceDisplayName(device);
+    const clients = deviceClientCount(device);
+    const wan = deviceWanSummary(device);
     const item = document.createElement("button");
     item.type = "button";
     item.className = `device-item ${device.id === state.selectedDeviceId ? "is-selected" : ""}`;
     item.innerHTML = `
-      <div class="device-line">
+      <span class="fleet-status ${device.online ? "online" : "offline"}">
+        <i></i>${device.online ? "На связи" : "Не на связи"}
+      </span>
+      <div class="device-identity">
         <strong>${escapeHtml(displayName)}</strong>
-        ${device.active_alerts ? `<b class="device-alert-count">${device.active_alerts}</b>` : ""}
+        <small>${escapeHtml(device.openwrt_version || device.id)}</small>
       </div>
-      <span>${device.online ? "online" : "offline"} - ${escapeHtml(device.openwrt_version || "unknown")}</span>
-      <span>${escapeHtml([device.group || "", ...(device.tags || [])].filter(Boolean).join(" / ") || device.id)}</span>
+      <div class="device-context">
+        <span>${escapeHtml(deviceModel(device))}</span>
+        <small>${escapeHtml([device.group || "", ...(device.tags || [])].filter(Boolean).join(" / ") || "Без группы")}</small>
+      </div>
+      <span class="wan-state ${wan.className}">${escapeHtml(wan.label)}</span>
+      <span class="client-count">${clients.total}</span>
+      <span class="${device.active_alerts ? "problem-count has-problems" : "problem-count"}">
+        ${device.active_alerts ? `${device.active_alerts} активн.` : "Нет"}
+      </span>
+      <span class="last-contact">${escapeHtml(formatDate(device.last_seen_at))}</span>
+      <span class="row-chevron">›</span>
     `;
     item.addEventListener("click", () => selectDevice(device.id));
     els.deviceList.appendChild(item);
@@ -325,13 +373,13 @@ function renderDevices() {
 
 function renderDeviceDetail(device) {
   if (!device) {
-    els.emptyState.classList.remove("is-hidden");
+    els.fleetView.classList.remove("is-hidden");
     els.deviceView.classList.add("is-hidden");
-    els.pageTitle.textContent = "Devices";
+    els.pageTitle.textContent = "Объекты";
     return;
   }
 
-  els.emptyState.classList.add("is-hidden");
+  els.fleetView.classList.add("is-hidden");
   els.deviceView.classList.remove("is-hidden");
   const displayName = deviceDisplayName(device);
   els.pageTitle.textContent = displayName;
@@ -509,18 +557,18 @@ function renderAlerts(alerts) {
 }
 
 async function loadDevices() {
-  setStatus("Loading devices");
+  setStatus("Обновление");
   const data = await api("/api/devices");
   state.devices = data.devices || [];
-  if (!state.selectedDeviceId && state.devices.length > 0) {
-    state.selectedDeviceId = state.devices[0].id;
+  if (state.selectedDeviceId && !currentDevice()) {
+    state.selectedDeviceId = null;
   }
   renderDevices();
   renderDeviceDetail(currentDevice());
   if (state.selectedDeviceId) {
     await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
   }
-  setStatus("Ready");
+  setStatus(`Обновлено ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
 }
 
 async function selectDevice(id) {
@@ -528,6 +576,13 @@ async function selectDevice(id) {
   renderDevices();
   renderDeviceDetail(currentDevice());
   await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
+}
+
+function showFleet() {
+  state.selectedDeviceId = null;
+  state.selectedCommand = null;
+  renderDevices();
+  renderDeviceDetail(null);
 }
 
 async function loadCommands() {
@@ -987,6 +1042,7 @@ els.loginForm.addEventListener("submit", (event) => {
 els.logoutBtn.addEventListener("click", () => logout().catch((error) => setStatus(error.message)));
 
 els.refreshBtn.addEventListener("click", () => loadDevices().catch((error) => setStatus(error.message)));
+els.backToFleetBtn.addEventListener("click", showFleet);
 els.reloadCommandsBtn.addEventListener("click", () => loadCommands().catch((error) => setStatus(error.message)));
 els.reloadAuditBtn.addEventListener("click", () => loadAudit().catch((error) => setStatus(error.message)));
 els.reloadAlertsBtn.addEventListener("click", () => loadAlerts().catch((error) => setStatus(error.message)));

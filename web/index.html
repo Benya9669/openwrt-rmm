@@ -35,37 +35,38 @@
           <div class="brand-mark">R</div>
           <div>
             <h1>OpenWrt RMM</h1>
-            <p id="apiState">API: checking</p>
+            <p id="apiState">Проверка сервера</p>
           </div>
         </div>
 
-        <section class="panel auth-panel">
-          <div class="operator-row">
-            <div>
-              <small>Signed in as</small>
-              <strong id="operatorName">operator</strong>
-            </div>
-            <button id="logoutBtn" type="button">Sign out</button>
-          </div>
-        </section>
+        <nav class="main-nav" aria-label="Основная навигация">
+          <button class="nav-item is-active" type="button">
+            <span class="nav-icon">◫</span>
+            Объекты
+          </button>
+          <button class="nav-item" type="button" disabled>
+            <span class="nav-icon">!</span>
+            Проблемы
+            <span id="navAlertCount" class="nav-count">0</span>
+          </button>
+          <button class="nav-item" type="button" disabled>
+            <span class="nav-icon">⌁</span>
+            Операции
+          </button>
+        </nav>
 
-        <section class="panel">
-          <div class="section-title">
-            <h2>Devices</h2>
-            <button id="refreshBtn" type="button">Refresh</button>
+        <div class="sidebar-spacer"></div>
+
+        <div class="operator-row">
+          <div class="operator-avatar">О</div>
+          <div class="operator-copy">
+            <small>Оператор</small>
+            <strong id="operatorName">operator</strong>
           </div>
-          <div class="filters">
-            <button class="filter is-active" data-filter="all" type="button">Все</button>
-            <button class="filter" data-filter="online" type="button">Онлайн</button>
-            <button class="filter" data-filter="offline" type="button">Офлайн</button>
-            <button class="filter" data-filter="alerts" type="button">Проблемы</button>
-          </div>
-          <div class="fleet-filter-grid">
-            <input id="fleetSearch" type="search" placeholder="Поиск по имени, ID, тегу">
-            <input id="fleetGroupFilter" type="text" placeholder="Группа">
-            <input id="fleetTagFilter" type="text" placeholder="Тег">
-          </div>
-          <div class="bulk-command-grid">
+          <button id="logoutBtn" class="icon-button" type="button" title="Выйти" aria-label="Выйти">↪</button>
+        </div>
+
+        <div class="bulk-command-grid is-hidden" aria-hidden="true">
             <select id="bulkCommandType">
               <option value="ping">ping</option>
               <option value="traceroute">traceroute</option>
@@ -73,28 +74,77 @@
             </select>
             <input id="bulkCommandTarget" type="text" placeholder="цель">
             <button id="sendBulkCommandBtn" type="button">Запустить для выбранных</button>
-          </div>
-          <div id="deviceList" class="device-list"></div>
-        </section>
+        </div>
       </aside>
 
       <main class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Fleet</p>
-            <h2 id="pageTitle">Devices</h2>
+            <p class="eyebrow">Управление</p>
+            <h2 id="pageTitle">Объекты</h2>
           </div>
-          <div id="statusLine" class="status-line">Idle</div>
+          <div class="topbar-actions">
+            <span id="statusLine" class="status-line">Готово</span>
+            <button id="refreshBtn" class="icon-button" type="button" title="Обновить данные" aria-label="Обновить данные">↻</button>
+          </div>
         </header>
 
-        <section id="emptyState" class="empty-state">
-          <h2>No device selected</h2>
-          <p>Waiting for agent check-in.</p>
+        <section id="fleetView" class="fleet-view">
+          <div class="fleet-summary">
+            <div>
+              <span>Всего</span>
+              <strong id="fleetTotalCount">0</strong>
+            </div>
+            <div class="summary-good">
+              <span>На связи</span>
+              <strong id="fleetOnlineCount">0</strong>
+            </div>
+            <div class="summary-bad">
+              <span>Не на связи</span>
+              <strong id="fleetOfflineCount">0</strong>
+            </div>
+            <div class="summary-warn">
+              <span>Требуют внимания</span>
+              <strong id="fleetAlertCount">0</strong>
+            </div>
+          </div>
+
+          <div class="fleet-toolbar">
+            <input id="fleetSearch" type="search" placeholder="Поиск по имени, модели, ID или тегу">
+            <div class="filters">
+              <button class="filter is-active" data-filter="all" type="button">Все</button>
+              <button class="filter" data-filter="online" type="button">На связи</button>
+              <button class="filter" data-filter="offline" type="button">Не на связи</button>
+              <button class="filter" data-filter="alerts" type="button">Проблемы</button>
+            </div>
+            <input id="fleetGroupFilter" type="text" placeholder="Группа">
+            <input id="fleetTagFilter" type="text" placeholder="Тег">
+          </div>
+
+          <div class="fleet-table-shell">
+            <div class="fleet-table-head">
+              <span>Статус</span>
+              <span>Объект</span>
+              <span>Модель и группа</span>
+              <span>WAN / интернет</span>
+              <span>Клиенты</span>
+              <span>Проблемы</span>
+              <span>Последний контакт</span>
+              <span></span>
+            </div>
+            <div id="deviceList" class="device-list"></div>
+          </div>
+
+          <section id="emptyState" class="empty-state is-hidden">
+            <h2>Объекты не найдены</h2>
+            <p>Измените фильтры или дождитесь подключения агента.</p>
+          </section>
         </section>
 
-          <section id="deviceView" class="device-view is-hidden">
+        <section id="deviceView" class="device-view is-hidden">
           <div class="device-header">
             <div>
+              <button id="backToFleetBtn" class="back-button" type="button">← Объекты</button>
               <p class="eyebrow">Device</p>
               <h2 id="deviceName"></h2>
               <p id="deviceMeta"></p>
@@ -441,6 +491,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=8" defer></script>
+    <script src="/app.js?v=9" defer></script>
   </body>
 </html>
