@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OpenWrt RMM</title>
-    <link rel="stylesheet" href="/styles.css?v=6">
+    <link rel="stylesheet" href="/styles.css?v=7">
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -608,21 +608,27 @@
               </div>
             </div>
             <div class="filters command-filters">
-              <button class="command-filter is-active" data-command-filter="all" type="button">All</button>
-              <button class="command-filter" data-command-filter="queued" type="button">Queued</button>
-              <button class="command-filter" data-command-filter="claimed" type="button">Running</button>
-              <button class="command-filter" data-command-filter="completed" type="button">Done</button>
-              <button class="command-filter" data-command-filter="failed" type="button">Failed</button>
-              <button class="command-filter" data-command-filter="expired" type="button">Expired</button>
-              <button class="command-filter" data-command-filter="cancelled" type="button">Cancelled</button>
+              <button class="command-filter is-active" data-command-filter="all" type="button">Все</button>
+              <button class="command-filter" data-command-filter="running" type="button">Выполняются</button>
+              <button class="command-filter" data-command-filter="failed" type="button">Ошибки</button>
+              <button class="command-filter" data-command-filter="completed" type="button">Готовые</button>
+              <select id="commandStatusFilter" aria-label="Точный статус команды">
+                <option value="">Любой статус</option>
+                <option value="queued">В очереди</option>
+                <option value="claimed">Выполняется</option>
+                <option value="completed">Готово</option>
+                <option value="failed">Ошибка</option>
+                <option value="expired">Истекла</option>
+                <option value="cancelled">Отменена</option>
+              </select>
             </div>
             <div id="commandList" class="table-list"></div>
           </section>
 
           <section id="commandDetailPanel" class="panel is-hidden" data-device-tab="expert">
             <div class="section-title">
-              <h2>Command detail</h2>
-              <button id="copyCommandOutputBtn" type="button">Copy output</button>
+              <h2>Детали команды</h2>
+              <button id="copyCommandOutputBtn" type="button">Копировать вывод</button>
             </div>
             <div id="commandDetailMeta" class="detail-meta"></div>
             <pre id="commandDetailOutput" class="command-detail-output"></pre>
@@ -642,6 +648,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=13" defer></script>
+    <script src="/app.js?v=14" defer></script>
   </body>
 </html>

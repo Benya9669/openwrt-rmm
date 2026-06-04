@@ -1032,7 +1032,15 @@ select {
 }
 
 .command-filters {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.command-filters select {
+  width: auto;
+  min-width: 170px;
 }
 
 .filter.is-active,
@@ -1412,6 +1420,33 @@ select {
   padding: 10px;
 }
 
+.command-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) 120px 100px 90px minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.command-main {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.command-main strong,
+.command-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-main small {
+  color: var(--muted);
+}
+
 .lifecycle-time {
   color: var(--muted);
   font-size: 13px;
@@ -1582,6 +1617,7 @@ select {
   }
 
   .row,
+  .command-row,
   .row.audit,
   .command-form,
   .fleet-form,

@@ -6,6 +6,7 @@ const state = {
   filter: "all",
   clientFilter: "all",
   commandFilter: "all",
+  commandStatusFilter: "",
   commands: [],
   alerts: [],
   remoteSessions: [],
@@ -131,6 +132,7 @@ const els = {
   reloadCommandsBtn: document.querySelector("#reloadCommandsBtn"),
   reloadAuditBtn: document.querySelector("#reloadAuditBtn"),
   commandSummary: document.querySelector("#commandSummary"),
+  commandStatusFilter: document.querySelector("#commandStatusFilter"),
   auditSummary: document.querySelector("#auditSummary"),
   commandList: document.querySelector("#commandList"),
   commandDetailPanel: document.querySelector("#commandDetailPanel"),
@@ -236,16 +238,55 @@ function formatShortDate(value) {
 
 function statusLabel(status) {
   return {
-    requested: "Requested",
-    queued: "Queued",
-    active: "Active",
-    closed: "Closed",
-    claimed: "Running",
-    completed: "Done",
-    failed: "Failed",
-    cancelled: "Cancelled",
-    expired: "Expired",
+    requested: "Запрошено",
+    queued: "В очереди",
+    active: "Активно",
+    closed: "Закрыто",
+    claimed: "Выполняется",
+    completed: "Готово",
+    failed: "Ошибка",
+    cancelled: "Отменено",
+    expired: "Истекло",
   }[status] || status || "-";
+}
+
+function commandTypeLabel(type) {
+  return {
+    ping: "Проверка связи",
+    traceroute: "Маршрут до узла",
+    route_show: "Показ маршрутов",
+    interfaces_show: "Показ интерфейсов",
+    reboot: "Перезагрузка",
+    service_restart: "Перезапуск сервиса",
+    pkg_list_installed: "Список пакетов",
+    pkg_update: "Обновление индекса пакетов",
+    pkg_list_upgradable: "Доступные обновления пакетов",
+    pkg_install: "Установка пакета",
+    pkg_remove: "Удаление пакета",
+    opkg_list_installed: "Список пакетов",
+    opkg_update: "Обновление индекса пакетов",
+    opkg_list_upgradable: "Доступные обновления пакетов",
+    opkg_install: "Установка пакета",
+    opkg_remove: "Удаление пакета",
+    uci_show: "Просмотр UCI",
+    uci_backup: "Резервная копия UCI",
+    uci_preview: "Проверка изменения настроек",
+    uci_set: "Подготовка изменения настроек",
+    uci_commit: "Применение настроек",
+    uci_commit_confirmed: "Безопасное применение настроек",
+    uci_revert: "Отмена staged-настроек",
+    uci_restore: "Восстановление настроек",
+    remote_ssh_reverse: "Открытие удаленного доступа",
+    remote_ssh_close: "Закрытие удаленного доступа",
+  }[type] || type || "-";
+}
+
+function commandFilterMatches(command) {
+  if (state.commandStatusFilter && command.status !== state.commandStatusFilter) return false;
+  if (state.commandFilter === "running") return command.status === "queued" || command.status === "claimed";
+  if (state.commandFilter === "failed") return ["failed", "expired", "cancelled"].includes(command.status);
+  if (state.commandFilter === "completed") return command.status === "completed";
+  return true;
 }
 
 function remoteStatusLabel(status) {
@@ -759,33 +800,33 @@ async function loadCommands() {
 function renderCommands(commands) {
   els.commandList.innerHTML = "";
   renderCommandSummary(commands);
-  const filtered = state.commandFilter === "all" ? commands : commands.filter((command) => command.status === state.commandFilter);
+  const filtered = commands.filter(commandFilterMatches);
   if (filtered.length === 0) {
-    els.commandList.textContent = "No commands";
+    els.commandList.innerHTML = '<div class="inline-empty">Команд по выбранному фильтру нет</div>';
     return;
   }
 
   for (const command of filtered) {
     const row = document.createElement("div");
-    row.className = "row";
+    row.className = "command-row";
     const canCancel = command.status === "queued" || command.status === "claimed";
     const output = command.output || JSON.stringify(command.args || {});
     const finishedAt = command.completed_at || command.cancelled_at || command.expired_at;
     row.innerHTML = `
-      <div>
-        <strong>${escapeHtml(command.type)}</strong><br>
-        <small>${escapeHtml(command.id)}</small>
+      <div class="command-main">
+        <strong>${escapeHtml(commandTypeLabel(command.type))}</strong>
+        <small>${escapeHtml(command.type)} · ${escapeHtml(command.id)}</small>
       </div>
       <span class="status ${escapeHtml(command.status)}">${escapeHtml(statusLabel(command.status))}</span>
-      <span>try ${command.attempt_count || 0}/${command.max_attempts || 3}</span>
+      <span>${command.attempt_count || 0}/${command.max_attempts || 3} попытка</span>
       <span class="lifecycle-time">${escapeHtml(formatShortDate(finishedAt || command.claimed_at || command.created_at))}</span>
       <details class="command-output">
         <summary>${escapeHtml(outputSummary(output))}</summary>
         <pre>${escapeHtml(output)}</pre>
       </details>
       <div class="row-actions">
-        <button type="button" data-action="detail">Open</button>
-        <button type="button" data-action="cancel" ${canCancel ? "" : "disabled"}>Cancel</button>
+        <button type="button" data-action="detail">Детали</button>
+        <button type="button" data-action="cancel" ${canCancel ? "" : "disabled"}>Отменить</button>
       </div>
     `;
     row.querySelector('[data-action="detail"]').addEventListener("click", () => {
@@ -805,7 +846,7 @@ function renderCommandSummary(commands) {
   const total = commands.length;
   const active = (counts.queued || 0) + (counts.claimed || 0);
   const failed = (counts.failed || 0) + (counts.expired || 0);
-  els.commandSummary.textContent = `${total} total / ${active} active / ${failed} attention`;
+  els.commandSummary.textContent = `${total} всего / ${active} выполняются / ${failed} ошибки`;
 }
 
 function renderCommandDetail(command) {
@@ -816,13 +857,13 @@ function renderCommandDetail(command) {
   const output = command.output || JSON.stringify(command.args || {}, null, 2);
   els.commandDetailPanel.classList.remove("is-hidden");
   els.commandDetailMeta.innerHTML = `
-    <span>${escapeHtml(command.type)}</span>
+    <span>${escapeHtml(commandTypeLabel(command.type))}</span>
     <span>${escapeHtml(statusLabel(command.status))}</span>
-    <span>try ${command.attempt_count || 0}/${command.max_attempts || 3}</span>
-    <span>created ${escapeHtml(formatShortDate(command.created_at))}</span>
-    <span>expires ${escapeHtml(formatShortDate(command.expires_at))}</span>
-    <span>claimed ${escapeHtml(formatShortDate(command.claimed_at))}</span>
-    <span>finished ${escapeHtml(formatShortDate(command.completed_at || command.cancelled_at || command.expired_at))}</span>
+    <span>${command.attempt_count || 0}/${command.max_attempts || 3} попытка</span>
+    <span>создана ${escapeHtml(formatShortDate(command.created_at))}</span>
+    <span>истекает ${escapeHtml(formatShortDate(command.expires_at))}</span>
+    <span>забрана ${escapeHtml(formatShortDate(command.claimed_at))}</span>
+    <span>завершена ${escapeHtml(formatShortDate(command.completed_at || command.cancelled_at || command.expired_at))}</span>
     <span>${escapeHtml(command.id)}</span>
   `;
   els.commandDetailOutput.innerHTML = highlightOutput(output);
@@ -1422,6 +1463,11 @@ for (const button of document.querySelectorAll(".command-filter")) {
     renderCommands(state.commands);
   });
 }
+
+els.commandStatusFilter.addEventListener("change", () => {
+  state.commandStatusFilter = els.commandStatusFilter.value;
+  renderCommands(state.commands);
+});
 
 els.commandType.addEventListener("change", () => {
   els.commandTarget.disabled = ["pkg_list_installed", "route_show", "interfaces_show", "reboot"].includes(els.commandType.value);
