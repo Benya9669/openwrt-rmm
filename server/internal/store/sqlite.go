@@ -155,9 +155,6 @@ CREATE TABLE IF NOT EXISTS remote_sessions (
 	FOREIGN KEY(device_id) REFERENCES devices(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_remote_sessions_device_created_at ON remote_sessions(device_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_remote_sessions_status_expires_at ON remote_sessions(status, expires_at);
-
 CREATE TABLE IF NOT EXISTS audit_events (
 	id TEXT PRIMARY KEY,
 	actor TEXT NOT NULL,
@@ -182,8 +179,30 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_device_created_at ON audit_events(de
 		`ALTER TABLE commands ADD COLUMN expires_at TEXT`,
 		`ALTER TABLE commands ADD COLUMN cancelled_at TEXT`,
 		`ALTER TABLE commands ADD COLUMN expired_at TEXT`,
+		`ALTER TABLE remote_sessions ADD COLUMN target TEXT NOT NULL DEFAULT 'ssh'`,
+		`ALTER TABLE remote_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'failed'`,
+		`ALTER TABLE remote_sessions ADD COLUMN server_host TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_sessions ADD COLUMN server_port INTEGER NOT NULL DEFAULT 22`,
+		`ALTER TABLE remote_sessions ADD COLUMN remote_port INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE remote_sessions ADD COLUMN local_host TEXT NOT NULL DEFAULT '127.0.0.1'`,
+		`ALTER TABLE remote_sessions ADD COLUMN local_port INTEGER NOT NULL DEFAULT 22`,
+		`ALTER TABLE remote_sessions ADD COLUMN command_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_sessions ADD COLUMN created_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_sessions ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_sessions ADD COLUMN started_at TEXT`,
+		`ALTER TABLE remote_sessions ADD COLUMN closed_at TEXT`,
+		`ALTER TABLE remote_sessions ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !isDuplicateColumnError(err) {
+			return err
+		}
+	}
+
+	for _, stmt := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_device_created_at ON remote_sessions(device_id, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_status_expires_at ON remote_sessions(status, expires_at)`,
+	} {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}

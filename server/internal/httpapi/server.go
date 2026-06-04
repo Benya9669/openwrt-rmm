@@ -887,6 +887,12 @@ func (a *App) handleListRemoteSessions(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	sessions, found, err := a.store.ListRemoteSessions(r.Context(), deviceID, store.RemoteSessionListOptions{Limit: limit})
 	if err != nil {
+		logStructured(map[string]any{
+			"event":      "remote_sessions.list_failed",
+			"request_id": requestID(r.Context()),
+			"device_id":  deviceID,
+			"error":      err.Error(),
+		})
 		writeError(w, http.StatusInternalServerError, "failed to load remote sessions")
 		return
 	}
