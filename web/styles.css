@@ -181,6 +181,48 @@ select {
   margin-bottom: 18px;
 }
 
+.device-header {
+  min-height: 82px;
+  margin-bottom: 0;
+}
+
+.device-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin: 0 -28px 18px;
+  padding: 0 28px;
+}
+
+.device-tab {
+  min-height: 46px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.device-tab:hover,
+.device-tab.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.device-tab.is-active {
+  color: var(--accent);
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--muted);
@@ -490,18 +532,18 @@ select {
 }
 
 .health-item.ok {
-  border-color: #abefc6;
-  background: #f6fef9;
+  border-color: #3b663e;
+  background: #203329;
 }
 
 .health-item.warn {
-  border-color: #fedf89;
-  background: #fffbeb;
+  border-color: #715d31;
+  background: #342e22;
 }
 
 .health-item.bad {
-  border-color: #fecdca;
-  background: #fffbfa;
+  border-color: #713d3d;
+  background: #382525;
 }
 
 .diagnostic-grid {
@@ -792,9 +834,13 @@ select {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.secondary-metric {
+  display: none;
 }
 
 .metric {
@@ -838,8 +884,8 @@ select {
 }
 
 .alert-row.warning {
-  border-color: #fedf89;
-  background: #fffbeb;
+  border-color: #715d31;
+  background: #342e22;
 }
 
 .alert-row {
@@ -847,8 +893,8 @@ select {
 }
 
 .alert-row.critical {
-  border-color: #fecdca;
-  background: #fffbfa;
+  border-color: #713d3d;
+  background: #382525;
 }
 
 .alert-row.warning span {
@@ -1044,6 +1090,17 @@ select {
   .fleet-toolbar > input:first-child,
   .fleet-toolbar .filters {
     grid-column: 1 / -1;
+  }
+
+  .device-header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 14px 0;
+  }
+
+  .device-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .row,

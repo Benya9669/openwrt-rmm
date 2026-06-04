@@ -145,22 +145,34 @@
           <div class="device-header">
             <div>
               <button id="backToFleetBtn" class="back-button" type="button">← Объекты</button>
-              <p class="eyebrow">Device</p>
+              <p class="eyebrow">Объект</p>
               <h2 id="deviceName"></h2>
               <p id="deviceMeta"></p>
             </div>
-            <span id="deviceBadge" class="badge"></span>
+            <div class="device-header-actions">
+              <span id="deviceBadge" class="badge"></span>
+              <button id="quickDiagnosticBtn" type="button">Диагностика</button>
+              <button id="openLuciBtn" class="primary" type="button">Открыть LuCI</button>
+            </div>
           </div>
 
-          <section class="panel">
+          <nav class="device-tabs" aria-label="Разделы объекта">
+            <button class="device-tab is-active" data-device-tab-target="overview" type="button">Обзор</button>
+            <button class="device-tab" data-device-tab-target="clients" type="button">Клиенты и сеть</button>
+            <button class="device-tab" data-device-tab-target="operations" type="button">Операции</button>
+            <button class="device-tab" data-device-tab-target="information" type="button">Сведения</button>
+            <button class="device-tab" data-device-tab-target="expert" type="button">Эксперт</button>
+          </nav>
+
+          <section class="panel overview-status-panel" data-device-tab="overview">
             <div class="section-title">
-              <h2>Состояние роутера</h2>
-              <span class="summary-pill">кратко</span>
+              <h2>Состояние объекта</h2>
+              <span class="summary-pill">обновляется автоматически</span>
             </div>
             <div id="healthSummary" class="health-summary"></div>
           </section>
 
-          <section class="panel">
+          <section class="panel" data-device-tab="information">
             <div class="section-title">
               <h2>Группа и теги</h2>
               <button id="saveFleetBtn" type="button">Сохранить</button>
@@ -177,46 +189,46 @@
             </div>
           </section>
 
-          <div class="metrics-grid">
+          <div class="metrics-grid" data-device-tab="overview">
             <div class="metric">
-              <span>Last seen</span>
+              <span>Последний контакт</span>
               <strong id="lastSeen">-</strong>
             </div>
             <div class="metric">
-              <span>Load average</span>
+              <span>Нагрузка</span>
               <strong id="loadAvg">-</strong>
             </div>
             <div class="metric">
-              <span>Uptime</span>
+              <span>Время работы</span>
               <strong id="uptime">-</strong>
             </div>
-            <div class="metric">
-              <span>Default route</span>
+            <div class="metric secondary-metric">
+              <span>Маршрут по умолчанию</span>
               <strong id="defaultRoute">-</strong>
             </div>
             <div class="metric">
-              <span>WAN IP</span>
+              <span>WAN-адрес</span>
               <strong id="wanIp">-</strong>
             </div>
             <div class="metric">
-              <span>Memory</span>
+              <span>Память</span>
               <strong id="memoryUsage">-</strong>
             </div>
-            <div class="metric">
-              <span>Disk</span>
+            <div class="metric secondary-metric">
+              <span>Хранилище</span>
               <strong id="diskUsage">-</strong>
             </div>
             <div class="metric">
-              <span>Clients</span>
+              <span>Клиенты</span>
               <strong id="clientCounts">-</strong>
             </div>
-            <div class="metric">
-              <span>Connectivity</span>
+            <div class="metric secondary-metric">
+              <span>Проверки связи</span>
               <strong id="connectivityStatus">-</strong>
             </div>
           </div>
 
-          <div class="two-column">
+          <div class="two-column" data-device-tab="expert">
             <section class="panel">
               <div class="section-title">
                 <h2>Inventory</h2>
@@ -243,7 +255,7 @@
             </section>
           </div>
 
-          <section class="panel">
+          <section class="panel" data-device-tab="operations">
             <div class="section-title">
               <h2>Быстрая диагностика</h2>
               <span class="summary-pill">без SSH</span>
@@ -257,7 +269,7 @@
             </div>
           </section>
 
-          <div class="two-column">
+          <div class="two-column" data-device-tab="clients">
             <section class="panel">
               <div class="section-title">
                 <h2>Leases and Wi-Fi</h2>
@@ -273,7 +285,7 @@
             </section>
           </div>
 
-          <section class="panel">
+          <section class="panel" data-device-tab="overview">
             <div class="section-title">
               <h2>Проблемы</h2>
               <div class="section-actions">
@@ -284,7 +296,7 @@
             <div id="alertList" class="table-list"></div>
           </section>
 
-          <section class="panel">
+          <section class="panel" data-device-tab="overview">
             <div class="section-title">
               <h2>История мониторинга</h2>
               <button id="reloadMetricsHistoryBtn" type="button">Обновить</button>
@@ -292,7 +304,7 @@
             <div id="metricsHistory" class="table-list"></div>
           </section>
 
-          <section class="panel">
+          <section class="panel" data-device-tab="expert">
             <div class="section-title">
               <h2>UCI configuration</h2>
             </div>
@@ -336,7 +348,7 @@
             </div>
           </section>
 
-          <section class="panel">
+          <section class="panel" data-device-tab="expert">
             <div class="section-title">
               <h2>Packages</h2>
             </div>
@@ -353,7 +365,7 @@
             </div>
           </section>
 
-          <section class="panel">
+          <section id="remoteAccessPanel" class="panel" data-device-tab="operations">
             <div class="section-title">
               <h2>Remote access</h2>
               <div class="section-actions">
@@ -402,7 +414,7 @@
             <div id="remoteSessionList" class="table-list remote-session-list"></div>
           </section>
 
-          <section id="commandsPanel" class="panel">
+          <section class="panel" data-device-tab="operations">
             <div class="section-title">
               <h2>UCI presets</h2>
             </div>
@@ -448,7 +460,7 @@
             </div>
           </section>
 
-          <section class="panel">
+          <section id="commandsPanel" class="panel" data-device-tab="expert">
             <div class="section-title">
               <h2>История команд</h2>
               <div class="section-actions">
@@ -468,7 +480,7 @@
             <div id="commandList" class="table-list"></div>
           </section>
 
-          <section id="commandDetailPanel" class="panel is-hidden">
+          <section id="commandDetailPanel" class="panel is-hidden" data-device-tab="expert">
             <div class="section-title">
               <h2>Command detail</h2>
               <button id="copyCommandOutputBtn" type="button">Copy output</button>
@@ -477,7 +489,7 @@
             <pre id="commandDetailOutput" class="command-detail-output"></pre>
           </section>
 
-          <section class="panel">
+          <section class="panel" data-device-tab="expert">
             <div class="section-title">
               <h2>Audit</h2>
               <div class="section-actions">

@@ -2,6 +2,7 @@ const state = {
   username: "",
   devices: [],
   selectedDeviceId: null,
+  deviceTab: "overview",
   filter: "all",
   commandFilter: "all",
   commands: [],
@@ -33,6 +34,9 @@ const els = {
   emptyState: document.querySelector("#emptyState"),
   deviceView: document.querySelector("#deviceView"),
   backToFleetBtn: document.querySelector("#backToFleetBtn"),
+  quickDiagnosticBtn: document.querySelector("#quickDiagnosticBtn"),
+  openLuciBtn: document.querySelector("#openLuciBtn"),
+  remoteAccessPanel: document.querySelector("#remoteAccessPanel"),
   deviceName: document.querySelector("#deviceName"),
   deviceMeta: document.querySelector("#deviceMeta"),
   deviceBadge: document.querySelector("#deviceBadge"),
@@ -381,6 +385,7 @@ function renderDeviceDetail(device) {
 
   els.fleetView.classList.add("is-hidden");
   els.deviceView.classList.remove("is-hidden");
+  renderDeviceTab();
   const displayName = deviceDisplayName(device);
   els.pageTitle.textContent = displayName;
   els.deviceName.textContent = displayName;
@@ -573,6 +578,7 @@ async function loadDevices() {
 
 async function selectDevice(id) {
   state.selectedDeviceId = id;
+  state.deviceTab = "overview";
   renderDevices();
   renderDeviceDetail(currentDevice());
   await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
@@ -583,6 +589,31 @@ function showFleet() {
   state.selectedCommand = null;
   renderDevices();
   renderDeviceDetail(null);
+}
+
+function selectDeviceTab(tab) {
+  state.deviceTab = tab;
+  renderDeviceTab();
+}
+
+function renderDeviceTab() {
+  for (const button of document.querySelectorAll(".device-tab")) {
+    button.classList.toggle("is-active", button.dataset.deviceTabTarget === state.deviceTab);
+  }
+  for (const section of document.querySelectorAll("[data-device-tab]")) {
+    section.classList.toggle("is-hidden", section.dataset.deviceTab !== state.deviceTab);
+  }
+}
+
+function openLuciOrRemoteAccess() {
+  const activeSession = state.remoteSessions.find((session) => session.status === "active" && session.luci_port);
+  if (activeSession) {
+    window.open(`/luci/${encodeURIComponent(activeSession.device_id)}/${encodeURIComponent(activeSession.id)}/`, "_blank", "noopener");
+    return;
+  }
+  selectDeviceTab("operations");
+  els.remoteAccessPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  setStatus("Создайте удаленную сессию, затем откройте LuCI");
 }
 
 async function loadCommands() {
@@ -1014,6 +1045,7 @@ async function runAlertDiagnostics(alert) {
 }
 
 function scrollToCommands() {
+  selectDeviceTab("expert");
   document.querySelector("#commandsPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -1043,6 +1075,8 @@ els.logoutBtn.addEventListener("click", () => logout().catch((error) => setStatu
 
 els.refreshBtn.addEventListener("click", () => loadDevices().catch((error) => setStatus(error.message)));
 els.backToFleetBtn.addEventListener("click", showFleet);
+els.quickDiagnosticBtn.addEventListener("click", () => selectDeviceTab("operations"));
+els.openLuciBtn.addEventListener("click", openLuciOrRemoteAccess);
 els.reloadCommandsBtn.addEventListener("click", () => loadCommands().catch((error) => setStatus(error.message)));
 els.reloadAuditBtn.addEventListener("click", () => loadAudit().catch((error) => setStatus(error.message)));
 els.reloadAlertsBtn.addEventListener("click", () => loadAlerts().catch((error) => setStatus(error.message)));
@@ -1078,6 +1112,10 @@ for (const button of document.querySelectorAll(".diagnostic-btn")) {
   button.addEventListener("click", () => {
     sendDiagnostic(button.dataset.diagnostic).catch((error) => setStatus(error.message));
   });
+}
+
+for (const button of document.querySelectorAll(".device-tab")) {
+  button.addEventListener("click", () => selectDeviceTab(button.dataset.deviceTabTarget));
 }
 
 for (const button of document.querySelectorAll(".filter")) {
