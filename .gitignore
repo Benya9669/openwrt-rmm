@@ -1,4 +1,5 @@
 rmm.db
+.env
 *.db
 *.db-shm
 *.db-wal
@@ -11,5 +12,6 @@ rmm-server
 rmm-server.exe
 *.exe~
 deploy/tunnel/data/
+secrets/
 router_tunnel_key
 router_tunnel_key.pub

@@ -27,6 +27,7 @@ services:
       - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:22000-22099:22000-22099"
     volumes:
       - tunnel-data:/data
+      - ./secrets/router_tunnel_key.pub:/bootstrap/router_tunnel_key.pub:ro
     restart: unless-stopped
 
 volumes:

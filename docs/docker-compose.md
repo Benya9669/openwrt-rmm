@@ -40,13 +40,17 @@ The SQLite database and SSH keys are stored in named Docker volumes.
 
 For HTTPS and domain-based access, use [npmplus.md](npmplus.md) or the optional Caddy overlay described in [reverse-proxy.md](reverse-proxy.md).
 
-## 3. Install The Tunnel Key On OpenWrt
+## 3. Generate And Install The Tunnel Key
 
-The SSH sidecar generates one persistent router client key on first start. Copy it out:
+Generate the router tunnel key before starting Compose:
 
-```powershell
-docker compose cp tunnel-ssh:/data/router_tunnel_key .\tmp\router_tunnel_key
+```sh
+mkdir -p secrets
+ssh-keygen -t ed25519 -N '' -C rmm-router-tunnel -f secrets/router_tunnel_key
+chmod 600 secrets/router_tunnel_key
 ```
+
+Compose mounts only `secrets/router_tunnel_key.pub` into the SSH sidecar. The private key remains on the deployment host and must be installed on approved routers.
 
 OpenWrt 25 uses `apk`. Install the OpenSSH client:
 
@@ -57,7 +61,7 @@ apk add openssh-client
 Install the key without `scp` or SFTP:
 
 ```powershell
-Get-Content -Raw .\tmp\router_tunnel_key | ssh root@10.10.10.1 "umask 077; mkdir -p /etc/rmm-agent; cat > /etc/rmm-agent/tunnel_key; chmod 600 /etc/rmm-agent/tunnel_key"
+Get-Content -Raw .\secrets\router_tunnel_key | ssh root@10.10.10.1 "umask 077; mkdir -p /etc/rmm-agent; cat > /etc/rmm-agent/tunnel_key; chmod 600 /etc/rmm-agent/tunnel_key"
 ```
 
 Update `/etc/rmm-agent.conf`:

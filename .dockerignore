@@ -6,3 +6,4 @@ tmp
 *.exe~
 node_modules
 deploy/tunnel/data
+secrets
