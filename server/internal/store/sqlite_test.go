@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -61,5 +62,43 @@ VALUES ('rs_legacy', 'dev_legacy');
 	}
 	if sessions[0].Target != "ssh" {
 		t.Fatalf("got target %q, want ssh", sessions[0].Target)
+	}
+}
+
+func TestSQLiteConcurrentAccessDoesNotReturnBusy(t *testing.T) {
+	ctx := context.Background()
+	st, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "concurrent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	enrolled, err := st.EnrollDevice(ctx, "router", "OpenWrt")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 80)
+	for range 40 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _, err := st.ListRemoteSessions(ctx, enrolled.DeviceID, RemoteSessionListOptions{})
+			errs <- err
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := st.SaveHeartbeat(ctx, enrolled.DeviceID, []byte(`{"hostname":"router"}`), []byte(`{}`))
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }

@@ -54,6 +54,20 @@ func OpenSQLite(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 
+	// SQLite permits one writer at a time. Keep access serialized inside this
+	// process and wait briefly for locks held during startup or maintenance.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	for _, stmt := range []string{
+		`PRAGMA busy_timeout = 5000`,
+		`PRAGMA journal_mode = WAL`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
+
 	s := &Store{db: db}
 	if err := s.Migrate(ctx); err != nil {
 		_ = db.Close()
