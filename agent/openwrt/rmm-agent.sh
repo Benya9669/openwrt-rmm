@@ -23,13 +23,34 @@ log() {
 	printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
 }
 
+cleanup() {
+	if [ -n "${SLEEP_PID:-}" ]; then
+		kill "$SLEEP_PID" 2>/dev/null || true
+	fi
+	rm -rf "$LOCK_FILE"
+}
+
+stop_agent() {
+	cleanup
+	exit 0
+}
+
 acquire_lock() {
 	if mkdir "$LOCK_FILE" 2>/dev/null; then
-		trap 'rm -rf "$LOCK_FILE"' EXIT INT TERM
+		trap cleanup EXIT
+		trap stop_agent INT TERM
 		return 0
 	fi
 	log "another rmm-agent instance is running"
 	return 1
+}
+
+interruptible_sleep() {
+	SLEEP_PID=""
+	sleep "$1" &
+	SLEEP_PID="$!"
+	wait "$SLEEP_PID" 2>/dev/null || true
+	SLEEP_PID=""
 }
 
 json_escape() {
@@ -954,7 +975,7 @@ main() {
 			backoff=$((backoff * 2))
 			[ "$backoff" -le 300 ] || backoff=300
 		fi
-		sleep "$backoff"
+		interruptible_sleep "$backoff"
 	done
 }
 
