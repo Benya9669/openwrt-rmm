@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -1147,19 +1145,6 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 			})
 		}
 		rewriteLuCIHeaders(resp.Header, prefix)
-		contentType := resp.Header.Get("Content-Type")
-		if !strings.Contains(contentType, "text/html") {
-			return nil
-		}
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-		_ = resp.Body.Close()
-		body = rewriteLuCIBody(body, prefix)
-		resp.Body = io.NopCloser(bytes.NewReader(body))
-		resp.ContentLength = int64(len(body))
-		resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
 		return nil
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -1198,18 +1183,6 @@ func rewriteLuCIHeaders(header http.Header, prefix string) {
 		cookie = strings.ReplaceAll(cookie, "Path=/ ", "Path="+prefix+"/ ")
 		header["Set-Cookie"][index] = cookie
 	}
-}
-
-func rewriteLuCIBody(body []byte, prefix string) []byte {
-	for _, marker := range []string{`="/`, `'/`, `url(/`} {
-		replacement := marker[:len(marker)-1] + prefix + "/"
-		body = bytes.ReplaceAll(body, []byte(marker), []byte(replacement))
-	}
-	escapedPrefix := strings.ReplaceAll(prefix, "/", `\/`)
-	for _, root := range []string{`\/cgi-bin\/luci`, `\/luci-static`, `\/ubus\/`} {
-		body = bytes.ReplaceAll(body, []byte(root), []byte(escapedPrefix+root))
-	}
-	return body
 }
 
 func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {

@@ -474,13 +474,12 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 
 	body := requestText(t, http.MethodGet, srv.URL+"/luci/"+enrolled.DeviceID+"/"+session.ID+"/", "operator-test", nil, http.StatusOK)
 	prefix := "/luci/" + enrolled.DeviceID + "/" + session.ID
-	if !strings.Contains(body, `href="`+prefix+`/cgi-bin/luci/admin"`) || !strings.Contains(body, `href="`+prefix+`/luci-static/test.css"`) {
-		t.Fatalf("LuCI paths were not rewritten: %s", body)
+	if !strings.Contains(body, `href="/cgi-bin/luci/admin"`) || !strings.Contains(body, `href="/luci-static/test.css"`) {
+		t.Fatalf("LuCI body was unexpectedly modified: %s", body)
 	}
-	escapedPrefix := strings.ReplaceAll(prefix, "/", `\/`)
 	for _, path := range []string{`\/luci-static\/resources`, `\/cgi-bin\/luci`, `\/ubus\/`} {
-		if !strings.Contains(body, escapedPrefix+path) {
-			t.Fatalf("escaped LuCI path %s was not rewritten: %s", path, body)
+		if !strings.Contains(body, path) {
+			t.Fatalf("escaped LuCI path %s was unexpectedly modified: %s", path, body)
 		}
 	}
 
