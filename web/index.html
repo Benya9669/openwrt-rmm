@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OpenWrt RMM</title>
-    <link rel="stylesheet" href="/styles.css?v=3">
+    <link rel="stylesheet" href="/styles.css?v=4">
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -258,9 +258,20 @@
 
           <section class="panel" data-device-tab="operations">
             <div class="section-title">
-              <h2>Быстрая диагностика</h2>
-              <span class="summary-pill">без SSH</span>
+              <div>
+                <h2>Диагностика</h2>
+                <p class="section-subtitle">Проверки выполняются агентом без подключения по SSH</p>
+              </div>
+              <button id="runFullDiagnosticBtn" class="primary" type="button">Запустить полную диагностику</button>
             </div>
+            <div id="diagnosticStatus" class="operation-status">
+              <span class="operation-icon">✓</span>
+              <div>
+                <strong>Готово к проверке</strong>
+                <small>Будут проверены сервер, интернет, маршруты и интерфейсы</small>
+              </div>
+            </div>
+            <h3 class="operation-subheading">Выборочная проверка</h3>
             <div class="diagnostic-grid">
               <button class="diagnostic-btn" data-diagnostic="ping_server" type="button">Проверить связь с сервером</button>
               <button class="diagnostic-btn" data-diagnostic="ping_internet" type="button">Проверить интернет</button>
@@ -397,38 +408,18 @@
 
           <section id="remoteAccessPanel" class="panel" data-device-tab="operations">
             <div class="section-title">
-              <h2>Remote access</h2>
+              <div>
+                <h2>Удаленный доступ</h2>
+                <p class="section-subtitle">Временный доступ к LuCI и SSH автоматически закроется по таймеру</p>
+              </div>
               <div class="section-actions">
-                <span id="remoteSummary" class="summary-pill">0 sessions</span>
-                <button id="reloadRemoteSessionsBtn" type="button">Reload</button>
+                <span id="remoteSummary" class="summary-pill">Нет активных сессий</span>
+                <button id="reloadRemoteSessionsBtn" class="icon-button" type="button" title="Обновить сессии" aria-label="Обновить сессии">↻</button>
               </div>
             </div>
-            <div class="remote-form">
+            <div class="remote-quick-form">
               <label>
-                Tunnel server
-                <input id="remoteServerHost" type="text" placeholder="10.10.10.2">
-              </label>
-              <label>
-                Server SSH port
-                <input id="remoteServerPort" type="number" min="1" max="65535" value="2222">
-              </label>
-              <label>
-                Remote port
-                <input id="remotePort" type="number" min="1" max="65535" placeholder="auto">
-              </label>
-              <label>
-                Router SSH port
-                <input id="remoteLocalPort" type="number" min="1" max="65535" value="22">
-              </label>
-              <label>
-                LuCI protocol
-                <select id="remoteLuCIScheme">
-                  <option value="http">HTTP</option>
-                  <option value="https">HTTPS</option>
-                </select>
-              </label>
-              <label>
-                Duration
+                Длительность доступа
                 <select id="remoteDuration">
                   <option value="900">15 min</option>
                   <option value="1800">30 min</option>
@@ -436,17 +427,45 @@
                   <option value="7200">2 hours</option>
                 </select>
               </label>
-              <button id="createRemoteSessionBtn" type="button">Open remote access</button>
+              <button id="createRemoteSessionBtn" class="primary" type="button">Открыть удаленный доступ</button>
             </div>
-            <div class="remote-hint">
-              Active sessions provide SSH and an authenticated Open LuCI button. Choose the protocol used by this router.
-            </div>
+            <details class="advanced-settings">
+              <summary>Дополнительные настройки подключения</summary>
+              <div class="remote-form">
+                <label>
+                  Сервер туннеля
+                  <input id="remoteServerHost" type="text" placeholder="10.10.10.2">
+                </label>
+                <label>
+                  SSH-порт сервера
+                  <input id="remoteServerPort" type="number" min="1" max="65535" value="2222">
+                </label>
+                <label>
+                  Внешний порт
+                  <input id="remotePort" type="number" min="1" max="65535" placeholder="автоматически">
+                </label>
+                <label>
+                  SSH-порт роутера
+                  <input id="remoteLocalPort" type="number" min="1" max="65535" value="22">
+                </label>
+                <label>
+                  Протокол LuCI
+                  <select id="remoteLuCIScheme">
+                    <option value="http">HTTP</option>
+                    <option value="https">HTTPS</option>
+                  </select>
+                </label>
+              </div>
+            </details>
             <div id="remoteSessionList" class="table-list remote-session-list"></div>
           </section>
 
           <section class="panel" data-device-tab="operations">
             <div class="section-title">
-              <h2>UCI presets</h2>
+              <div>
+                <h2>Быстрые настройки</h2>
+                <p class="section-subtitle">Сначала проверьте изменения, затем примените их</p>
+              </div>
             </div>
             <div class="preset-grid">
               <div class="preset">
@@ -533,6 +552,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=10" defer></script>
+    <script src="/app.js?v=11" defer></script>
   </body>
 </html>

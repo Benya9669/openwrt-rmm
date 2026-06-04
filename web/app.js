@@ -38,6 +38,8 @@ const els = {
   quickDiagnosticBtn: document.querySelector("#quickDiagnosticBtn"),
   openLuciBtn: document.querySelector("#openLuciBtn"),
   remoteAccessPanel: document.querySelector("#remoteAccessPanel"),
+  runFullDiagnosticBtn: document.querySelector("#runFullDiagnosticBtn"),
+  diagnosticStatus: document.querySelector("#diagnosticStatus"),
   deviceName: document.querySelector("#deviceName"),
   deviceMeta: document.querySelector("#deviceMeta"),
   deviceBadge: document.querySelector("#deviceBadge"),
@@ -224,6 +226,17 @@ function statusLabel(status) {
     cancelled: "Cancelled",
     expired: "Expired",
   }[status] || status || "-";
+}
+
+function remoteStatusLabel(status) {
+  return {
+    requested: "Запрашивается",
+    queued: "Открывается",
+    active: "Активен",
+    closed: "Закрыт",
+    failed: "Ошибка",
+    expired: "Завершен",
+  }[status] || statusLabel(status);
 }
 
 function alertTypeLabel(type) {
@@ -818,9 +831,9 @@ async function loadRemoteSessions() {
 function renderRemoteSessions(sessions) {
   els.remoteSessionList.innerHTML = "";
   const active = sessions.filter((session) => ["requested", "queued", "active"].includes(session.status)).length;
-  els.remoteSummary.textContent = `${active} open / ${sessions.length} total`;
+  els.remoteSummary.textContent = active ? `${active} активн.` : "Нет активных сессий";
   if (sessions.length === 0) {
-    els.remoteSessionList.textContent = "No remote sessions";
+    els.remoteSessionList.innerHTML = '<div class="inline-empty">Удаленный доступ еще не открывался</div>';
     return;
   }
   for (const session of sessions) {
@@ -829,25 +842,29 @@ function renderRemoteSessions(sessions) {
     const connectCommand = session.remote_port ? `ssh -p ${session.remote_port} root@${session.server_host || "server"}` : "-";
     const canOpenLuCI = session.status === "active" && session.luci_port;
     const row = document.createElement("div");
-    row.className = "row remote-session-row";
+    row.className = "remote-session-row";
     row.innerHTML = `
-      <div>
-        <strong>${escapeHtml((session.target || "ssh").toUpperCase())} ${escapeHtml(statusLabel(session.status))}</strong><br>
-        <small>${escapeHtml(session.id)}</small>
+      <div class="remote-session-main">
+        <span class="remote-session-status ${escapeHtml(session.status || "")}"><i></i>${escapeHtml(remoteStatusLabel(session.status))}</span>
+        <div>
+          <strong>Доступ к роутеру</strong>
+          <small>${escapeHtml(endpoint)} · до ${escapeHtml(formatShortDate(session.expires_at))}</small>
+        </div>
       </div>
-      <span>${escapeHtml(endpoint)}</span>
-      <span>expires ${escapeHtml(formatShortDate(session.expires_at))}</span>
       <code>${escapeHtml(connectCommand)}</code>
       <div class="row-actions">
-        <button type="button" data-action="luci" ${canOpenLuCI ? "" : "disabled"}>Open LuCI</button>
-        <button type="button" data-action="commands">Commands</button>
-        <button type="button" data-action="close" ${canClose ? "" : "disabled"}>Close</button>
+        <button type="button" data-action="copy" ${session.remote_port ? "" : "disabled"}>Копировать SSH</button>
+        <button class="primary" type="button" data-action="luci" ${canOpenLuCI ? "" : "disabled"}>Открыть LuCI</button>
+        <button type="button" data-action="close" ${canClose ? "" : "disabled"}>Закрыть</button>
       </div>
     `;
     row.querySelector('[data-action="luci"]').addEventListener("click", () => {
       window.open(`/luci/${encodeURIComponent(session.device_id)}/${encodeURIComponent(session.id)}/`, "_blank", "noopener");
     });
-    row.querySelector('[data-action="commands"]').addEventListener("click", scrollToCommands);
+    row.querySelector('[data-action="copy"]').addEventListener("click", async () => {
+      await navigator.clipboard.writeText(connectCommand);
+      setStatus("SSH-команда скопирована");
+    });
     row.querySelector('[data-action="close"]').addEventListener("click", () => closeRemoteSession(session.id));
     els.remoteSessionList.appendChild(row);
   }
@@ -889,7 +906,9 @@ async function createDeviceCommand(type, args, options = {}) {
     method: "POST",
     body: JSON.stringify({ type, args }),
   });
-  await Promise.all([loadCommands(), loadAudit(), loadAlerts()]);
+  if (!options.skipRefresh) {
+    await Promise.all([loadCommands(), loadAudit(), loadAlerts()]);
+  }
 }
 
 async function sendBulkCommand() {
@@ -967,8 +986,8 @@ async function createRemoteSession() {
     setStatus("Tunnel server is required");
     return;
   }
-  if (!window.confirm("Open temporary SSH access to this router?")) return;
-  setStatus("Opening remote SSH access");
+  if (!window.confirm(`Открыть временный доступ к роутеру на ${Math.round(durationSeconds / 60)} минут?`)) return;
+  setStatus("Открытие удаленного доступа");
   await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions`, {
     method: "POST",
     body: JSON.stringify({
@@ -982,17 +1001,18 @@ async function createRemoteSession() {
     }),
   });
   await Promise.all([loadRemoteSessions(), loadCommands(), loadAudit()]);
-  setStatus("Remote SSH command queued");
+  setStatus("Команда открытия доступа отправлена");
 }
 
 async function closeRemoteSession(sessionId) {
   if (!state.selectedDeviceId) return;
-  setStatus("Closing remote session");
+  if (!window.confirm("Закрыть удаленный доступ к роутеру?")) return;
+  setStatus("Закрытие удаленного доступа");
   await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions/${encodeURIComponent(sessionId)}/close`, {
     method: "POST",
   });
   await Promise.all([loadRemoteSessions(), loadAudit()]);
-  setStatus("Remote session closed");
+  setStatus("Удаленный доступ закрыт");
 }
 
 function presetCommand(preset) {
@@ -1097,10 +1117,38 @@ function diagnosticCommand(name) {
 async function sendDiagnostic(name) {
   const command = diagnosticCommand(name);
   if (!command) return;
-  setStatus(`Queueing ${command.type}`);
+  setStatus("Запуск проверки");
   await createDeviceCommand(command.type, command.args);
-  setStatus("Diagnostic queued");
+  setStatus("Проверка поставлена в очередь");
   scrollToCommands();
+}
+
+async function runFullDiagnostic() {
+  const checks = ["ping_server", "ping_internet", "show_routes", "show_interfaces"];
+  els.runFullDiagnosticBtn.disabled = true;
+  els.diagnosticStatus.classList.add("is-running");
+  els.diagnosticStatus.innerHTML = `
+    <span class="operation-icon">↻</span>
+    <div><strong>Диагностика запускается</strong><small>Отправляем проверки на роутер</small></div>
+  `;
+  try {
+    for (const name of checks) {
+      const command = diagnosticCommand(name);
+      await createDeviceCommand(command.type, command.args, { skipRefresh: true });
+    }
+    await Promise.all([loadCommands(), loadAudit(), loadAlerts()]);
+    els.diagnosticStatus.classList.remove("is-running");
+    els.diagnosticStatus.classList.add("is-complete");
+    els.diagnosticStatus.innerHTML = `
+      <span class="operation-icon">✓</span>
+      <div><strong>Диагностика запущена</strong><small>Результаты появятся в истории команд</small></div>
+      <button id="openDiagnosticResultsBtn" type="button">Открыть результаты</button>
+    `;
+    els.diagnosticStatus.querySelector("#openDiagnosticResultsBtn").addEventListener("click", scrollToCommands);
+    setStatus("Полная диагностика поставлена в очередь");
+  } finally {
+    els.runFullDiagnosticBtn.disabled = false;
+  }
 }
 
 async function runAlertDiagnostics(alert) {
@@ -1150,6 +1198,7 @@ els.refreshBtn.addEventListener("click", () => loadDevices().catch((error) => se
 els.backToFleetBtn.addEventListener("click", showFleet);
 els.quickDiagnosticBtn.addEventListener("click", () => selectDeviceTab("operations"));
 els.openLuciBtn.addEventListener("click", openLuciOrRemoteAccess);
+els.runFullDiagnosticBtn.addEventListener("click", () => runFullDiagnostic().catch((error) => setStatus(error.message)));
 els.reloadCommandsBtn.addEventListener("click", () => loadCommands().catch((error) => setStatus(error.message)));
 els.reloadAuditBtn.addEventListener("click", () => loadAudit().catch((error) => setStatus(error.message)));
 els.reloadAlertsBtn.addEventListener("click", () => loadAlerts().catch((error) => setStatus(error.message)));

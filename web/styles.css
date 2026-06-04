@@ -473,7 +473,7 @@ select {
 
 .remote-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) repeat(5, minmax(110px, 0.6fr)) auto;
+  grid-template-columns: minmax(180px, 1.2fr) repeat(4, minmax(110px, 0.6fr));
   gap: 10px;
   align-items: end;
 }
@@ -485,10 +485,34 @@ select {
   font-size: 12px;
 }
 
-.remote-hint {
-  margin-top: 10px;
+.remote-quick-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.remote-quick-form label {
+  display: grid;
+  gap: 6px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.advanced-settings {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.advanced-settings summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.advanced-settings .remote-form {
+  margin-top: 12px;
 }
 
 .remote-session-list {
@@ -499,6 +523,64 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.remote-session-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.3fr) minmax(260px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 70px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  padding: 12px;
+}
+
+.remote-session-main {
+  display: flex;
+  min-width: 0;
+  gap: 12px;
+  align-items: center;
+}
+
+.remote-session-main div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.remote-session-main small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-session-status {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.remote-session-status i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.remote-session-status.active {
+  color: var(--good);
+}
+
+.remote-session-status.closed,
+.remote-session-status.failed,
+.remote-session-status.expired {
+  color: var(--muted);
 }
 
 .health-summary,
@@ -547,12 +629,61 @@ select {
 }
 
 .diagnostic-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
 }
 
 .diagnostic-btn {
   min-height: 46px;
   white-space: normal;
+}
+
+.operation-status {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  border: 1px solid #3b663e;
+  border-radius: 8px;
+  background: #203329;
+  padding: 12px;
+}
+
+.operation-status.is-running {
+  border-color: #31596a;
+  background: #223640;
+}
+
+.operation-status div {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+}
+
+.operation-status small {
+  color: var(--muted);
+}
+
+.operation-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: #31533a;
+  color: var(--good);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.operation-status.is-running .operation-icon {
+  background: #2e5869;
+  color: var(--accent);
+}
+
+.operation-subheading {
+  margin: 18px 0 10px;
+  font-size: 13px;
 }
 
 .uci-grid {
@@ -1261,6 +1392,11 @@ select {
   .device-header-actions {
     width: 100%;
     flex-wrap: wrap;
+  }
+
+  .remote-quick-form,
+  .remote-session-row {
+    grid-template-columns: 1fr;
   }
 
   .client-toolbar,
