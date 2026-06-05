@@ -1904,15 +1904,6 @@ select {
     display: block;
   }
 
-  .device-item > .device-field:nth-child(5) .device-field-label {
-    font-size: 0;
-  }
-
-  .device-item > .device-field:nth-child(5) .device-field-label::after {
-    content: "Клиенты";
-    font-size: 11px;
-  }
-
   .device-item strong,
   .device-item small,
   .device-item span,
@@ -1923,6 +1914,143 @@ select {
 
   .row-chevron {
     display: none;
+  }
+
+  .section-title,
+  .section-actions,
+  .client-toolbar,
+  .filters,
+  .command-filters,
+  .preset-review-header,
+  .preset-review-actions,
+  .row-actions,
+  .operation-status,
+  .expert-notice,
+  .remote-session-main {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .section-actions,
+  .row-actions {
+    width: 100%;
+  }
+
+  .section-actions > *,
+  .row-actions > *,
+  .command-filters select,
+  .summary-pill {
+    width: 100%;
+  }
+
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .client-table-head,
+  .network-table-head {
+    display: none;
+  }
+
+  .client-list,
+  .network-list {
+    overflow: visible;
+  }
+
+  .client-row,
+  .network-row,
+  .command-row,
+  .row.audit,
+  .remote-session-row,
+  .mini-row,
+  .alert-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    min-width: 0;
+    border-radius: 8px;
+    background: var(--surface-raised);
+    padding: 12px;
+  }
+
+  .client-row > :not(:first-child),
+  .network-row > *,
+  .command-row > :not(:first-child),
+  .row.audit > *,
+  .mini-row > *,
+  .alert-row > * {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .client-row > :nth-child(2)::before,
+  .client-row > :nth-child(3)::before,
+  .client-row > :nth-child(4)::before,
+  .client-row > :nth-child(5)::before,
+  .client-row > :nth-child(6)::before,
+  .network-row > :nth-child(1)::before,
+  .network-row > :nth-child(2)::before,
+  .network-row > :nth-child(3)::before,
+  .network-row > :nth-child(4)::before,
+  .network-row > :nth-child(5)::before,
+  .command-row > :nth-child(2)::before,
+  .command-row > :nth-child(3)::before,
+  .command-row > :nth-child(4)::before,
+  .command-row > :nth-child(5)::before,
+  .row.audit > :nth-child(1)::before,
+  .row.audit > :nth-child(2)::before,
+  .row.audit > :nth-child(3)::before {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .client-row > :nth-child(2)::before { content: "IP"; }
+  .client-row > :nth-child(3)::before { content: "MAC"; }
+  .client-row > :nth-child(4)::before { content: "Подключение"; }
+  .client-row > :nth-child(5)::before { content: "Сигнал / скорость"; }
+  .client-row > :nth-child(6)::before { content: "Статус"; }
+
+  .network-row > :nth-child(1)::before { content: "Интерфейс"; }
+  .network-row > :nth-child(2)::before { content: "Адреса"; }
+  .network-row > :nth-child(3)::before { content: "Получено"; }
+  .network-row > :nth-child(4)::before { content: "Передано"; }
+  .network-row > :nth-child(5)::before { content: "Ошибки"; }
+
+  .command-row > :nth-child(2)::before { content: "Статус"; }
+  .command-row > :nth-child(3)::before { content: "Попытка"; }
+  .command-row > :nth-child(4)::before { content: "Время"; }
+  .command-row > :nth-child(5)::before { content: "Вывод"; }
+
+  .row.audit > :nth-child(1)::before { content: "Время"; }
+  .row.audit > :nth-child(2)::before { content: "Действие"; }
+  .row.audit > :nth-child(3)::before { content: "Контекст"; }
+
+  .command-output summary,
+  .alert-detail summary,
+  .remote-session-row code,
+  .command-main strong,
+  .command-main small,
+  .detail-meta span,
+  .technical-details code,
+  .information-item strong {
+    white-space: normal;
+  }
+
+  .remote-session-row code {
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .row-actions button,
+  .remote-session-row .row-actions button {
+    width: 100%;
+  }
+
+  .detail-meta {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .device-header-actions {
@@ -1944,5 +2072,12 @@ select {
 
   .panel {
     padding: 12px;
+  }
+
+  .toast-region {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: auto;
   }
 }

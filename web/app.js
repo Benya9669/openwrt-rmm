@@ -611,7 +611,7 @@ function renderDevices() {
         <span class="wan-state ${wan.className}">${escapeHtml(wan.label)}</span>
       </div>
       <div class="device-field">
-        <span class="device-field-label">Clients</span>
+        <span class="device-field-label">Клиенты</span>
         <span class="client-count">${clients.total}</span>
       </div>
       <span class="${device.active_alerts ? "problem-count has-problems" : "problem-count"}">
