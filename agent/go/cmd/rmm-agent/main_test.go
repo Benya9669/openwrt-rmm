@@ -78,3 +78,30 @@ rtt min/avg/max/mdev = 10.100/11.200/12.300/0.100 ms`
 		t.Fatalf("expected avg latency 11.2, got %v", latency)
 	}
 }
+
+func TestServerCheckTarget(t *testing.T) {
+	tests := map[string]string{
+		"http://10.10.10.10:18082":   "10.10.10.10",
+		"https://rmm.daemonlord.ru":  "rmm.daemonlord.ru",
+		"http://[2001:db8::1]:18082": "2001:db8::1",
+		"http://127.0.0.1:8080/path": "127.0.0.1",
+		"not a valid url":            "",
+	}
+	for input, want := range tests {
+		if got := serverCheckTarget(input); got != want {
+			t.Fatalf("serverCheckTarget(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestEffectiveCheckTargetsAddsServerTarget(t *testing.T) {
+	got := effectiveCheckTargets([]string{"1.1.1.1", "10.10.10.10", "1.1.1.1"}, "10.10.10.10")
+	if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "10.10.10.10" {
+		t.Fatalf("unexpected targets: %#v", got)
+	}
+
+	got = effectiveCheckTargets([]string{"1.1.1.1"}, "10.10.10.10")
+	if len(got) != 2 || got[1] != "10.10.10.10" {
+		t.Fatalf("expected server target to be appended, got %#v", got)
+	}
+}

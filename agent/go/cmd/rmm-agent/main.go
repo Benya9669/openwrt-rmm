@@ -10,7 +10,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -266,7 +268,7 @@ func heartbeatOnce(ctx context.Context, client *http.Client, cfg config) error {
 	body := map[string]any{
 		"device_id": cfg.DeviceID,
 		"inventory": buildInventory(cfg),
-		"metrics":   buildMetrics(cfg.CheckTargets),
+		"metrics":   buildMetrics(cfg),
 	}
 	var resp heartbeatResponse
 	if err := postJSON(ctx, client, cfg.ServerURL+"/api/agent/heartbeat", cfg.DeviceToken, body, &resp); err != nil {
@@ -300,7 +302,8 @@ func (cfg config) displayHostname() string {
 	return hostnameValue() + strings.TrimSpace(cfg.HostnameSuffix)
 }
 
-func buildMetrics(targets []string) map[string]any {
+func buildMetrics(cfg config) map[string]any {
+	serverTarget := serverCheckTarget(cfg.ServerURL)
 	return map[string]any{
 		"system":              jsonObjectOrEmpty(commandOutput("ubus", "call", "system", "info")),
 		"loadavg":             strings.TrimSpace(readFileString("/proc/loadavg")),
@@ -308,8 +311,44 @@ func buildMetrics(targets []string) map[string]any {
 		"memory":              memoryInfo(),
 		"disk":                diskInfo(),
 		"interface_counters":  interfaceCounters(),
-		"connectivity_checks": connectivityChecks(targets),
+		"connectivity_checks": connectivityChecks(effectiveCheckTargets(cfg.CheckTargets, serverTarget)),
+		"server_check_target": serverTarget,
 	}
+}
+
+func effectiveCheckTargets(targets []string, serverTarget string) []string {
+	result := make([]string, 0, len(targets)+1)
+	seen := map[string]bool{}
+	for _, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" || seen[target] {
+			continue
+		}
+		result = append(result, target)
+		seen[target] = true
+	}
+	if serverTarget != "" && !seen[serverTarget] {
+		result = append(result, serverTarget)
+	}
+	return result
+}
+
+func serverCheckTarget(serverURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(serverURL))
+	if err != nil {
+		return ""
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		host = parsed.Host
+	}
+	if host == "" {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	return strings.TrimSpace(host)
 }
 
 func processCommand(ctx context.Context, client *http.Client, cfg config, cmd command) {

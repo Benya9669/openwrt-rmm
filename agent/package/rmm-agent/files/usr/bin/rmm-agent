@@ -338,10 +338,25 @@ NR > 2 {
 END { printf "]" }' /proc/net/dev 2>/dev/null
 }
 
+server_check_target() {
+	printf '%s' "$SERVER_URL" | sed 's#^[^:/]*://##; s#/.*##; s#^\[\([^]]*\)\].*#\1#; s#:[0-9][0-9]*$##'
+}
+
 connectivity_checks_json() {
 	printf '['
 	first=1
-	for target in $CHECK_TARGETS; do
+	server_target="$(server_check_target)"
+	targets="$CHECK_TARGETS"
+	if [ -n "$server_target" ]; then
+		case " $targets " in
+			*" $server_target "*)
+				;;
+			*)
+				targets="$targets $server_target"
+				;;
+		esac
+	fi
+	for target in $targets; do
 		[ -n "$target" ] || continue
 		output="$(ping -c 3 -W 2 "$target" 2>&1 || true)"
 		loss="$(printf '%s' "$output" | awk -F',' '/packet loss/ {
@@ -393,8 +408,9 @@ build_metrics() {
 	disk="$(json_object_or_empty "$(disk_json)")"
 	counters="$(json_array_or_empty "$(interface_counters_json)")"
 	connectivity="$(json_array_or_empty "$(connectivity_checks_json)")"
+	server_target="$(json_escape "$(server_check_target)")"
 
-	printf '{"system":%s,"loadavg":"%s","uptime":"%s","memory":%s,"disk":%s,"interface_counters":%s,"connectivity_checks":%s}' "$info" "$loadavg" "$uptime" "$memory" "$disk" "$counters" "$connectivity"
+	printf '{"system":%s,"loadavg":"%s","uptime":"%s","memory":%s,"disk":%s,"interface_counters":%s,"connectivity_checks":%s,"server_check_target":"%s"}' "$info" "$loadavg" "$uptime" "$memory" "$disk" "$counters" "$connectivity" "$server_target"
 }
 
 save_config() {

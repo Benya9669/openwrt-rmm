@@ -558,13 +558,15 @@ function formatConnectivity(checks) {
 
 function renderHealthSummary(device) {
   const checks = Array.isArray(device.metrics && device.metrics.connectivity_checks) ? device.metrics.connectivity_checks : [];
-  const serverHost = window.location.hostname;
+  const serverHost = (device.metrics && device.metrics.server_check_target) || window.location.hostname;
   const serverCheck = checks.find((check) => check.target === serverHost);
   const wanChecks = checks.filter((check) => check.target !== serverHost);
   const wanReachable = wanChecks.some((check) => check.reachable);
+  const serverStatus = serverCheck ? (serverCheck.reachable ? `Есть, ${serverCheck.latency_ms} ms` : "Нет") : (device.online ? "Есть" : "Нет данных");
+  const serverState = serverCheck ? (serverCheck.reachable ? "ok" : "bad") : (device.online ? "ok" : "warn");
   const rows = [
     ["Статус", device.online ? "На связи" : "Нет связи", device.online ? "ok" : "bad"],
-    ["Связь с сервером", serverCheck ? (serverCheck.reachable ? `Есть, ${serverCheck.latency_ms} ms` : "Нет") : "Нет данных", serverCheck && serverCheck.reachable ? "ok" : "warn"],
+    ["Связь с сервером", serverStatus, serverState],
     ["Интернет/WAN", wanChecks.length ? (wanReachable ? "Есть" : "Нет") : "Нет данных", wanChecks.length && !wanReachable ? "bad" : "ok"],
     ["Активные проблемы", String(device.active_alerts || 0), device.active_alerts ? "warn" : "ok"],
     ["WAN IP", device.inventory && device.inventory.wan_ip ? device.inventory.wan_ip : "-", "neutral"],
