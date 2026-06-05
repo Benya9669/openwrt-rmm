@@ -647,10 +647,25 @@
             <div id="auditList" class="table-list"></div>
             <button id="loadMoreAuditBtn" class="load-more-btn is-hidden" type="button">Загрузить ещё</button>
           </section>
+
+          <section class="panel" data-device-tab="expert">
+            <div class="section-title">
+              <div>
+                <h2>Обслуживание данных</h2>
+                <p class="section-subtitle">Очистка локальной истории RMM. Настройки роутера не меняются.</p>
+              </div>
+            </div>
+            <div class="maintenance-grid">
+              <button id="clearAlertsBtn" type="button">Очистить алерты</button>
+              <button id="clearCommandsBtn" type="button">Очистить историю команд</button>
+              <button id="clearAuditBtn" type="button">Очистить аудит устройства</button>
+              <button id="deleteDeviceBtn" class="danger" type="button">Удалить устройство</button>
+            </div>
+          </section>
         </section>
       </main>
     </div>
 
-    <script src="/app.js?v=15" defer></script>
+    <script src="/app.js?v=16" defer></script>
   </body>
 </html>

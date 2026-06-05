@@ -41,6 +41,10 @@ type AlertListOptions struct {
 	Limit    int
 }
 
+type PurgeOptions struct {
+	DeviceID string
+}
+
 type RemoteSessionListOptions struct {
 	Limit int
 }
@@ -496,6 +500,38 @@ WHERE id = ?
 	return d, found, err
 }
 
+func (s *Store) DeleteDevice(ctx context.Context, deviceID string) (bool, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return false, nil
+	}
+	var exists bool
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM devices WHERE id = ?)`, deviceID).Scan(&exists); err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`DELETE FROM remote_sessions WHERE device_id = ?`,
+		`DELETE FROM commands WHERE device_id = ?`,
+		`DELETE FROM metric_samples WHERE device_id = ?`,
+		`DELETE FROM alerts WHERE device_id = ?`,
+		`DELETE FROM audit_events WHERE device_id = ?`,
+		`DELETE FROM devices WHERE id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt, deviceID); err != nil {
+			return false, err
+		}
+	}
+	return true, tx.Commit()
+}
+
 func (s *Store) AddMetricSample(ctx context.Context, deviceID string, inventory, metrics json.RawMessage, createdAt string) error {
 	id, err := randomID("met")
 	if err != nil {
@@ -692,6 +728,21 @@ WHERE device_id = ? AND id = ?
 	return alert, true, nil
 }
 
+func (s *Store) PurgeAlerts(ctx context.Context, opts PurgeOptions) (int64, error) {
+	deviceID := strings.TrimSpace(opts.DeviceID)
+	query := `DELETE FROM alerts`
+	args := []any{}
+	if deviceID != "" {
+		query += ` WHERE device_id = ?`
+		args = append(args, deviceID)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (s *Store) CreateCommand(ctx context.Context, deviceID, commandType string, args json.RawMessage) (model.Command, bool, error) {
 	var exists bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM devices WHERE id = ?)`, deviceID).Scan(&exists); err != nil {
@@ -807,6 +858,21 @@ WHERE device_id = ? AND id = ? AND status IN ('queued', 'claimed')
 		return c, true, nil
 	}
 	return s.GetCommand(ctx, deviceID, commandID)
+}
+
+func (s *Store) PurgeCommands(ctx context.Context, opts PurgeOptions) (int64, error) {
+	deviceID := strings.TrimSpace(opts.DeviceID)
+	query := `DELETE FROM commands WHERE status NOT IN ('queued', 'claimed')`
+	args := []any{}
+	if deviceID != "" {
+		query += ` AND device_id = ?`
+		args = append(args, deviceID)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func (s *Store) CreateRemoteSession(ctx context.Context, session model.RemoteSession) (model.RemoteSession, bool, error) {
@@ -1030,6 +1096,21 @@ FROM audit_events
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+func (s *Store) PurgeAuditEvents(ctx context.Context, opts PurgeOptions) (int64, error) {
+	deviceID := strings.TrimSpace(opts.DeviceID)
+	query := `DELETE FROM audit_events`
+	args := []any{}
+	if deviceID != "" {
+		query += ` WHERE device_id = ?`
+		args = append(args, deviceID)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 type scanner interface {

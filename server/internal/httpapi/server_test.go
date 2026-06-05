@@ -405,6 +405,72 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 	}
 }
 
+func TestOperatorCanPurgeAndDeleteDeviceData(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		EnrollmentToken: "enroll-test",
+		OperatorToken:   "operator-test",
+	}))
+	defer srv.Close()
+
+	var enrolled struct {
+		DeviceID    string `json:"device_id"`
+		DeviceToken string `json:"device_token"`
+	}
+	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/enroll", "", map[string]any{
+		"enrollment_token": "enroll-test",
+		"hostname":         "delete-me",
+		"openwrt_version":  "OpenWrt test",
+	}, http.StatusCreated, &enrolled)
+
+	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/heartbeat", enrolled.DeviceToken, map[string]any{
+		"device_id": enrolled.DeviceID,
+		"inventory": map[string]any{"hostname": "delete-me"},
+		"metrics": map[string]any{
+			"memory": map[string]any{"used_kb": 90, "total_kb": 100},
+		},
+	}, http.StatusOK, nil)
+
+	requestJSON(t, http.MethodPost, srv.URL+"/api/devices/"+enrolled.DeviceID+"/commands", "operator-test", map[string]any{
+		"type": "ping",
+		"args": map[string]string{"target": "1.1.1.1"},
+	}, http.StatusCreated, nil)
+	next := requestText(t, http.MethodPost, srv.URL+"/api/agent/commands/next", enrolled.DeviceToken, map[string]string{
+		"device_id": enrolled.DeviceID,
+	}, http.StatusOK)
+	commandID := strings.Split(next, "\t")[0]
+	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/commands/"+commandID+"/result", enrolled.DeviceToken, map[string]any{
+		"device_id": enrolled.DeviceID,
+		"status":    "completed",
+		"exit_code": 0,
+		"output":    "ok",
+	}, http.StatusOK, nil)
+
+	var purge struct {
+		Deleted int64 `json:"deleted"`
+	}
+	requestJSON(t, http.MethodDelete, srv.URL+"/api/devices/"+enrolled.DeviceID+"/alerts", "operator-test", nil, http.StatusOK, &purge)
+	if purge.Deleted < 1 {
+		t.Fatalf("expected at least one purged alert, got %d", purge.Deleted)
+	}
+	requestJSON(t, http.MethodDelete, srv.URL+"/api/devices/"+enrolled.DeviceID+"/commands", "operator-test", nil, http.StatusOK, &purge)
+	if purge.Deleted < 1 {
+		t.Fatalf("expected at least one purged command, got %d", purge.Deleted)
+	}
+	requestJSON(t, http.MethodDelete, srv.URL+"/api/audit-events?device_id="+enrolled.DeviceID, "operator-test", nil, http.StatusOK, &purge)
+	if purge.Deleted < 1 {
+		t.Fatalf("expected at least one purged audit event, got %d", purge.Deleted)
+	}
+
+	requestJSON(t, http.MethodDelete, srv.URL+"/api/devices/"+enrolled.DeviceID, "operator-test", nil, http.StatusOK, nil)
+	requestJSON(t, http.MethodGet, srv.URL+"/api/devices/"+enrolled.DeviceID, "operator-test", nil, http.StatusNotFound, nil)
+}
+
 func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	var upstreamPath string
 	var authenticated bool

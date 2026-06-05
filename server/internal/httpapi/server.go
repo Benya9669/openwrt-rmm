@@ -31,14 +31,17 @@ type Store interface {
 	ListDevices(ctx context.Context) ([]model.Device, error)
 	GetDevice(ctx context.Context, deviceID string) (model.Device, bool, error)
 	UpdateDeviceFleet(ctx context.Context, deviceID, group string, tags []string) (model.Device, bool, error)
+	DeleteDevice(ctx context.Context, deviceID string) (bool, error)
 	ListMetricSamples(ctx context.Context, deviceID string, opts store.MetricHistoryOptions) ([]model.MetricSample, bool, error)
 	SyncDeviceAlerts(ctx context.Context, deviceID string, active []model.Alert) ([]model.Alert, bool, error)
 	ListAlerts(ctx context.Context, opts store.AlertListOptions) ([]model.Alert, error)
 	AcknowledgeAlert(ctx context.Context, deviceID, alertID, actor string) (model.Alert, bool, error)
+	PurgeAlerts(ctx context.Context, opts store.PurgeOptions) (int64, error)
 	CreateCommand(ctx context.Context, deviceID, commandType string, args json.RawMessage) (model.Command, bool, error)
 	ListCommands(ctx context.Context, deviceID string, opts store.CommandListOptions) ([]model.Command, bool, error)
 	GetCommand(ctx context.Context, deviceID, commandID string) (model.Command, bool, error)
 	CancelCommand(ctx context.Context, deviceID, commandID string) (model.Command, bool, error)
+	PurgeCommands(ctx context.Context, opts store.PurgeOptions) (int64, error)
 	CreateRemoteSession(ctx context.Context, session model.RemoteSession) (model.RemoteSession, bool, error)
 	ListRemoteSessions(ctx context.Context, deviceID string, opts store.RemoteSessionListOptions) ([]model.RemoteSession, bool, error)
 	GetRemoteSession(ctx context.Context, deviceID, sessionID string) (model.RemoteSession, bool, error)
@@ -47,6 +50,7 @@ type Store interface {
 	ExpireRemoteSessions(ctx context.Context) error
 	AddAuditEvent(ctx context.Context, actor, action, deviceID, commandID string, details json.RawMessage) (model.AuditEvent, error)
 	ListAuditEvents(ctx context.Context, opts store.AuditListOptions) ([]model.AuditEvent, error)
+	PurgeAuditEvents(ctx context.Context, opts store.PurgeOptions) (int64, error)
 }
 
 type Config struct {
@@ -177,7 +181,9 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("GET /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("POST /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("PATCH /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
+	mux.Handle("DELETE /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("GET /api/audit-events", a.operatorAuth(http.HandlerFunc(a.handleListAuditEvents)))
+	mux.Handle("DELETE /api/audit-events", a.operatorAuth(http.HandlerFunc(a.handlePurgeAuditEvents)))
 	mux.Handle("GET /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
 	mux.Handle("POST /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
 	for _, path := range []string{"/cgi-bin/", "/luci-static/", "/ubus/", "/ubus"} {
@@ -355,10 +361,35 @@ func (a *App) handleGetDevice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, d)
 }
 
+func (a *App) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
+	id, ok := deviceIDFromPath(r.URL.Path)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	deleted, err := a.store.DeleteDevice(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete device")
+		return
+	}
+	if !deleted {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "device.delete", id, "", mustJSON(map[string]string{
+		"request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
 func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) == 3 && r.Method == http.MethodGet {
 		a.handleGetDevice(w, r)
+		return
+	}
+	if len(parts) == 3 && r.Method == http.MethodDelete {
+		a.handleDeleteDevice(w, r)
 		return
 	}
 	if len(parts) == 4 && parts[3] == "fleet" && r.Method == http.MethodPatch {
@@ -373,12 +404,20 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 		a.handleListAlerts(w, r)
 		return
 	}
+	if len(parts) == 4 && parts[3] == "alerts" && r.Method == http.MethodDelete {
+		a.handlePurgeDeviceAlerts(w, r)
+		return
+	}
 	if len(parts) == 6 && parts[3] == "alerts" && parts[5] == "acknowledge" && r.Method == http.MethodPost {
 		a.handleAcknowledgeAlert(w, r)
 		return
 	}
 	if len(parts) == 4 && parts[3] == "commands" && r.Method == http.MethodGet {
 		a.handleListCommands(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "commands" && r.Method == http.MethodDelete {
+		a.handlePurgeDeviceCommands(w, r)
 		return
 	}
 	if len(parts) == 4 && parts[3] == "commands" && r.Method == http.MethodPost {
@@ -494,6 +533,32 @@ func (a *App) handleAcknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		"request_id": requestID(r.Context()),
 	}))
 	writeJSON(w, http.StatusOK, alert)
+}
+
+func (a *App) handlePurgeDeviceAlerts(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "devices" || parts[3] != "alerts" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	deviceID := parts[2]
+	if _, found, err := a.store.GetDevice(r.Context(), deviceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load device")
+		return
+	} else if !found {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	deleted, err := a.store.PurgeAlerts(r.Context(), store.PurgeOptions{DeviceID: deviceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to purge alerts")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "alerts.purge", deviceID, "", mustJSON(map[string]any{
+		"deleted":    deleted,
+		"request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
 func (a *App) refreshDeviceAlerts(ctx context.Context, deviceID string) ([]model.Alert, bool, error) {
@@ -896,6 +961,32 @@ func (a *App) handleCancelCommand(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
+func (a *App) handlePurgeDeviceCommands(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "devices" || parts[3] != "commands" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	deviceID := parts[2]
+	if _, found, err := a.store.GetDevice(r.Context(), deviceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load device")
+		return
+	} else if !found {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	deleted, err := a.store.PurgeCommands(r.Context(), store.PurgeOptions{DeviceID: deviceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to purge command history")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "commands.purge", deviceID, "", mustJSON(map[string]any{
+		"deleted":    deleted,
+		"request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+}
+
 func (a *App) handleListRemoteSessions(w http.ResponseWriter, r *http.Request) {
 	deviceID, ok := remoteSessionListDeviceIDFromPath(r.URL.Path)
 	if !ok {
@@ -1256,6 +1347,24 @@ func (a *App) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"audit_events": events})
+}
+
+func (a *App) handlePurgeAuditEvents(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.URL.Query().Get("device_id")
+	deleted, err := a.store.PurgeAuditEvents(r.Context(), store.PurgeOptions{DeviceID: deviceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to purge audit events")
+		return
+	}
+	action := "audit.purge"
+	if strings.TrimSpace(deviceID) != "" {
+		action = "device_audit.purge"
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), "operator", action, deviceID, "", mustJSON(map[string]any{
+		"deleted":    deleted,
+		"request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
 func (a *App) authorizeDevice(r *http.Request, deviceID string) error {

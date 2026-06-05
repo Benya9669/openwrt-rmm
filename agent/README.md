@@ -118,6 +118,24 @@ vi /etc/rmm-agent-go.conf
 
 The side-by-side service uses `/etc/rmm-agent-go.conf`, `/tmp/rmm-agent-go.lock`, `/tmp/rmm-agent-go-results`, `/tmp/rmm-agent-go-backups`, and `/tmp/rmm-agent-go-tunnels` so it does not collide with the shell agent.
 
+Production switch from the shell agent to the Go agent:
+
+```sh
+/etc/init.d/rmm-agent stop
+/etc/init.d/rmm-agent disable
+/etc/init.d/rmm-agent-go stop 2>/dev/null || true
+cp /usr/bin/rmm-agent-go /usr/bin/rmm-agent
+chmod +x /usr/bin/rmm-agent
+cp ./agent/openwrt/rmm-agent-go-production.init /etc/init.d/rmm-agent
+chmod +x /etc/init.d/rmm-agent
+sed -i '/^HOSTNAME_SUFFIX=/d;/^HOSTNAME_OVERRIDE=/d;/^LOCK_FILE=/d;/^SPOOL_DIR=/d;/^BACKUP_DIR=/d;/^TUNNEL_STATE_DIR=/d' /etc/rmm-agent.conf
+rm -rf /tmp/rmm-agent.lock
+/etc/init.d/rmm-agent enable
+/etc/init.d/rmm-agent start
+```
+
+This keeps the existing `/etc/rmm-agent.conf`, including `DEVICE_ID` and `DEVICE_TOKEN`, so the router continues as the same RMM object instead of enrolling as a duplicate `-go` device. Keep the shell script backup until the Go service has been stable for at least one maintenance window.
+
 ## OpenWrt Package
 
 Package skeleton:

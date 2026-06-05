@@ -148,6 +148,10 @@ const els = {
   commandDetailOutput: document.querySelector("#commandDetailOutput"),
   copyCommandOutputBtn: document.querySelector("#copyCommandOutputBtn"),
   auditList: document.querySelector("#auditList"),
+  clearAlertsBtn: document.querySelector("#clearAlertsBtn"),
+  clearCommandsBtn: document.querySelector("#clearCommandsBtn"),
+  clearAuditBtn: document.querySelector("#clearAuditBtn"),
+  deleteDeviceBtn: document.querySelector("#deleteDeviceBtn"),
 };
 
 if (els.remoteServerHost) {
@@ -337,6 +341,11 @@ function confirmDanger(type) {
   const label = dangerLabel(type);
   if (!label) return true;
   return window.confirm(`Подтвердите действие: ${label}. Продолжить?`);
+}
+
+function confirmTyped(message, expected) {
+  const value = window.prompt(`${message}\n\nВведите ${expected}, чтобы подтвердить.`);
+  return value === expected;
 }
 
 function commandArgs() {
@@ -1360,6 +1369,55 @@ async function acknowledgeAlert(alertId) {
   setStatus("Alert acknowledged");
 }
 
+async function clearDeviceAlerts() {
+  if (!state.selectedDeviceId) return;
+  if (!confirmTyped("Очистить все алерты выбранного устройства?", "CLEAR")) return;
+  setStatus("Очищаю алерты");
+  await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts`, { method: "DELETE" });
+  await Promise.all([loadAlerts(), loadAudit(), loadDevices()]);
+  setStatus("Алерты очищены");
+}
+
+async function clearDeviceCommands() {
+  if (!state.selectedDeviceId) return;
+  if (!confirmTyped("Очистить историю команд выбранного устройства?", "CLEAR")) return;
+  setStatus("Очищаю историю команд");
+  await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands`, { method: "DELETE" });
+  state.commands = [];
+  state.commandOffset = 0;
+  state.selectedCommand = null;
+  await Promise.all([loadCommands(), loadAudit(), loadDevices()]);
+  renderCommandDetail();
+  setStatus("История команд очищена");
+}
+
+async function clearDeviceAudit() {
+  if (!state.selectedDeviceId) return;
+  if (!confirmTyped("Очистить аудит выбранного устройства?", "CLEAR")) return;
+  setStatus("Очищаю аудит");
+  await api(`/api/audit-events?device_id=${encodeURIComponent(state.selectedDeviceId)}`, { method: "DELETE" });
+  state.auditEvents = [];
+  state.auditOffset = 0;
+  await loadAudit();
+  setStatus("Аудит устройства очищен");
+}
+
+async function deleteSelectedDevice() {
+  const device = currentDevice();
+  if (!device) return;
+  const name = deviceDisplayName(device);
+  if (!confirmTyped(`Удалить устройство "${name}" из RMM? Это удалит метрики, команды, алерты и remote sessions.`, name)) return;
+  setStatus("Удаляю устройство");
+  await api(`/api/devices/${encodeURIComponent(device.id)}`, { method: "DELETE" });
+  state.selectedDeviceId = null;
+  state.selectedCommand = null;
+  state.commands = [];
+  state.auditEvents = [];
+  await loadDevices();
+  render();
+  setStatus("Устройство удалено");
+}
+
 function diagnosticCommand(name) {
   const serverHost = window.location.hostname || "10.10.10.2";
   switch (name) {
@@ -1468,6 +1526,10 @@ els.loadMoreAuditBtn.addEventListener("click", () => loadAudit({ append: true })
 els.sendCommandBtn.addEventListener("click", () => sendCommand().catch((error) => setStatus(error.message)));
 els.sendBulkCommandBtn.addEventListener("click", () => sendBulkCommand().catch((error) => setStatus(error.message)));
 els.saveFleetBtn.addEventListener("click", () => saveFleetMetadata().catch((error) => setStatus(error.message)));
+els.clearAlertsBtn.addEventListener("click", () => clearDeviceAlerts().catch((error) => setStatus(error.message)));
+els.clearCommandsBtn.addEventListener("click", () => clearDeviceCommands().catch((error) => setStatus(error.message)));
+els.clearAuditBtn.addEventListener("click", () => clearDeviceAudit().catch((error) => setStatus(error.message)));
+els.deleteDeviceBtn.addEventListener("click", () => deleteSelectedDevice().catch((error) => setStatus(error.message)));
 els.sendPackageCommandBtn.addEventListener("click", () => sendPackageCommand().catch((error) => setStatus(error.message)));
 els.createRemoteSessionBtn.addEventListener("click", () => createRemoteSession().catch((error) => setStatus(error.message)));
 els.uciBackupBtn.addEventListener("click", () => sendUciCommand("uci_backup").catch((error) => setStatus(error.message)));

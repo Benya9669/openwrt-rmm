@@ -58,6 +58,16 @@ button.primary:hover,
   background: var(--accent-strong);
 }
 
+button.danger {
+  border-color: rgba(240, 82, 82, 0.55);
+  color: #ffb4b4;
+}
+
+button.danger:hover {
+  background: rgba(240, 82, 82, 0.12);
+  border-color: var(--bad);
+}
+
 input,
 select {
   width: 100%;
@@ -852,6 +862,12 @@ select {
   grid-template-columns: minmax(260px, 1fr) auto;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.maintenance-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .client-filters {
@@ -1678,6 +1694,7 @@ select {
   .remote-form,
   .health-summary,
   .diagnostic-grid,
+  .maintenance-grid,
   .uci-grid,
   .preset-grid {
     grid-template-columns: 1fr;
