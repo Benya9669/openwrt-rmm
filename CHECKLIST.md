@@ -91,6 +91,9 @@
     - [x] `pkg_list_upgradable` / `opkg_list_upgradable`;
     - [x] `pkg_install` / `opkg_install`;
     - [x] `pkg_remove` / `opkg_remove`;
+    - [x] `uci_show`;
+    - [x] `uci_backup`;
+    - [x] `uci_preview`;
   - [ ] OpenWrt cross-build/package integration.
 
 ## Этап 2: MVP Server API

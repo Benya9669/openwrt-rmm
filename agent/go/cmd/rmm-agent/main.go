@@ -31,6 +31,7 @@ type config struct {
 	DeviceToken     string
 	LockFile        string
 	SpoolDir        string
+	BackupDir       string
 	CheckTargets    []string
 	ConfigFile      string
 }
@@ -121,6 +122,7 @@ func loadConfig(path string) (config, error) {
 		DeviceToken:     os.Getenv("DEVICE_TOKEN"),
 		LockFile:        envDefault("LOCK_FILE", "/tmp/rmm-agent-go.lock"),
 		SpoolDir:        envDefault("SPOOL_DIR", "/tmp/rmm-agent-go-results"),
+		BackupDir:       envDefault("BACKUP_DIR", "/tmp/rmm-agent-backups"),
 		CheckTargets:    splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
 		ConfigFile:      path,
 	}
@@ -152,6 +154,9 @@ func loadConfig(path string) (config, error) {
 	}
 	if value := values["SPOOL_DIR"]; value != "" {
 		cfg.SpoolDir = value
+	}
+	if value := values["BACKUP_DIR"]; value != "" {
+		cfg.BackupDir = value
 	}
 	if value := values["CHECK_TARGETS"]; value != "" {
 		cfg.CheckTargets = splitWords(value)
@@ -187,6 +192,7 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "ENROLLMENT_TOKEN", cfg.EnrollmentToken)
 	writeConfigLine(&b, "INTERVAL_SECONDS", strconv.Itoa(cfg.IntervalSeconds))
 	writeConfigLine(&b, "CHECK_TARGETS", strings.Join(cfg.CheckTargets, " "))
+	writeConfigLine(&b, "BACKUP_DIR", cfg.BackupDir)
 	writeConfigLine(&b, "DEVICE_ID", cfg.DeviceID)
 	writeConfigLine(&b, "DEVICE_TOKEN", cfg.DeviceToken)
 	tmp := cfg.ConfigFile + ".tmp"
@@ -272,7 +278,7 @@ func buildMetrics(targets []string) map[string]any {
 }
 
 func processCommand(ctx context.Context, client *http.Client, cfg config, cmd command) {
-	output, exitCode := runCommand(ctx, cmd)
+	output, exitCode := runCommand(ctx, cfg, cmd)
 	status := "completed"
 	if exitCode != 0 {
 		status = "failed"
@@ -293,7 +299,7 @@ func processCommand(ctx context.Context, client *http.Client, cfg config, cmd co
 	}
 }
 
-func runCommand(ctx context.Context, cmd command) (string, int) {
+func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 	args := map[string]string{}
 	if len(cmd.Args) > 0 {
 		_ = json.Unmarshal(cmd.Args, &args)
@@ -333,6 +339,24 @@ func runCommand(ctx context.Context, cmd command) (string, int) {
 			return "package name is invalid\n", 2
 		}
 		return runPackageCommand(ctx, "remove", packageName)
+	case "uci_show":
+		config, ok := uciConfigArg(args)
+		if !ok {
+			return "uci config is not allowlisted\n", 2
+		}
+		return execCommand(ctx, 10*time.Second, "uci", "show", config)
+	case "uci_backup":
+		config, ok := uciConfigArg(args)
+		if !ok {
+			return "uci config is not allowlisted\n", 2
+		}
+		return uciBackupOutput(ctx, config, cfg.BackupDir)
+	case "uci_preview":
+		target, output, ok := uciTargetArgs(args)
+		if !ok {
+			return output, 2
+		}
+		return uciPreviewOutput(ctx, target, cfg.BackupDir)
 	default:
 		return fmt.Sprintf("go agent preview does not implement command %q yet; shell agent remains the production command runner\n", cmd.Type), 2
 	}
@@ -380,6 +404,153 @@ func safePackageName(value string) bool {
 		}
 	}
 	return true
+}
+
+type uciTarget struct {
+	Config  string
+	Section string
+	Option  string
+	Value   string
+}
+
+func uciConfigArg(args map[string]string) (string, bool) {
+	config := strings.TrimSpace(args["config"])
+	if config == "" {
+		config = "network"
+	}
+	return config, safeUCIConfig(config)
+}
+
+func uciTargetArgs(args map[string]string) (uciTarget, string, bool) {
+	config, ok := uciConfigArg(args)
+	if !ok {
+		return uciTarget{}, "uci config is not allowlisted\n", false
+	}
+	target := uciTarget{
+		Config:  config,
+		Section: strings.TrimSpace(args["section"]),
+		Option:  strings.TrimSpace(args["option"]),
+		Value:   args["value"],
+	}
+	if !safeUCISection(target.Section) || !safeUCIOption(target.Option) {
+		return uciTarget{}, "uci section or option is invalid\n", false
+	}
+	return target, "", true
+}
+
+func safeUCIConfig(value string) bool {
+	switch value {
+	case "network", "wireless", "dhcp", "firewall", "system":
+		return true
+	default:
+		return false
+	}
+}
+
+func safeUCISection(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '_', '.', '@', '[', ']', '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func safeUCIOption(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '_', '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func uciBackupOutput(ctx context.Context, config, backupDir string) (string, int) {
+	backup, exitCode := execCommand(ctx, 10*time.Second, "uci", "export", config)
+	if exitCode == 0 {
+		_ = os.MkdirAll(backupDir, 0o700)
+		_ = os.WriteFile(filepath.Join(backupDir, config+".export"), []byte(backup), 0o600)
+	}
+	return fmt.Sprintf("BACKUP %s\n%s", config, backup), exitCode
+}
+
+func uciPreviewOutput(ctx context.Context, target uciTarget, backupDir string) (string, int) {
+	before, beforeCode := execCommand(ctx, 10*time.Second, "uci", "show", target.Config)
+	if beforeCode != 0 {
+		return before, beforeCode
+	}
+	backup, backupCode := execCommand(ctx, 10*time.Second, "uci", "export", target.Config)
+	if backupCode != 0 {
+		return backup, backupCode
+	}
+	_ = os.MkdirAll(backupDir, 0o700)
+	_ = os.WriteFile(filepath.Join(backupDir, target.Config+".export"), []byte(backup), 0o600)
+
+	setArg := fmt.Sprintf("%s.%s.%s=%s", target.Config, target.Section, target.Option, target.Value)
+	setOutput, setCode := execCommand(ctx, 10*time.Second, "uci", "set", setArg)
+	defer func() {
+		_, _ = execCommand(context.Background(), 10*time.Second, "uci", "revert", target.Config)
+	}()
+	if setCode != 0 {
+		return setOutput, setCode
+	}
+	after, afterCode := execCommand(ctx, 10*time.Second, "uci", "show", target.Config)
+	if afterCode != 0 {
+		return after, afterCode
+	}
+	diff := unifiedDiff(ctx, before, after)
+	var b strings.Builder
+	_, _ = fmt.Fprintf(&b, "PREVIEW %s.%s.%s\n", target.Config, target.Section, target.Option)
+	_, _ = fmt.Fprintf(&b, "\nCHANGE\n%s\n", setArg)
+	if diff != "" {
+		_, _ = fmt.Fprintf(&b, "\nDIFF\n%s\n", diff)
+	}
+	_, _ = fmt.Fprintf(&b, "\nBACKUP\n%s\n", backup)
+	_, _ = fmt.Fprintf(&b, "\nBEFORE\n%s\n", before)
+	_, _ = fmt.Fprintf(&b, "\nAFTER\n%s\n", after)
+	return b.String(), 0
+}
+
+func unifiedDiff(ctx context.Context, before, after string) string {
+	if _, err := exec.LookPath("diff"); err != nil {
+		return ""
+	}
+	dir := os.TempDir()
+	beforeFile, err := os.CreateTemp(dir, "rmm-agent-before-*")
+	if err != nil {
+		return ""
+	}
+	defer os.Remove(beforeFile.Name())
+	afterFile, err := os.CreateTemp(dir, "rmm-agent-after-*")
+	if err != nil {
+		_ = beforeFile.Close()
+		return ""
+	}
+	defer os.Remove(afterFile.Name())
+	_, _ = beforeFile.WriteString(before)
+	_, _ = afterFile.WriteString(after)
+	_ = beforeFile.Close()
+	_ = afterFile.Close()
+	output, _ := execCommand(ctx, 10*time.Second, "diff", "-u", beforeFile.Name(), afterFile.Name())
+	return output
 }
 
 func runPackageCommand(ctx context.Context, action string, packageName ...string) (string, int) {

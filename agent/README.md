@@ -61,6 +61,9 @@ The Go agent is not the production command runner yet. It currently supports the
 - `pkg_list_upgradable` / `opkg_list_upgradable`
 - `pkg_install` / `opkg_install`
 - `pkg_remove` / `opkg_remove`
+- `uci_show`
+- `uci_backup`
+- `uci_preview`
 
 Other queued commands are reported as failed with a clear message until the shell allowlist is migrated command by command.
 
