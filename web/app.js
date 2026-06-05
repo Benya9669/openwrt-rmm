@@ -4,6 +4,8 @@ const state = {
   selectedDeviceId: null,
   deviceTab: "overview",
   filter: "all",
+  fleetSortKey: "status",
+  fleetSortDir: "desc",
   clientFilter: "all",
   alertStatusFilter: "open",
   commandFilter: "all",
@@ -45,6 +47,8 @@ const els = {
   statusLine: document.querySelector("#statusLine"),
   pageTitle: document.querySelector("#pageTitle"),
   emptyState: document.querySelector("#emptyState"),
+  emptyStateTitle: document.querySelector("#emptyState h2"),
+  emptyStateDescription: document.querySelector("#emptyState p"),
   deviceView: document.querySelector("#deviceView"),
   backToFleetBtn: document.querySelector("#backToFleetBtn"),
   quickDiagnosticBtn: document.querySelector("#quickDiagnosticBtn"),
@@ -154,14 +158,60 @@ const els = {
   clearCommandsBtn: document.querySelector("#clearCommandsBtn"),
   clearAuditBtn: document.querySelector("#clearAuditBtn"),
   deleteDeviceBtn: document.querySelector("#deleteDeviceBtn"),
+  toastRegion: document.querySelector("#toastRegion"),
 };
 
 if (els.remoteServerHost) {
   els.remoteServerHost.value = window.location.hostname || "10.10.10.2";
 }
 
+function ensureToastRegion() {
+  if (els.toastRegion) return els.toastRegion;
+  const region = document.createElement("div");
+  region.id = "toastRegion";
+  region.className = "toast-region";
+  region.setAttribute("aria-live", "polite");
+  region.setAttribute("aria-atomic", "true");
+  document.body.appendChild(region);
+  els.toastRegion = region;
+  return region;
+}
+
+function showToast(message, tone = "info") {
+  if (!message) return;
+  const region = ensureToastRegion();
+  const toast = document.createElement("div");
+  toast.className = `toast ${tone}`;
+  toast.textContent = message;
+  region.appendChild(toast);
+  window.setTimeout(() => {
+    toast.classList.add("is-leaving");
+    window.setTimeout(() => toast.remove(), 180);
+  }, 2800);
+}
+
 function setStatus(message) {
   els.statusLine.textContent = message;
+}
+
+function notify(message, tone = "info") {
+  setStatus(message);
+  showToast(message, tone);
+}
+
+function reportError(error) {
+  const message = error instanceof Error ? error.message : String(error || "Unexpected error");
+  setStatus(message);
+  showToast(message, "error");
+}
+
+function inlineStateMarkup(title, description = "", tone = "neutral") {
+  return `
+    <div class="inline-state ${tone}">
+      <strong>${escapeHtml(title)}</strong>
+      ${description ? `<small>${escapeHtml(description)}</small>` : ""}
+    </div>
+  `;
 }
 
 async function api(path, options = {}) {
@@ -408,6 +458,76 @@ function deviceWanSummary(device) {
   return { label: wanIP || "Подключено", className: "online" };
 }
 
+function getFleetSortValue(device, key) {
+  switch (key) {
+    case "status":
+      return device.online ? 1 : 0;
+    case "name":
+      return deviceDisplayName(device).toLowerCase();
+    case "model":
+      return `${deviceModel(device)} ${device.group || ""}`.toLowerCase();
+    case "wan":
+      return deviceWanSummary(device).label.toLowerCase();
+    case "clients":
+      return deviceClientCount(device).total;
+    case "alerts":
+      return Number(device.active_alerts || 0);
+    case "last_seen":
+      return Date.parse(device.last_seen_at || "") || 0;
+    default:
+      return deviceDisplayName(device).toLowerCase();
+  }
+}
+
+function sortDevices(devices) {
+  const direction = state.fleetSortDir === "asc" ? 1 : -1;
+  return [...devices].sort((left, right) => {
+    const leftValue = getFleetSortValue(left, state.fleetSortKey);
+    const rightValue = getFleetSortValue(right, state.fleetSortKey);
+    if (leftValue === rightValue) {
+      return deviceDisplayName(left).localeCompare(deviceDisplayName(right), undefined, { sensitivity: "base" }) * direction;
+    }
+    if (typeof leftValue === "number" && typeof rightValue === "number") {
+      return (leftValue - rightValue) * direction;
+    }
+    return String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: "base" }) * direction;
+  });
+}
+
+function renderFleetSortButtons() {
+  for (const button of document.querySelectorAll(".table-sort")) {
+    const isActive = button.dataset.sortKey === state.fleetSortKey;
+    button.classList.toggle("is-active", isActive);
+    button.dataset.sortDir = isActive ? state.fleetSortDir : button.dataset.sortDefaultDir || "asc";
+  }
+}
+
+function initFleetTableSorting() {
+  const head = document.querySelector(".fleet-table-head");
+  if (!head || head.querySelector(".table-sort")) return;
+  const labels = [
+    ["status", "desc"],
+    ["name", "asc"],
+    ["model", "asc"],
+    ["wan", "asc"],
+    ["clients", "desc"],
+    ["alerts", "desc"],
+    ["last_seen", "desc"],
+  ];
+  const cells = Array.from(head.children);
+  cells.forEach((cell, index) => {
+    if (index >= labels.length) return;
+    const [sortKey, defaultDir] = labels[index];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "table-sort";
+    button.dataset.sortKey = sortKey;
+    button.dataset.sortDefaultDir = defaultDir;
+    button.textContent = cell.textContent || "";
+    cell.replaceWith(button);
+  });
+}
+
 function filteredDevices() {
   const search = els.fleetSearch.value.trim().toLowerCase();
   const group = els.fleetGroupFilter.value.trim().toLowerCase();
@@ -436,7 +556,7 @@ function filteredDevices() {
 }
 
 function renderDevices() {
-  const devices = filteredDevices();
+  const devices = sortDevices(filteredDevices());
   els.deviceList.innerHTML = "";
   const online = state.devices.filter((device) => device.online).length;
   const alerts = state.devices.filter((device) => device.active_alerts).length;
@@ -445,8 +565,23 @@ function renderDevices() {
   els.fleetOfflineCount.textContent = state.devices.length - online;
   els.fleetAlertCount.textContent = alerts;
   els.navAlertCount.textContent = alerts;
+  renderFleetSortButtons();
 
   if (devices.length === 0) {
+    const hasFilters = Boolean(
+      els.fleetSearch.value.trim()
+      || els.fleetGroupFilter.value.trim()
+      || els.fleetTagFilter.value.trim()
+      || state.filter !== "all"
+    );
+    if (els.emptyStateTitle) {
+      els.emptyStateTitle.textContent = hasFilters ? "Ничего не найдено по текущим фильтрам" : "Устройства пока не подключены";
+    }
+    if (els.emptyStateDescription) {
+      els.emptyStateDescription.textContent = hasFilters
+        ? "Снимите часть фильтров или измените запрос, чтобы снова увидеть устройства."
+        : "Дождитесь первого heartbeat от агента или проверьте подключение роутера к серверу.";
+    }
     els.emptyState.classList.remove("is-hidden");
     return;
   }
@@ -651,7 +786,7 @@ function renderClients(device) {
   const wifiCount = clients.filter((client) => client.type === "wifi").length;
   els.clientSummary.textContent = `${clients.length} всего / ${wifiCount} Wi-Fi`;
   if (filtered.length === 0) {
-    els.clientList.innerHTML = '<div class="inline-empty">Клиенты не найдены</div>';
+    els.clientList.innerHTML = inlineStateMarkup("Клиенты не найдены", "Проверьте фильтр или дождитесь обновления DHCP и Wi-Fi данных.");
     return;
   }
   for (const client of filtered) {
@@ -685,7 +820,7 @@ function renderInterfaceCounters(device) {
     <div><span>Проверки связи</span><strong>${escapeHtml(formatConnectivity(device.metrics && device.metrics.connectivity_checks))}</strong></div>
   `;
   if (counters.length === 0) {
-    els.interfaceCounters.innerHTML = '<div class="inline-empty">Нет данных об интерфейсах</div>';
+    els.interfaceCounters.innerHTML = inlineStateMarkup("Нет данных об интерфейсах", "Агент еще не прислал сетевые счетчики или интерфейсы скрыты на стороне роутера.");
     return;
   }
   for (const item of counters) {
@@ -713,7 +848,7 @@ function renderMetricsHistory(samples) {
   els.metricsHistory.innerHTML = "";
   if (samples.length === 0) {
     els.metricsHistorySummary.textContent = "Нет замеров";
-    els.metricsHistory.innerHTML = '<div class="inline-empty">История мониторинга появится после нескольких heartbeat от агента</div>';
+    els.metricsHistory.innerHTML = inlineStateMarkup("История мониторинга пока пуста", "Графики появятся после нескольких heartbeat от агента.");
     return;
   }
   els.metricsHistorySummary.textContent = `${samples.length} замеров`;
@@ -764,7 +899,9 @@ function renderAlerts(alerts) {
   const resolvedCount = alerts.filter((alert) => alert.status === "resolved").length;
   els.alertSummary.textContent = `${activeCount} active / ${acknowledgedCount} ack / ${resolvedCount} resolved`;
   if (alerts.length === 0) {
-    els.alertList.textContent = state.alertStatusFilter === "resolved" ? "Нет resolved alerts" : "Нет активных алертов";
+    els.alertList.innerHTML = state.alertStatusFilter === "resolved"
+      ? inlineStateMarkup("Resolved alerts не найдены", "Когда проблемы будут закрываться автоматически или вручную, они появятся здесь.")
+      : inlineStateMarkup("Активных алертов нет", "Сейчас устройство не требует внимания по правилам мониторинга.", "success");
     return;
   }
   for (const alert of alerts) {
@@ -888,7 +1025,7 @@ function renderCommands(commands) {
   renderCommandSummary(commands);
   const filtered = commands.filter(commandFilterMatches);
   if (filtered.length === 0) {
-    els.commandList.innerHTML = '<div class="inline-empty">Команд по выбранному фильтру нет</div>';
+    els.commandList.innerHTML = inlineStateMarkup("Команд по выбранному фильтру нет", "Измените фильтр или отправьте новую команду.");
     return;
   }
 
@@ -986,7 +1123,7 @@ function renderAudit(events) {
   els.auditList.innerHTML = "";
   els.auditSummary.textContent = `${events.length} events`;
   if (events.length === 0) {
-    els.auditList.textContent = "No audit events";
+    els.auditList.innerHTML = inlineStateMarkup("Событий аудита пока нет", "Здесь появятся действия оператора и системные события по устройству.");
     return;
   }
 
@@ -1014,7 +1151,7 @@ function renderRemoteSessions(sessions) {
   const active = sessions.filter((session) => ["requested", "queued", "active"].includes(session.status)).length;
   els.remoteSummary.textContent = active ? `${active} активн.` : "Нет активных сессий";
   if (sessions.length === 0) {
-    els.remoteSessionList.innerHTML = '<div class="inline-empty">Удаленный доступ еще не открывался</div>';
+    els.remoteSessionList.innerHTML = inlineStateMarkup("Удаленный доступ еще не открывался", "Создайте временную сессию, чтобы подключиться к роутеру по SSH или открыть LuCI.");
     return;
   }
   for (const session of sessions) {
@@ -1044,7 +1181,7 @@ function renderRemoteSessions(sessions) {
     });
     row.querySelector('[data-action="copy"]').addEventListener("click", async () => {
       await navigator.clipboard.writeText(connectCommand);
-      setStatus("SSH-команда скопирована");
+      notify("SSH-команда скопирована", "success");
     });
     row.querySelector('[data-action="close"]').addEventListener("click", () => closeRemoteSession(session.id));
     els.remoteSessionList.appendChild(row);
@@ -1063,7 +1200,7 @@ async function sendCommand() {
     }),
   });
   await Promise.all([loadCommands(), loadAudit()]);
-  setStatus("Command queued");
+  notify("Command queued", "success");
 }
 
 function uciConfigArg() {
@@ -1111,7 +1248,7 @@ async function sendBulkCommand() {
     }),
   });
   await Promise.all([loadCommands(), loadAudit()]);
-  setStatus(`${type} queued for ${devices.length} devices`);
+  notify(`${type} queued for ${devices.length} devices`, "success");
 }
 
 async function saveFleetMetadata() {
@@ -1126,7 +1263,7 @@ async function saveFleetMetadata() {
   renderDevices();
   renderDeviceDetail(device);
   await loadAudit();
-  setStatus("Fleet metadata saved");
+  notify("Fleet metadata saved", "success");
 }
 
 async function sendPackageCommand() {
@@ -1140,7 +1277,7 @@ async function sendPackageCommand() {
   if (!confirmDanger(type)) return;
   setStatus(`Queueing ${type}`);
   await createDeviceCommand(type, packageName ? { package: packageName } : {}, { skipConfirm: true });
-  setStatus(`${type} queued`);
+  notify(`${type} queued`, "success");
 }
 
 async function sendUciCommand(type) {
@@ -1153,7 +1290,7 @@ async function sendUciCommand(type) {
   setStatus(`Queueing ${type}`);
   const args = type === "uci_set" || type === "uci_preview" ? uciSetArgs() : uciConfigArg();
   await createDeviceCommand(type, args, { skipConfirm: true });
-  setStatus(`${type} queued`);
+  notify(`${type} queued`, "success");
 }
 
 async function createRemoteSession() {
@@ -1183,7 +1320,7 @@ async function createRemoteSession() {
     }),
   });
   await Promise.all([loadRemoteSessions(), loadCommands(), loadAudit()]);
-  setStatus("Команда открытия доступа отправлена");
+  notify("Команда открытия доступа отправлена", "success");
 }
 
 async function closeRemoteSession(sessionId) {
@@ -1194,7 +1331,7 @@ async function closeRemoteSession(sessionId) {
     method: "POST",
   });
   await Promise.all([loadRemoteSessions(), loadAudit()]);
-  setStatus("Удаленный доступ закрыт");
+  notify("Удаленный доступ закрыт", "success");
 }
 
 function presetCommand(preset) {
@@ -1348,7 +1485,7 @@ async function applyPresetReview() {
   review.applyCommandIds = [staged.id, confirmed.id];
   await Promise.all([loadCommands(), loadAudit(), loadAlerts()]);
   renderPresetReview();
-  setStatus("Безопасное применение запущено");
+  notify("Безопасное применение запущено", "success");
 }
 
 function cancelPresetReview() {
@@ -1374,7 +1511,7 @@ async function acknowledgeAlert(alertId) {
     method: "POST",
   });
   await Promise.all([loadAlerts(), loadAudit(), loadDevices()]);
-  setStatus("Alert acknowledged");
+  notify("Alert acknowledged", "success");
 }
 
 async function clearDeviceAlerts() {
@@ -1383,7 +1520,7 @@ async function clearDeviceAlerts() {
   setStatus("Очищаю алерты");
   await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts`, { method: "DELETE" });
   await Promise.all([loadAlerts(), loadAudit(), loadDevices()]);
-  setStatus("Алерты очищены");
+  notify("Алерты очищены", "success");
 }
 
 async function clearDeviceCommands() {
@@ -1396,7 +1533,7 @@ async function clearDeviceCommands() {
   state.selectedCommand = null;
   await Promise.all([loadCommands(), loadAudit(), loadDevices()]);
   renderCommandDetail();
-  setStatus("История команд очищена");
+  notify("История команд очищена", "success");
 }
 
 async function clearDeviceAudit() {
@@ -1407,7 +1544,7 @@ async function clearDeviceAudit() {
   state.auditEvents = [];
   state.auditOffset = 0;
   await loadAudit();
-  setStatus("Аудит устройства очищен");
+  notify("Аудит устройства очищен", "success");
 }
 
 async function deleteSelectedDevice() {
@@ -1423,7 +1560,7 @@ async function deleteSelectedDevice() {
   state.auditEvents = [];
   await loadDevices();
   render();
-  setStatus("Устройство удалено");
+  notify("Устройство удалено", "success");
 }
 
 function diagnosticCommand(name) {
@@ -1449,7 +1586,7 @@ async function sendDiagnostic(name) {
   if (!command) return;
   setStatus("Запуск проверки");
   await createDeviceCommand(command.type, command.args);
-  setStatus("Проверка поставлена в очередь");
+  notify("Проверка поставлена в очередь", "success");
   scrollToCommands();
 }
 
@@ -1475,7 +1612,7 @@ async function runFullDiagnostic() {
       <button id="openDiagnosticResultsBtn" type="button">Открыть результаты</button>
     `;
     els.diagnosticStatus.querySelector("#openDiagnosticResultsBtn").addEventListener("click", scrollToCommands);
-    setStatus("Полная диагностика поставлена в очередь");
+    notify("Полная диагностика поставлена в очередь", "success");
   } finally {
     els.runFullDiagnosticBtn.disabled = false;
   }
@@ -1491,7 +1628,7 @@ async function runAlertDiagnostics(alert) {
     scrollToCommands();
     return;
   }
-  setStatus("Diagnostic queued");
+  notify("Diagnostic queued", "success");
   scrollToCommands();
 }
 
@@ -1518,45 +1655,47 @@ async function checkHealth() {
   }
 }
 
+initFleetTableSorting();
+
 els.loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
   login().catch((error) => showLogin(error.message));
 });
-els.logoutBtn.addEventListener("click", () => logout().catch((error) => setStatus(error.message)));
+els.logoutBtn.addEventListener("click", () => logout().catch(reportError));
 
-els.refreshBtn.addEventListener("click", () => loadDevices().catch((error) => setStatus(error.message)));
+els.refreshBtn.addEventListener("click", () => loadDevices().catch(reportError));
 els.backToFleetBtn.addEventListener("click", showFleet);
 els.quickDiagnosticBtn.addEventListener("click", () => selectDeviceTab("operations"));
 els.openLuciBtn.addEventListener("click", openLuciOrRemoteAccess);
-els.runFullDiagnosticBtn.addEventListener("click", () => runFullDiagnostic().catch((error) => setStatus(error.message)));
-els.loadMoreCommandsBtn.addEventListener("click", () => loadCommands({ append: true }).catch((error) => setStatus(error.message)));
-els.loadMoreAuditBtn.addEventListener("click", () => loadAudit({ append: true }).catch((error) => setStatus(error.message)));
+els.runFullDiagnosticBtn.addEventListener("click", () => runFullDiagnostic().catch(reportError));
+els.loadMoreCommandsBtn.addEventListener("click", () => loadCommands({ append: true }).catch(reportError));
+els.loadMoreAuditBtn.addEventListener("click", () => loadAudit({ append: true }).catch(reportError));
 els.alertStatusFilter.addEventListener("change", () => {
   state.alertStatusFilter = els.alertStatusFilter.value;
-  loadAlerts().catch((error) => setStatus(error.message));
+  loadAlerts().catch(reportError);
 });
-els.sendCommandBtn.addEventListener("click", () => sendCommand().catch((error) => setStatus(error.message)));
-els.sendBulkCommandBtn.addEventListener("click", () => sendBulkCommand().catch((error) => setStatus(error.message)));
-els.saveFleetBtn.addEventListener("click", () => saveFleetMetadata().catch((error) => setStatus(error.message)));
-els.clearAlertsBtn.addEventListener("click", () => clearDeviceAlerts().catch((error) => setStatus(error.message)));
-els.clearCommandsBtn.addEventListener("click", () => clearDeviceCommands().catch((error) => setStatus(error.message)));
-els.clearAuditBtn.addEventListener("click", () => clearDeviceAudit().catch((error) => setStatus(error.message)));
-els.deleteDeviceBtn.addEventListener("click", () => deleteSelectedDevice().catch((error) => setStatus(error.message)));
-els.sendPackageCommandBtn.addEventListener("click", () => sendPackageCommand().catch((error) => setStatus(error.message)));
-els.createRemoteSessionBtn.addEventListener("click", () => createRemoteSession().catch((error) => setStatus(error.message)));
-els.uciBackupBtn.addEventListener("click", () => sendUciCommand("uci_backup").catch((error) => setStatus(error.message)));
-els.uciPreviewBtn.addEventListener("click", () => sendUciCommand("uci_preview").catch((error) => setStatus(error.message)));
-els.uciShowBtn.addEventListener("click", () => sendUciCommand("uci_show").catch((error) => setStatus(error.message)));
-els.uciSetBtn.addEventListener("click", () => sendUciCommand("uci_set").catch((error) => setStatus(error.message)));
-els.uciCommitBtn.addEventListener("click", () => sendUciCommand("uci_commit").catch((error) => setStatus(error.message)));
-els.uciCommitConfirmedBtn.addEventListener("click", () => sendUciCommand("uci_commit_confirmed").catch((error) => setStatus(error.message)));
-els.uciRevertBtn.addEventListener("click", () => sendUciCommand("uci_revert").catch((error) => setStatus(error.message)));
-els.uciRestoreBtn.addEventListener("click", () => sendUciCommand("uci_restore").catch((error) => setStatus(error.message)));
+els.sendCommandBtn.addEventListener("click", () => sendCommand().catch(reportError));
+els.sendBulkCommandBtn.addEventListener("click", () => sendBulkCommand().catch(reportError));
+els.saveFleetBtn.addEventListener("click", () => saveFleetMetadata().catch(reportError));
+els.clearAlertsBtn.addEventListener("click", () => clearDeviceAlerts().catch(reportError));
+els.clearCommandsBtn.addEventListener("click", () => clearDeviceCommands().catch(reportError));
+els.clearAuditBtn.addEventListener("click", () => clearDeviceAudit().catch(reportError));
+els.deleteDeviceBtn.addEventListener("click", () => deleteSelectedDevice().catch(reportError));
+els.sendPackageCommandBtn.addEventListener("click", () => sendPackageCommand().catch(reportError));
+els.createRemoteSessionBtn.addEventListener("click", () => createRemoteSession().catch(reportError));
+els.uciBackupBtn.addEventListener("click", () => sendUciCommand("uci_backup").catch(reportError));
+els.uciPreviewBtn.addEventListener("click", () => sendUciCommand("uci_preview").catch(reportError));
+els.uciShowBtn.addEventListener("click", () => sendUciCommand("uci_show").catch(reportError));
+els.uciSetBtn.addEventListener("click", () => sendUciCommand("uci_set").catch(reportError));
+els.uciCommitBtn.addEventListener("click", () => sendUciCommand("uci_commit").catch(reportError));
+els.uciCommitConfirmedBtn.addEventListener("click", () => sendUciCommand("uci_commit_confirmed").catch(reportError));
+els.uciRevertBtn.addEventListener("click", () => sendUciCommand("uci_revert").catch(reportError));
+els.uciRestoreBtn.addEventListener("click", () => sendUciCommand("uci_restore").catch(reportError));
 els.copyCommandOutputBtn.addEventListener("click", async () => {
   if (!state.selectedCommand) return;
   const output = state.selectedCommand.output || JSON.stringify(state.selectedCommand.args || {}, null, 2);
   await navigator.clipboard.writeText(output);
-  setStatus("Output copied");
+  notify("Output copied", "success");
 });
 
 for (const button of document.querySelectorAll(".copy-info-btn")) {
@@ -1564,21 +1703,21 @@ for (const button of document.querySelectorAll(".copy-info-btn")) {
     const source = document.querySelector(`#${button.dataset.copyInfo}`);
     if (!source) return;
     await navigator.clipboard.writeText(source.textContent);
-    setStatus("Значение скопировано");
+    notify("Значение скопировано", "success");
   });
 }
 
 for (const button of document.querySelectorAll(".preset-review-btn")) {
   button.addEventListener("click", () => {
-    reviewPreset(button.dataset.preset).catch((error) => setStatus(error.message));
+    reviewPreset(button.dataset.preset).catch(reportError);
   });
 }
-els.applyPresetReviewBtn.addEventListener("click", () => applyPresetReview().catch((error) => setStatus(error.message)));
+els.applyPresetReviewBtn.addEventListener("click", () => applyPresetReview().catch(reportError));
 els.cancelPresetReviewBtn.addEventListener("click", cancelPresetReview);
 
 for (const button of document.querySelectorAll(".diagnostic-btn")) {
   button.addEventListener("click", () => {
-    sendDiagnostic(button.dataset.diagnostic).catch((error) => setStatus(error.message));
+    sendDiagnostic(button.dataset.diagnostic).catch(reportError);
   });
 }
 
@@ -1608,6 +1747,20 @@ for (const input of [els.fleetSearch, els.fleetGroupFilter, els.fleetTagFilter])
   input.addEventListener("input", renderDevices);
 }
 
+for (const button of document.querySelectorAll(".table-sort")) {
+  button.addEventListener("click", () => {
+    const nextKey = button.dataset.sortKey;
+    const defaultDir = button.dataset.sortDefaultDir || "asc";
+    if (state.fleetSortKey === nextKey) {
+      state.fleetSortDir = state.fleetSortDir === "asc" ? "desc" : "asc";
+    } else {
+      state.fleetSortKey = nextKey;
+      state.fleetSortDir = defaultDir;
+    }
+    renderDevices();
+  });
+}
+
 for (const button of document.querySelectorAll(".command-filter")) {
   button.addEventListener("click", () => {
     state.commandFilter = button.dataset.commandFilter;
@@ -1634,6 +1787,6 @@ checkSession();
 setInterval(() => {
   checkHealth();
   if (!els.appShell.classList.contains("is-hidden")) {
-    loadDevices().catch((error) => setStatus(error.message));
+    loadDevices().catch(reportError);
   }
 }, 30000);
