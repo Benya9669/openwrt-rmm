@@ -48,14 +48,16 @@ The Go agent lives at:
 agent/go/cmd/rmm-agent
 ```
 
-It is protocol-compatible with the server for enrollment, heartbeat, inventory, metrics, command polling, command result reporting, lock handling, backoff, graceful shutdown, and result spooling.
+It is protocol-compatible with the server for enrollment, heartbeat, inventory, metrics, command polling, command result reporting, lock handling, backoff, graceful shutdown, and result spooling. Its inventory payload includes system metadata, interfaces, routes, WAN IP, DHCP leases, Wi-Fi clients, memory, disk, interface counters, package manager metadata, and connectivity checks.
 
-The Go agent is not the production command runner yet. It currently supports the first read-only command set:
+The Go agent is not packaged as the production OpenWrt agent yet, but it supports the migrated command allowlist:
 
 - `ping`
 - `traceroute`
 - `route_show`
 - `interfaces_show`
+- `reboot`
+- `service_restart`
 - `pkg_list_installed` / `opkg_list_installed`
 - `pkg_update` / `opkg_update`
 - `pkg_list_upgradable` / `opkg_list_upgradable`
@@ -72,7 +74,7 @@ The Go agent is not the production command runner yet. It currently supports the
 - `remote_ssh_reverse`
 - `remote_ssh_close`
 
-Other queued commands are reported as failed with a clear message until the shell allowlist is migrated command by command.
+Other queued commands are reported as failed with a clear message.
 
 Build locally:
 

@@ -289,7 +289,7 @@ func buildInventory(cfg config) map[string]any {
 		"default_route":   firstLine(commandOutput("ip", "route", "show", "default")),
 		"wan_ip":          wanIP(),
 		"dhcp_leases":     dhcpLeases(),
-		"wifi_clients":    []any{},
+		"wifi_clients":    wifiClients(),
 	}
 }
 
@@ -356,6 +356,14 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 		return execCommand(ctx, 10*time.Second, "ip", "route", "show")
 	case "interfaces_show":
 		return execCommand(ctx, 10*time.Second, "ip", "-o", "addr", "show")
+	case "reboot":
+		return scheduleReboot()
+	case "service_restart":
+		service := strings.TrimSpace(args["service"])
+		if !safeServiceName(service) {
+			return "service is not allowlisted\n", 2
+		}
+		return execCommand(ctx, 30*time.Second, "/etc/init.d/"+service, "restart")
 	case "pkg_list_installed", "opkg_list_installed":
 		return runPackageCommand(ctx, "list_installed")
 	case "pkg_update", "opkg_update":
@@ -537,6 +545,15 @@ func safePackageName(value string) bool {
 		}
 	}
 	return true
+}
+
+func safeServiceName(value string) bool {
+	switch value {
+	case "network", "firewall", "dnsmasq", "dropbear", "uhttpd":
+		return true
+	default:
+		return false
+	}
 }
 
 type uciTarget struct {
@@ -1068,6 +1085,17 @@ func execCommandWithInput(ctx context.Context, timeout time.Duration, input, nam
 	return err.Error() + "\n", 1
 }
 
+func scheduleReboot() (string, int) {
+	cmd := exec.Command("sh", "-c", "sleep 2; reboot")
+	if err := cmd.Start(); err != nil {
+		return err.Error() + "\n", 1
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
+	return "reboot scheduled\n", 0
+}
+
 func redactSensitiveOutput(output string) string {
 	words := []string{"private_key", "password", "passwd", "secret", "psk", "token"}
 	lines := strings.Split(output, "\n")
@@ -1275,6 +1303,104 @@ func dhcpLeases() []map[string]string {
 		return []map[string]string{}
 	}
 	return leases
+}
+
+func wifiClients() []map[string]string {
+	if _, err := exec.LookPath("iwinfo"); err != nil {
+		return []map[string]string{}
+	}
+	var clients []map[string]string
+	for _, iface := range iwinfoInterfaces() {
+		assoc := commandOutput("iwinfo", iface, "assoclist")
+		clients = append(clients, parseIwinfoAssocList(iface, assoc)...)
+	}
+	if clients == nil {
+		return []map[string]string{}
+	}
+	return clients
+}
+
+func iwinfoInterfaces() []string {
+	output := commandOutput("iwinfo")
+	var interfaces []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		iface := fields[0]
+		if !seen[iface] {
+			interfaces = append(interfaces, iface)
+			seen[iface] = true
+		}
+	}
+	return interfaces
+}
+
+func parseIwinfoAssocList(iface, output string) []map[string]string {
+	var clients []map[string]string
+	var current map[string]string
+	flush := func() {
+		if current != nil && current["mac"] != "" {
+			clients = append(clients, current)
+		}
+	}
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) > 0 && looksLikeMAC(fields[0]) {
+			flush()
+			current = map[string]string{"interface": iface, "mac": strings.TrimSuffix(fields[0], ",")}
+			if len(fields) > 1 {
+				current["signal_dbm"] = strings.TrimSuffix(fields[1], ",")
+			}
+			continue
+		}
+		if current == nil {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(trimmed, "RX:"):
+			current["rx_rate"] = strings.TrimSpace(strings.TrimPrefix(trimmed, "RX:"))
+		case strings.HasPrefix(trimmed, "TX:"):
+			current["tx_rate"] = strings.TrimSpace(strings.TrimPrefix(trimmed, "TX:"))
+		}
+	}
+	flush()
+	if clients == nil {
+		return []map[string]string{}
+	}
+	return clients
+}
+
+func looksLikeMAC(value string) bool {
+	value = strings.TrimSuffix(value, ",")
+	if len(value) != 17 {
+		return false
+	}
+	for i, r := range value {
+		if i%3 == 2 {
+			if r != ':' {
+				return false
+			}
+			continue
+		}
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func memoryInfo() map[string]int64 {
