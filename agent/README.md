@@ -103,14 +103,31 @@ EOF
 ./tmp/rmm-agent-go -config /etc/rmm-agent-go.conf -once
 ```
 
+Side-by-side procd service:
+
+```sh
+cp ./tmp/rmm-agent-go /usr/bin/rmm-agent-go
+chmod +x /usr/bin/rmm-agent-go
+cp ./agent/openwrt/rmm-agent-go.init /etc/init.d/rmm-agent-go
+chmod +x /etc/init.d/rmm-agent-go
+cp ./agent/openwrt/rmm-agent-go.conf /etc/rmm-agent-go.conf
+vi /etc/rmm-agent-go.conf
+/etc/init.d/rmm-agent-go enable
+/etc/init.d/rmm-agent-go start
+```
+
+The side-by-side service uses `/etc/rmm-agent-go.conf`, `/tmp/rmm-agent-go.lock`, `/tmp/rmm-agent-go-results`, `/tmp/rmm-agent-go-backups`, and `/tmp/rmm-agent-go-tunnels` so it does not collide with the shell agent.
+
 ## OpenWrt Package
 
 Package skeleton:
 
 ```text
 agent/package/rmm-agent
+agent/package/rmm-agent-go
 ```
 
-It installs the agent as `/usr/bin/rmm-agent`, the procd service as `/etc/init.d/rmm-agent`, and the default config as `/etc/rmm-agent.conf`.
+The shell package installs `/usr/bin/rmm-agent`, `/etc/init.d/rmm-agent`, and `/etc/rmm-agent.conf`.
+The Go package installs `/usr/bin/rmm-agent-go`, `/etc/init.d/rmm-agent-go`, and `/etc/rmm-agent-go.conf`.
 
 For Docker Compose reverse SSH access, install the generated tunnel private key at `/etc/rmm-agent/tunnel_key` with mode `600`. The agent automatically uses it for `remote_ssh_reverse`.
