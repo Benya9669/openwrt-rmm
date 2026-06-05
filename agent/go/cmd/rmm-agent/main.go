@@ -32,6 +32,8 @@ type config struct {
 	LockFile        string
 	SpoolDir        string
 	BackupDir       string
+	TunnelIdentity  string
+	TunnelStateDir  string
 	CheckTargets    []string
 	ConfigFile      string
 }
@@ -123,6 +125,8 @@ func loadConfig(path string) (config, error) {
 		LockFile:        envDefault("LOCK_FILE", "/tmp/rmm-agent-go.lock"),
 		SpoolDir:        envDefault("SPOOL_DIR", "/tmp/rmm-agent-go-results"),
 		BackupDir:       envDefault("BACKUP_DIR", "/tmp/rmm-agent-backups"),
+		TunnelIdentity:  envDefault("TUNNEL_IDENTITY_FILE", "/etc/rmm-agent/tunnel_key"),
+		TunnelStateDir:  envDefault("TUNNEL_STATE_DIR", "/tmp/rmm-agent-tunnels"),
 		CheckTargets:    splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
 		ConfigFile:      path,
 	}
@@ -157,6 +161,12 @@ func loadConfig(path string) (config, error) {
 	}
 	if value := values["BACKUP_DIR"]; value != "" {
 		cfg.BackupDir = value
+	}
+	if value := values["TUNNEL_IDENTITY_FILE"]; value != "" {
+		cfg.TunnelIdentity = value
+	}
+	if value := values["TUNNEL_STATE_DIR"]; value != "" {
+		cfg.TunnelStateDir = value
 	}
 	if value := values["CHECK_TARGETS"]; value != "" {
 		cfg.CheckTargets = splitWords(value)
@@ -193,6 +203,8 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "INTERVAL_SECONDS", strconv.Itoa(cfg.IntervalSeconds))
 	writeConfigLine(&b, "CHECK_TARGETS", strings.Join(cfg.CheckTargets, " "))
 	writeConfigLine(&b, "BACKUP_DIR", cfg.BackupDir)
+	writeConfigLine(&b, "TUNNEL_IDENTITY_FILE", cfg.TunnelIdentity)
+	writeConfigLine(&b, "TUNNEL_STATE_DIR", cfg.TunnelStateDir)
 	writeConfigLine(&b, "DEVICE_ID", cfg.DeviceID)
 	writeConfigLine(&b, "DEVICE_TOKEN", cfg.DeviceToken)
 	tmp := cfg.ConfigFile + ".tmp"
@@ -388,6 +400,10 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 			return "uci config is not allowlisted\n", 2
 		}
 		return uciRestoreOutput(ctx, config, cfg.BackupDir)
+	case "remote_ssh_reverse":
+		return remoteSSHReverseOutput(ctx, cfg, args)
+	case "remote_ssh_close":
+		return remoteSSHCloseOutput(cfg, args)
 	default:
 		return fmt.Sprintf("go agent preview does not implement command %q yet; shell agent remains the production command runner\n", cmd.Type), 2
 	}
@@ -417,6 +433,69 @@ func safeHostName(value string) bool {
 		}
 	}
 	return true
+}
+
+func safeUserName(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '_', '.', '@', '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func safeSessionID(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '_', '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func parsePort(value string, fallback int) (int, bool) {
+	if strings.TrimSpace(value) == "" {
+		value = strconv.Itoa(fallback)
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || port < 1 || port > 65535 {
+		return 0, false
+	}
+	return port, true
+}
+
+func parseOptionalPort(value string) int {
+	if strings.TrimSpace(value) == "" {
+		return 0
+	}
+	port, ok := parsePort(value, 1)
+	if !ok {
+		return 0
+	}
+	return port
+}
+
+func parseDurationSeconds(value string, fallback int) (int, bool) {
+	seconds, ok := parsePort(value, fallback)
+	return seconds, ok
 }
 
 func safePackageName(value string) bool {
@@ -645,6 +724,214 @@ func serverReachable(ctx context.Context, serverURL string) bool {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+type remoteSSHArgs struct {
+	SessionID       string
+	ServerHost      string
+	ServerPort      int
+	RemotePort      int
+	LuCIPort        int
+	LuCILocalPort   int
+	LocalHost       string
+	LocalPort       int
+	ServerUser      string
+	DurationSeconds int
+}
+
+func parseRemoteSSHArgs(args map[string]string) (remoteSSHArgs, string, bool) {
+	parsed := remoteSSHArgs{
+		SessionID:  args["session_id"],
+		ServerHost: args["server_host"],
+		LocalHost:  valueDefault(args["local_host"], "127.0.0.1"),
+		ServerUser: valueDefault(args["server_user"], "rmm-tunnel"),
+	}
+	var ok bool
+	if parsed.ServerPort, ok = parsePort(args["server_port"], 22); !ok {
+		return parsed, "remote tunnel port or duration is invalid\n", false
+	}
+	if parsed.RemotePort, ok = parsePort(args["remote_port"], 0); !ok {
+		return parsed, "remote tunnel port or duration is invalid\n", false
+	}
+	if parsed.LuCIPort, ok = parsePort(args["luci_port"], 0); !ok {
+		return parsed, "remote tunnel port or duration is invalid\n", false
+	}
+	if parsed.LuCILocalPort, ok = parsePort(args["luci_local_port"], 80); !ok {
+		return parsed, "remote tunnel port or duration is invalid\n", false
+	}
+	if parsed.LocalPort, ok = parsePort(args["local_port"], 22); !ok {
+		return parsed, "remote tunnel port or duration is invalid\n", false
+	}
+	if parsed.DurationSeconds, ok = parseDurationSeconds(args["duration_seconds"], 900); !ok {
+		return parsed, "remote tunnel port or duration is invalid\n", false
+	}
+	if !safeSessionID(parsed.SessionID) || !safeHostName(parsed.ServerHost) || !safeHostName(parsed.LocalHost) || !safeUserName(parsed.ServerUser) {
+		return parsed, "remote tunnel host or user is invalid\n", false
+	}
+	return parsed, "", true
+}
+
+func remoteSSHReverseOutput(ctx context.Context, cfg config, args map[string]string) (string, int) {
+	remoteArgs, validationOutput, ok := parseRemoteSSHArgs(args)
+	if !ok {
+		return validationOutput, 2
+	}
+	_, _ = remoteSSHStopSession(cfg, remoteArgs.SessionID, remoteArgs.RemotePort)
+	if err := os.MkdirAll(cfg.TunnelStateDir, 0o700); err != nil {
+		return err.Error() + "\n", 1
+	}
+	logFile := filepath.Join(os.TempDir(), "rmm-remote-"+remoteArgs.SessionID+".log")
+	_ = os.Remove(logFile)
+	sshPath, sshArgs, err := remoteSSHCommand(cfg, remoteArgs)
+	if err != nil {
+		return err.Error() + "\n", 2
+	}
+	logHandle, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err.Error() + "\n", 1
+	}
+	defer logHandle.Close()
+	cmd := exec.CommandContext(ctx, sshPath, sshArgs...)
+	cmd.Stdout = logHandle
+	cmd.Stderr = logHandle
+	if err := cmd.Start(); err != nil {
+		return err.Error() + "\n", 1
+	}
+	pid := cmd.Process.Pid
+	pidFile := remoteSSHPIDFile(cfg, remoteArgs.SessionID)
+	_ = os.WriteFile(pidFile, []byte(strconv.Itoa(pid)+"\n"), 0o600)
+	go func() {
+		_ = cmd.Wait()
+	}()
+	go func() {
+		timer := time.NewTimer(time.Duration(remoteArgs.DurationSeconds) * time.Second)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+		case <-timer.C:
+			remoteSSHStopPID(cfg, remoteArgs.SessionID, pid)
+		}
+	}()
+	time.Sleep(2 * time.Second)
+	if !processRunning(pid) {
+		_ = os.Remove(pidFile)
+		logData, _ := os.ReadFile(logFile)
+		return "remote ssh reverse failed to stay running\n" + string(logData), 1
+	}
+	var b strings.Builder
+	_, _ = fmt.Fprintln(&b, "remote ssh reverse started")
+	_, _ = fmt.Fprintf(&b, "session=%s pid=%d\n", remoteArgs.SessionID, pid)
+	_, _ = fmt.Fprintf(&b, "operator endpoint: %s:%d -> %s:%d\n", remoteArgs.ServerHost, remoteArgs.RemotePort, remoteArgs.LocalHost, remoteArgs.LocalPort)
+	_, _ = fmt.Fprintf(&b, "LuCI proxy endpoint: %s:%d -> 127.0.0.1:%d\n", remoteArgs.ServerHost, remoteArgs.LuCIPort, remoteArgs.LuCILocalPort)
+	_, _ = fmt.Fprintf(&b, "log=%s\n", logFile)
+	return b.String(), 0
+}
+
+func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) {
+	if sshPath, err := exec.LookPath("ssh"); err == nil {
+		cmdArgs := []string{"-N", "-o", "StrictHostKeyChecking=accept-new", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2"}
+		if fileExists(cfg.TunnelIdentity) {
+			cmdArgs = append(cmdArgs, "-i", cfg.TunnelIdentity)
+		}
+		cmdArgs = append(cmdArgs,
+			"-R", fmt.Sprintf("%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort),
+			"-R", fmt.Sprintf("%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort),
+			"-p", strconv.Itoa(args.ServerPort),
+			args.ServerUser+"@"+args.ServerHost,
+		)
+		return sshPath, cmdArgs, nil
+	}
+	if dbclientPath, err := exec.LookPath("dbclient"); err == nil {
+		cmdArgs := []string{"-N", "-y"}
+		if fileExists(cfg.TunnelIdentity) {
+			cmdArgs = append(cmdArgs, "-i", cfg.TunnelIdentity)
+		}
+		cmdArgs = append(cmdArgs,
+			"-R", fmt.Sprintf("%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort),
+			"-R", fmt.Sprintf("%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort),
+			"-p", strconv.Itoa(args.ServerPort),
+			args.ServerUser+"@"+args.ServerHost,
+		)
+		return dbclientPath, cmdArgs, nil
+	}
+	return "", nil, errors.New("remote ssh reverse requires ssh or dbclient on router")
+}
+
+func remoteSSHCloseOutput(cfg config, args map[string]string) (string, int) {
+	sessionID := strings.TrimSpace(args["session_id"])
+	remotePort := parseOptionalPort(args["remote_port"])
+	output, code := remoteSSHStopSession(cfg, sessionID, remotePort)
+	return output, code
+}
+
+func remoteSSHStopSession(cfg config, sessionID string, remotePort int) (string, int) {
+	if !safeSessionID(sessionID) {
+		return "remote session id is invalid\n", 2
+	}
+	pidFile := remoteSSHPIDFile(cfg, sessionID)
+	data, err := os.ReadFile(pidFile)
+	if err == nil {
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+		remoteSSHStopPID(cfg, sessionID, pid)
+		return "remote ssh session stopped\n", 0
+	}
+	if remotePort > 0 {
+		if pid := findRemoteSSHProcessByPort(remotePort); pid > 0 {
+			_ = signalProcess(pid, "TERM")
+			return "remote ssh session stopped by port\n", 0
+		}
+	}
+	return "remote ssh session is already stopped\n", 0
+}
+
+func remoteSSHStopPID(cfg config, sessionID string, pid int) {
+	if pid <= 0 {
+		_ = os.Remove(remoteSSHPIDFile(cfg, sessionID))
+		return
+	}
+	_ = signalProcess(pid, "TERM")
+	_ = os.Remove(remoteSSHPIDFile(cfg, sessionID))
+}
+
+func remoteSSHPIDFile(cfg config, sessionID string) string {
+	return filepath.Join(cfg.TunnelStateDir, sessionID+".pid")
+}
+
+func processRunning(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	return signalProcess(pid, "0") == nil
+}
+
+func signalProcess(pid int, signal string) error {
+	return exec.Command("kill", "-"+signal, strconv.Itoa(pid)).Run()
+}
+
+func findRemoteSSHProcessByPort(remotePort int) int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	needle := fmt.Sprintf(" -R %d:", remotePort)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		cmdline := strings.ReplaceAll(string(data), "\x00", " ")
+		if (strings.Contains(cmdline, "ssh ") || strings.Contains(cmdline, "dbclient ")) && strings.Contains(cmdline, needle) {
+			return pid
+		}
+	}
+	return 0
 }
 
 func unifiedDiff(ctx context.Context, before, after string) string {
@@ -1106,6 +1393,19 @@ func firstLine(value string) string {
 		return value[:idx]
 	}
 	return value
+}
+
+func valueDefault(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func intField(fields []string, index int) int64 {

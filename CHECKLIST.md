@@ -99,6 +99,8 @@
     - [x] `uci_commit_confirmed`;
     - [x] `uci_revert`;
     - [x] `uci_restore`;
+    - [x] `remote_ssh_reverse`;
+    - [x] `remote_ssh_close`;
   - [ ] OpenWrt cross-build/package integration.
 
 ## Этап 2: MVP Server API

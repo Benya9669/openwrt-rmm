@@ -69,6 +69,8 @@ The Go agent is not the production command runner yet. It currently supports the
 - `uci_commit_confirmed`
 - `uci_revert`
 - `uci_restore`
+- `remote_ssh_reverse`
+- `remote_ssh_close`
 
 Other queued commands are reported as failed with a clear message until the shell allowlist is migrated command by command.
 
