@@ -86,6 +86,21 @@ Run once against an existing config:
 ./tmp/rmm-agent-go -config /etc/rmm-agent.conf -once
 ```
 
+For side-by-side testing, use a separate config and hostname suffix so the Go preview enrolls as a separate device:
+
+```sh
+cp /etc/rmm-agent.conf /etc/rmm-agent-go.conf
+sed -i '/^DEVICE_ID=/d;/^DEVICE_TOKEN=/d' /etc/rmm-agent-go.conf
+cat >>/etc/rmm-agent-go.conf <<'EOF'
+HOSTNAME_SUFFIX="-go"
+LOCK_FILE="/tmp/rmm-agent-go.lock"
+SPOOL_DIR="/tmp/rmm-agent-go-results"
+BACKUP_DIR="/tmp/rmm-agent-go-backups"
+TUNNEL_STATE_DIR="/tmp/rmm-agent-go-tunnels"
+EOF
+./tmp/rmm-agent-go -config /etc/rmm-agent-go.conf -once
+```
+
 ## OpenWrt Package
 
 Package skeleton:

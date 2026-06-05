@@ -24,18 +24,20 @@ import (
 const agentVersion = "0.5.0-go-preview"
 
 type config struct {
-	ServerURL       string
-	EnrollmentToken string
-	IntervalSeconds int
-	DeviceID        string
-	DeviceToken     string
-	LockFile        string
-	SpoolDir        string
-	BackupDir       string
-	TunnelIdentity  string
-	TunnelStateDir  string
-	CheckTargets    []string
-	ConfigFile      string
+	ServerURL        string
+	EnrollmentToken  string
+	IntervalSeconds  int
+	DeviceID         string
+	DeviceToken      string
+	LockFile         string
+	SpoolDir         string
+	BackupDir        string
+	TunnelIdentity   string
+	TunnelStateDir   string
+	CheckTargets     []string
+	HostnameOverride string
+	HostnameSuffix   string
+	ConfigFile       string
 }
 
 type command struct {
@@ -117,18 +119,20 @@ func main() {
 
 func loadConfig(path string) (config, error) {
 	cfg := config{
-		ServerURL:       envDefault("SERVER_URL", "http://127.0.0.1:8080"),
-		EnrollmentToken: envDefault("ENROLLMENT_TOKEN", "dev-enroll-token"),
-		IntervalSeconds: intDefault(os.Getenv("INTERVAL_SECONDS"), 30),
-		DeviceID:        os.Getenv("DEVICE_ID"),
-		DeviceToken:     os.Getenv("DEVICE_TOKEN"),
-		LockFile:        envDefault("LOCK_FILE", "/tmp/rmm-agent-go.lock"),
-		SpoolDir:        envDefault("SPOOL_DIR", "/tmp/rmm-agent-go-results"),
-		BackupDir:       envDefault("BACKUP_DIR", "/tmp/rmm-agent-backups"),
-		TunnelIdentity:  envDefault("TUNNEL_IDENTITY_FILE", "/etc/rmm-agent/tunnel_key"),
-		TunnelStateDir:  envDefault("TUNNEL_STATE_DIR", "/tmp/rmm-agent-tunnels"),
-		CheckTargets:    splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
-		ConfigFile:      path,
+		ServerURL:        envDefault("SERVER_URL", "http://127.0.0.1:8080"),
+		EnrollmentToken:  envDefault("ENROLLMENT_TOKEN", "dev-enroll-token"),
+		IntervalSeconds:  intDefault(os.Getenv("INTERVAL_SECONDS"), 30),
+		DeviceID:         os.Getenv("DEVICE_ID"),
+		DeviceToken:      os.Getenv("DEVICE_TOKEN"),
+		LockFile:         envDefault("LOCK_FILE", "/tmp/rmm-agent-go.lock"),
+		SpoolDir:         envDefault("SPOOL_DIR", "/tmp/rmm-agent-go-results"),
+		BackupDir:        envDefault("BACKUP_DIR", "/tmp/rmm-agent-backups"),
+		TunnelIdentity:   envDefault("TUNNEL_IDENTITY_FILE", "/etc/rmm-agent/tunnel_key"),
+		TunnelStateDir:   envDefault("TUNNEL_STATE_DIR", "/tmp/rmm-agent-tunnels"),
+		CheckTargets:     splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
+		HostnameOverride: os.Getenv("HOSTNAME_OVERRIDE"),
+		HostnameSuffix:   os.Getenv("HOSTNAME_SUFFIX"),
+		ConfigFile:       path,
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -171,6 +175,12 @@ func loadConfig(path string) (config, error) {
 	if value := values["CHECK_TARGETS"]; value != "" {
 		cfg.CheckTargets = splitWords(value)
 	}
+	if value := values["HOSTNAME_OVERRIDE"]; value != "" {
+		cfg.HostnameOverride = value
+	}
+	if value := values["HOSTNAME_SUFFIX"]; value != "" {
+		cfg.HostnameSuffix = value
+	}
 	cfg.ServerURL = strings.TrimRight(cfg.ServerURL, "/")
 	if cfg.IntervalSeconds <= 0 {
 		cfg.IntervalSeconds = 30
@@ -205,6 +215,12 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "BACKUP_DIR", cfg.BackupDir)
 	writeConfigLine(&b, "TUNNEL_IDENTITY_FILE", cfg.TunnelIdentity)
 	writeConfigLine(&b, "TUNNEL_STATE_DIR", cfg.TunnelStateDir)
+	if cfg.HostnameOverride != "" {
+		writeConfigLine(&b, "HOSTNAME_OVERRIDE", cfg.HostnameOverride)
+	}
+	if cfg.HostnameSuffix != "" {
+		writeConfigLine(&b, "HOSTNAME_SUFFIX", cfg.HostnameSuffix)
+	}
 	writeConfigLine(&b, "DEVICE_ID", cfg.DeviceID)
 	writeConfigLine(&b, "DEVICE_TOKEN", cfg.DeviceToken)
 	tmp := cfg.ConfigFile + ".tmp"
@@ -228,7 +244,7 @@ func acquireLock(path string) (func(), error) {
 func enroll(ctx context.Context, client *http.Client, cfg *config) error {
 	body := map[string]string{
 		"enrollment_token": cfg.EnrollmentToken,
-		"hostname":         hostnameValue(),
+		"hostname":         cfg.displayHostname(),
 		"openwrt_version":  openwrtVersion(),
 	}
 	var resp enrollResponse
@@ -249,7 +265,7 @@ func heartbeatOnce(ctx context.Context, client *http.Client, cfg config) error {
 	}
 	body := map[string]any{
 		"device_id": cfg.DeviceID,
-		"inventory": buildInventory(),
+		"inventory": buildInventory(cfg),
 		"metrics":   buildMetrics(cfg.CheckTargets),
 	}
 	var resp heartbeatResponse
@@ -262,9 +278,9 @@ func heartbeatOnce(ctx context.Context, client *http.Client, cfg config) error {
 	return nil
 }
 
-func buildInventory() map[string]any {
+func buildInventory(cfg config) map[string]any {
 	return map[string]any{
-		"hostname":        hostnameValue(),
+		"hostname":        cfg.displayHostname(),
 		"openwrt_version": openwrtVersion(),
 		"agent_version":   agentVersion,
 		"agent_runtime":   "go",
@@ -275,6 +291,13 @@ func buildInventory() map[string]any {
 		"dhcp_leases":     dhcpLeases(),
 		"wifi_clients":    []any{},
 	}
+}
+
+func (cfg config) displayHostname() string {
+	if strings.TrimSpace(cfg.HostnameOverride) != "" {
+		return strings.TrimSpace(cfg.HostnameOverride)
+	}
+	return hostnameValue() + strings.TrimSpace(cfg.HostnameSuffix)
 }
 
 func buildMetrics(targets []string) map[string]any {
