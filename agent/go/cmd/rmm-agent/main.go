@@ -1484,7 +1484,7 @@ func connectivityChecks(targets []string) []map[string]any {
 func parsePacketLoss(output string) float64 {
 	for _, part := range strings.Split(output, ",") {
 		if strings.Contains(part, "packet loss") {
-			clean := strings.TrimSpace(strings.ReplaceAll(part, "% packet loss", ""))
+			clean := packetLossNumber(part)
 			value, err := strconv.ParseFloat(clean, 64)
 			if err == nil {
 				return value
@@ -1492,6 +1492,24 @@ func parsePacketLoss(output string) float64 {
 		}
 	}
 	return 100
+}
+
+func packetLossNumber(value string) string {
+	percent := strings.IndexByte(value, '%')
+	if percent < 0 {
+		return ""
+	}
+	value = strings.TrimSpace(value[:percent])
+	start := len(value)
+	for start > 0 {
+		r := rune(value[start-1])
+		if (r >= '0' && r <= '9') || r == '.' {
+			start--
+			continue
+		}
+		break
+	}
+	return value[start:]
 }
 
 func parseLatency(output string) float64 {
