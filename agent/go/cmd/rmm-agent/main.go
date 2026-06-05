@@ -357,6 +357,37 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 			return output, 2
 		}
 		return uciPreviewOutput(ctx, target, cfg.BackupDir)
+	case "uci_set":
+		target, output, ok := uciTargetArgs(args)
+		if !ok {
+			return output, 2
+		}
+		return uciSetOutput(ctx, target, cfg.BackupDir, strings.TrimSpace(args["commit"]) == "true")
+	case "uci_commit":
+		config, ok := uciConfigArg(args)
+		if !ok {
+			return "uci config is not allowlisted\n", 2
+		}
+		return execCommand(ctx, 20*time.Second, "uci", "commit", config)
+	case "uci_commit_confirmed":
+		config, ok := uciConfigArg(args)
+		if !ok {
+			return "uci config is not allowlisted\n", 2
+		}
+		confirmSeconds := intDefault(args["confirm_seconds"], 15)
+		return uciCommitConfirmedOutput(ctx, cfg, config, confirmSeconds)
+	case "uci_revert":
+		config, ok := uciConfigArg(args)
+		if !ok {
+			return "uci config is not allowlisted\n", 2
+		}
+		return execCommand(ctx, 10*time.Second, "uci", "revert", config)
+	case "uci_restore":
+		config, ok := uciConfigArg(args)
+		if !ok {
+			return "uci config is not allowlisted\n", 2
+		}
+		return uciRestoreOutput(ctx, config, cfg.BackupDir)
 	default:
 		return fmt.Sprintf("go agent preview does not implement command %q yet; shell agent remains the production command runner\n", cmd.Type), 2
 	}
@@ -529,6 +560,93 @@ func uciPreviewOutput(ctx context.Context, target uciTarget, backupDir string) (
 	return b.String(), 0
 }
 
+func uciSetOutput(ctx context.Context, target uciTarget, backupDir string, commit bool) (string, int) {
+	backup, backupCode := execCommand(ctx, 10*time.Second, "uci", "export", target.Config)
+	if backupCode != 0 {
+		return backup, backupCode
+	}
+	_ = os.MkdirAll(backupDir, 0o700)
+	_ = os.WriteFile(filepath.Join(backupDir, target.Config+".export"), []byte(backup), 0o600)
+	setArg := fmt.Sprintf("%s.%s.%s=%s", target.Config, target.Section, target.Option, target.Value)
+	setOutput, setCode := execCommand(ctx, 10*time.Second, "uci", "set", setArg)
+	if setCode != 0 {
+		return setOutput, setCode
+	}
+	var b strings.Builder
+	_, _ = fmt.Fprintf(&b, "BACKUP\n%s\n\n", backup)
+	if commit {
+		commitOutput, commitCode := execCommand(ctx, 20*time.Second, "uci", "commit", target.Config)
+		_, _ = b.WriteString(commitOutput)
+		return b.String(), commitCode
+	}
+	_, _ = fmt.Fprintf(&b, "uci set staged: %s.%s.%s\n", target.Config, target.Section, target.Option)
+	return b.String(), 0
+}
+
+func uciCommitConfirmedOutput(ctx context.Context, cfg config, configName string, confirmSeconds int) (string, int) {
+	if confirmSeconds <= 0 {
+		confirmSeconds = 15
+	}
+	commitOutput, commitCode := execCommand(ctx, 20*time.Second, "uci", "commit", configName)
+	if commitCode != 0 {
+		return commitOutput, commitCode
+	}
+	timer := time.NewTimer(time.Duration(confirmSeconds) * time.Second)
+	select {
+	case <-ctx.Done():
+		timer.Stop()
+		return commitOutput + "\ncommit confirmation cancelled\n", 1
+	case <-timer.C:
+	}
+	if serverReachable(ctx, cfg.ServerURL) {
+		return fmt.Sprintf("%scommit confirmed: server reachable after %d seconds\n", commitOutput, confirmSeconds), 0
+	}
+	backupFile := filepath.Join(cfg.BackupDir, configName+".export")
+	backup, err := os.ReadFile(backupFile)
+	if err != nil {
+		return fmt.Sprintf("%sserver unreachable and no backup file found for %s\n", commitOutput, configName), 1
+	}
+	importOutput, importCode := execCommandWithInput(ctx, 20*time.Second, string(backup), "uci", "import", configName)
+	rollbackCommitOutput, rollbackCommitCode := execCommand(ctx, 20*time.Second, "uci", "commit", configName)
+	output := fmt.Sprintf("%s%s%scommit rolled back: server unreachable after %d seconds\n", commitOutput, importOutput, rollbackCommitOutput, confirmSeconds)
+	if importCode != 0 {
+		return output, importCode
+	}
+	if rollbackCommitCode != 0 {
+		return output, rollbackCommitCode
+	}
+	return output, 1
+}
+
+func uciRestoreOutput(ctx context.Context, config, backupDir string) (string, int) {
+	backupFile := filepath.Join(backupDir, config+".export")
+	backup, err := os.ReadFile(backupFile)
+	if err != nil {
+		return fmt.Sprintf("no backup file found for %s\n", config), 1
+	}
+	importOutput, importCode := execCommandWithInput(ctx, 20*time.Second, string(backup), "uci", "import", config)
+	if importCode != 0 {
+		return importOutput, importCode
+	}
+	commitOutput, commitCode := execCommand(ctx, 20*time.Second, "uci", "commit", config)
+	return importOutput + commitOutput, commitCode
+}
+
+func serverReachable(ctx context.Context, serverURL string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(serverURL, "/")+"/healthz", nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
 func unifiedDiff(ctx context.Context, before, after string) string {
 	if _, err := exec.LookPath("diff"); err != nil {
 		return ""
@@ -599,6 +717,29 @@ func execCommand(ctx context.Context, timeout time.Duration, name string, args .
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, name, args...)
+	data, err := cmd.CombinedOutput()
+	output := string(data)
+	if cmdCtx.Err() == context.DeadlineExceeded {
+		return output + "\ncommand timed out\n", 124
+	}
+	if err == nil {
+		return output, 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return output, exitErr.ExitCode()
+	}
+	if output != "" {
+		return output, 1
+	}
+	return err.Error() + "\n", 1
+}
+
+func execCommandWithInput(ctx context.Context, timeout time.Duration, input, name string, args ...string) (string, int) {
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, name, args...)
+	cmd.Stdin = strings.NewReader(input)
 	data, err := cmd.CombinedOutput()
 	output := string(data)
 	if cmdCtx.Err() == context.DeadlineExceeded {

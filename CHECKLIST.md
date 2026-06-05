@@ -94,6 +94,11 @@
     - [x] `uci_show`;
     - [x] `uci_backup`;
     - [x] `uci_preview`;
+    - [x] `uci_set`;
+    - [x] `uci_commit`;
+    - [x] `uci_commit_confirmed`;
+    - [x] `uci_revert`;
+    - [x] `uci_restore`;
   - [ ] OpenWrt cross-build/package integration.
 
 ## Этап 2: MVP Server API

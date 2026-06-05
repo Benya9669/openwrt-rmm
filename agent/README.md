@@ -64,6 +64,11 @@ The Go agent is not the production command runner yet. It currently supports the
 - `uci_show`
 - `uci_backup`
 - `uci_preview`
+- `uci_set`
+- `uci_commit`
+- `uci_commit_confirmed`
+- `uci_revert`
+- `uci_restore`
 
 Other queued commands are reported as failed with a clear message until the shell allowlist is migrated command by command.
 
