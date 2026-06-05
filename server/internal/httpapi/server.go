@@ -500,16 +500,35 @@ func (a *App) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	alerts, found, err := a.refreshDeviceAlerts(r.Context(), parts[2])
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if status == "" || status == "open" {
+		alerts, found, err := a.refreshDeviceAlerts(r.Context(), parts[2])
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load alerts")
+			return
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "device not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"alerts": alerts})
+		return
+	}
+	_, found, err := a.store.GetDevice(r.Context(), parts[2])
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load alerts")
+		writeError(w, http.StatusInternalServerError, "failed to load device")
 		return
 	}
 	if !found {
 		writeError(w, http.StatusNotFound, "device not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"alerts": alerts})
+	list, err := a.store.ListAlerts(r.Context(), store.AlertListOptions{DeviceID: parts[2], Status: status, Limit: 200})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load alerts")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"alerts": list})
 }
 
 func (a *App) handleAcknowledgeAlert(w http.ResponseWriter, r *http.Request) {

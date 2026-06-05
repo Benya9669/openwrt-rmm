@@ -143,9 +143,11 @@ Package skeleton:
 ```text
 agent/package/rmm-agent
 agent/package/rmm-agent-go
+agent/package/rmm-agent-go-production
 ```
 
 The shell package installs `/usr/bin/rmm-agent`, `/etc/init.d/rmm-agent`, and `/etc/rmm-agent.conf`.
 The Go package installs `/usr/bin/rmm-agent-go`, `/etc/init.d/rmm-agent-go`, and `/etc/rmm-agent-go.conf`.
+The production Go package installs `/usr/bin/rmm-agent`, `/etc/init.d/rmm-agent`, and `/etc/rmm-agent.conf` using the Go runtime instead of the shell script.
 
 For Docker Compose reverse SSH access, install the generated tunnel private key at `/etc/rmm-agent/tunnel_key` with mode `600`. The agent automatically uses it for `remote_ssh_reverse`.

@@ -5,6 +5,7 @@ const state = {
   deviceTab: "overview",
   filter: "all",
   clientFilter: "all",
+  alertStatusFilter: "open",
   commandFilter: "all",
   commandStatusFilter: "",
   commandLimit: 25,
@@ -95,6 +96,7 @@ const els = {
   saveFleetBtn: document.querySelector("#saveFleetBtn"),
   alertSummary: document.querySelector("#alertSummary"),
   alertList: document.querySelector("#alertList"),
+  alertStatusFilter: document.querySelector("#alertStatusFilter"),
   metricsHistorySummary: document.querySelector("#metricsHistorySummary"),
   metricsHistory: document.querySelector("#metricsHistory"),
   commandType: document.querySelector("#commandType"),
@@ -749,7 +751,8 @@ function metricChart(label, unit, points, tone) {
 
 async function loadAlerts() {
   if (!state.selectedDeviceId) return;
-  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts`);
+  const status = encodeURIComponent(state.alertStatusFilter || "open");
+  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts?status=${status}`);
   state.alerts = data.alerts || [];
   renderAlerts(state.alerts);
 }
@@ -758,13 +761,19 @@ function renderAlerts(alerts) {
   els.alertList.innerHTML = "";
   const activeCount = alerts.filter((alert) => alert.status === "active").length;
   const acknowledgedCount = alerts.filter((alert) => alert.status === "acknowledged").length;
-  els.alertSummary.textContent = `${activeCount} active / ${acknowledgedCount} ack`;
+  const resolvedCount = alerts.filter((alert) => alert.status === "resolved").length;
+  els.alertSummary.textContent = `${activeCount} active / ${acknowledgedCount} ack / ${resolvedCount} resolved`;
   if (alerts.length === 0) {
-    els.alertList.textContent = "No active alerts";
+    els.alertList.textContent = state.alertStatusFilter === "resolved" ? "Нет resolved alerts" : "Нет активных алертов";
     return;
   }
   for (const alert of alerts) {
     const details = alert.details ? Object.entries(alert.details).map(([key, value]) => `${key}: ${value}`).join(" / ") : "";
+    const actionButtons = alert.status === "resolved"
+      ? `<button type="button" data-action="commands">Команды</button>`
+      : `<button type="button" data-action="diagnose">Диагностика</button>
+      <button type="button" data-action="commands">Команды</button>
+      <button type="button" data-action="ack" ${alert.status === "active" ? "" : "disabled"}>Ack</button>`;
     const row = document.createElement("div");
     row.className = `mini-row alert-row ${alert.severity || "warning"} ${alert.status || "active"}`;
     row.innerHTML = `
@@ -774,15 +783,14 @@ function renderAlerts(alerts) {
         <summary>${escapeHtml(details || "Подробности")}</summary>
         <div>Первый раз: ${escapeHtml(formatDate(alert.first_seen_at || alert.created_at))}</div>
         <div>Последний раз: ${escapeHtml(formatDate(alert.last_seen_at || alert.created_at))}</div>
+        ${alert.resolved_at ? `<div>Resolved: ${escapeHtml(formatDate(alert.resolved_at))}</div>` : ""}
         <div>${escapeHtml(alert.message || "")}</div>
       </details>
-      <button type="button" data-action="diagnose">Диагностика</button>
-      <button type="button" data-action="commands">Команды</button>
-      <button type="button" data-action="ack" ${alert.status === "active" ? "" : "disabled"}>Ack</button>
+      ${actionButtons}
     `;
-    row.querySelector('[data-action="diagnose"]').addEventListener("click", () => runAlertDiagnostics(alert));
+    row.querySelector('[data-action="diagnose"]')?.addEventListener("click", () => runAlertDiagnostics(alert));
     row.querySelector('[data-action="commands"]').addEventListener("click", scrollToCommands);
-    row.querySelector('[data-action="ack"]').addEventListener("click", () => acknowledgeAlert(alert.id));
+    row.querySelector('[data-action="ack"]')?.addEventListener("click", () => acknowledgeAlert(alert.id));
     els.alertList.appendChild(row);
   }
 }
@@ -1523,6 +1531,10 @@ els.openLuciBtn.addEventListener("click", openLuciOrRemoteAccess);
 els.runFullDiagnosticBtn.addEventListener("click", () => runFullDiagnostic().catch((error) => setStatus(error.message)));
 els.loadMoreCommandsBtn.addEventListener("click", () => loadCommands({ append: true }).catch((error) => setStatus(error.message)));
 els.loadMoreAuditBtn.addEventListener("click", () => loadAudit({ append: true }).catch((error) => setStatus(error.message)));
+els.alertStatusFilter.addEventListener("change", () => {
+  state.alertStatusFilter = els.alertStatusFilter.value;
+  loadAlerts().catch((error) => setStatus(error.message));
+});
 els.sendCommandBtn.addEventListener("click", () => sendCommand().catch((error) => setStatus(error.message)));
 els.sendBulkCommandBtn.addEventListener("click", () => sendBulkCommand().catch((error) => setStatus(error.message)));
 els.saveFleetBtn.addEventListener("click", () => saveFleetMetadata().catch((error) => setStatus(error.message)));
