@@ -606,8 +606,14 @@ function renderDevices() {
         <span>${escapeHtml(deviceModel(device))}</span>
         <small>${escapeHtml([device.group || "", ...(device.tags || [])].filter(Boolean).join(" / ") || "Без группы")}</small>
       </div>
-      <span class="wan-state ${wan.className}">${escapeHtml(wan.label)}</span>
-      <span class="client-count">${clients.total}</span>
+      <div class="device-field">
+        <span class="device-field-label">WAN</span>
+        <span class="wan-state ${wan.className}">${escapeHtml(wan.label)}</span>
+      </div>
+      <div class="device-field">
+        <span class="device-field-label">Clients</span>
+        <span class="client-count">${clients.total}</span>
+      </div>
       <span class="${device.active_alerts ? "problem-count has-problems" : "problem-count"}">
         ${device.active_alerts ? `${device.active_alerts} активн.` : "Нет"}
       </span>

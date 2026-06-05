@@ -1267,6 +1267,20 @@ select {
   gap: 4px;
 }
 
+.device-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.device-field-label {
+  display: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .device-identity strong,
 .device-identity small,
 .device-context span,
@@ -1798,5 +1812,137 @@ select {
 
   .alert-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .workspace {
+    padding: 0 14px 20px;
+  }
+
+  .topbar {
+    min-height: auto;
+    padding: 14px 0;
+  }
+
+  .topbar,
+  .topbar-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .status-line {
+    order: 2;
+  }
+
+  .fleet-summary,
+  .fleet-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-table-shell {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .fleet-table-head {
+    display: none;
+  }
+
+  .device-list {
+    gap: 10px;
+  }
+
+  .device-item {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    min-width: 0;
+    min-height: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 12px;
+  }
+
+  .device-item:hover {
+    border-color: var(--accent);
+  }
+
+  .device-item > .fleet-status,
+  .device-item > .device-identity,
+  .device-item > .device-context {
+    grid-column: 1 / -1;
+  }
+
+  .device-item > .problem-count,
+  .device-item > .last-contact,
+  .device-item > .device-field {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    align-content: start;
+  }
+
+  .device-item > .problem-count::before,
+  .device-item > .last-contact::before {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .device-item > .problem-count::before {
+    content: "Проблемы";
+  }
+
+  .device-item > .last-contact::before {
+    content: "Последний контакт";
+  }
+
+  .device-field-label {
+    display: block;
+  }
+
+  .device-item > .device-field:nth-child(5) .device-field-label {
+    font-size: 0;
+  }
+
+  .device-item > .device-field:nth-child(5) .device-field-label::after {
+    content: "Клиенты";
+    font-size: 11px;
+  }
+
+  .device-item strong,
+  .device-item small,
+  .device-item span,
+  .last-contact,
+  .wan-state {
+    white-space: normal;
+  }
+
+  .row-chevron {
+    display: none;
+  }
+
+  .device-header-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .device-header-actions .badge,
+  .device-header-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .device-tabs {
+    margin: 0 -14px 18px;
+    padding: 0 14px;
+  }
+
+  .panel {
+    padding: 12px;
   }
 }
