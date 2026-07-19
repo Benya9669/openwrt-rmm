@@ -14,7 +14,9 @@ Then open:
 http://127.0.0.1:8080/
 ```
 
-The UI uses the same origin as the API and stores the MVP operator token in browser local storage.
+The UI uses a revocable HttpOnly server-side session. It does not store operator tokens in
+browser storage. Normal users see only their own routers and can create one-time enrollment
+grants; administrators can create user accounts.
 
 Current MVP features:
 
@@ -24,6 +26,8 @@ Current MVP features:
 - output copy;
 - UCI backup, preview, staged set, commit, confirmed commit, revert, and restore;
 - UCI presets for LAN IP, hostname, Wi-Fi SSID/password, and LAN DHCP toggle.
+- isolated LuCI access through one-time device-domain links;
+- per-user router enrollment and administrator-created accounts.
 
 ## Check
 

@@ -9,7 +9,7 @@ The first implementation uses:
 - POSIX shell OpenWrt agent;
 - outbound HTTP polling;
 - REST API;
-- shared enrollment token for first registration;
+- per-user, one-time enrollment grants;
 - per-device bearer token after enrollment.
 
 This gives a small vertical slice:
@@ -20,21 +20,22 @@ agent enrolls -> server creates device -> agent sends heartbeat -> server queues
 
 ## Server
 
-The server owns device identity, current device state, command queue, and command results.
+The server owns users and roles, device ownership and DNS names, revocable sessions,
+device identity, current state, command queues, temporary tunnels and command results.
 
-MVP tables:
+Core tables:
 
 - `devices`
 - `commands`
-
-Later tables:
-
-- `organizations`
 - `users`
+- `operator_sessions`
+- `enrollment_grants`
+- `device_access_grants`
+- `device_access_sessions`
 - `audit_events`
-- `device_groups`
 - `alerts`
-- `metrics`
+- `metric_samples`
+- `remote_sessions`
 
 ## Agent
 
@@ -50,12 +51,15 @@ The agent does not accept inbound connections. It polls the server and executes 
 
 ## Security Model
 
-MVP security:
+Current security:
 
-- enrollment requires a shared token;
+- enrollment requires a short-lived one-time grant owned by a user;
 - enrolled devices receive a random bearer token;
+- reusable credentials are stored as hashes;
 - agent API requests require the device bearer token;
-- operator API requests require a bearer token;
+- users authenticate through revocable server-side sessions and are restricted to their
+  own devices; admin functions require the admin role;
+- LuCI is isolated on wildcard device subdomains and uses one-time access grants;
 - server only queues allowlisted command types;
 - agent also checks its own command allowlist.
 
@@ -63,15 +67,14 @@ Required before production:
 
 - mTLS or signed device tokens;
 - token rotation;
-- operator authentication and RBAC;
 - command signatures;
-- audit log for every operator action;
 - replay protection;
-- rate limits.
+- per-device SSH tunnel credentials;
+- organization-level tenancy and MFA.
 
 ## Transport
 
-MVP uses polling HTTP:
+The agent uses outbound HTTPS polling:
 
 - easier to run on constrained OpenWrt images;
 - works behind NAT and CG-NAT;

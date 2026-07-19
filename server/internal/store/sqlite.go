@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -67,6 +68,7 @@ func OpenSQLite(ctx context.Context, path string) (*Store, error) {
 	for _, stmt := range []string{
 		`PRAGMA busy_timeout = 5000`,
 		`PRAGMA journal_mode = WAL`,
+		`PRAGMA foreign_keys = ON`,
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			_ = db.Close()
@@ -91,6 +93,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 CREATE TABLE IF NOT EXISTS devices (
 	id TEXT PRIMARY KEY,
 	token TEXT NOT NULL UNIQUE,
+	token_hash TEXT NOT NULL DEFAULT '',
+	owner_user_id TEXT NOT NULL DEFAULT '',
+	dns_label TEXT NOT NULL DEFAULT '',
 	hostname TEXT NOT NULL,
 	openwrt_version TEXT NOT NULL,
 	inventory_json TEXT NOT NULL DEFAULT '{}',
@@ -188,6 +193,59 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_events_device_created_at ON audit_events(device_id, created_at);
+
+CREATE TABLE IF NOT EXISTS users (
+	id TEXT PRIMARY KEY,
+	username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+	password_hash TEXT NOT NULL,
+	role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+	disabled INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS operator_sessions (
+	token_hash TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS enrollment_grants (
+	id TEXT PRIMARY KEY,
+	token_hash TEXT NOT NULL UNIQUE,
+	user_id TEXT NOT NULL,
+	dns_label TEXT NOT NULL DEFAULT '',
+	expires_at TEXT NOT NULL,
+	used_at TEXT,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS device_access_grants (
+	token_hash TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL,
+	device_id TEXT NOT NULL,
+	remote_session_id TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY(user_id) REFERENCES users(id),
+	FOREIGN KEY(device_id) REFERENCES devices(id),
+	FOREIGN KEY(remote_session_id) REFERENCES remote_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS device_access_sessions (
+	token_hash TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL,
+	device_id TEXT NOT NULL,
+	remote_session_id TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY(user_id) REFERENCES users(id),
+	FOREIGN KEY(device_id) REFERENCES devices(id),
+	FOREIGN KEY(remote_session_id) REFERENCES remote_sessions(id)
+);
 `)
 	if err != nil {
 		return err
@@ -196,6 +254,9 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_device_created_at ON audit_events(de
 	for _, stmt := range []string{
 		`ALTER TABLE devices ADD COLUMN group_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE devices ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN dns_label TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE commands ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE commands ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3`,
 		`ALTER TABLE commands ADD COLUMN expires_at TEXT`,
@@ -223,6 +284,11 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_device_created_at ON audit_events(de
 	}
 
 	for _, stmt := range []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_dns_label ON devices(dns_label) WHERE dns_label != ''`,
+		`CREATE INDEX IF NOT EXISTS idx_devices_owner_created_at ON devices(owner_user_id, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_operator_sessions_user_expires ON operator_sessions(user_id, expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_enrollment_grants_user_created ON enrollment_grants(user_id, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_device_access_sessions_device_expires ON device_access_sessions(device_id, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_device_created_at ON remote_sessions(device_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_status_expires_at ON remote_sessions(status, expires_at)`,
 	} {
@@ -230,7 +296,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_device_created_at ON audit_events(de
 			return err
 		}
 	}
-	return nil
+	return s.migrateDeviceTokens(ctx)
 }
 
 func (s *Store) EnrollDevice(ctx context.Context, hostname, openwrtVersion string) (EnrolledDevice, error) {
@@ -251,11 +317,19 @@ func (s *Store) EnrollDevice(ctx context.Context, hostname, openwrtVersion strin
 	if openwrtVersion == "" {
 		openwrtVersion = "unknown"
 	}
+	ownerUserID := ""
+	if err := s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE role = 'admin' AND disabled = 0 ORDER BY created_at LIMIT 1`).Scan(&ownerUserID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return EnrolledDevice{}, err
+	}
+	dnsLabel := ""
+	if ownerUserID != "" {
+		dnsLabel = generatedDNSLabel(hostname, id)
+	}
 
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO devices (id, token, hostname, openwrt_version, created_at)
-VALUES (?, ?, ?, ?, ?)
-`, id, token, hostname, openwrtVersion, nowText())
+INSERT INTO devices (id, token, token_hash, owner_user_id, dns_label, hostname, openwrt_version, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`, id, "redacted:"+id, TokenHash(token), ownerUserID, dnsLabel, hostname, openwrtVersion, nowText())
 	if err != nil {
 		return EnrolledDevice{}, err
 	}
@@ -270,8 +344,8 @@ func (s *Store) AuthorizeDevice(ctx context.Context, deviceID, token string) (bo
 
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
-SELECT EXISTS(SELECT 1 FROM devices WHERE id = ? AND token = ?)
-`, deviceID, token).Scan(&exists)
+SELECT EXISTS(SELECT 1 FROM devices WHERE id = ? AND token_hash = ?)
+`, deviceID, TokenHash(token)).Scan(&exists)
 	return exists, err
 }
 
@@ -299,7 +373,7 @@ WHERE id = ?
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at
 FROM commands
-WHERE device_id = ? AND status = 'queued' AND (expires_at IS NULL OR expires_at > ?)
+WHERE device_id = ? AND status = 'queued' AND (expires_at IS NULL OR julianday(expires_at) > julianday(?))
 ORDER BY created_at ASC
 LIMIT 5
 `, deviceID, nowText())
@@ -333,7 +407,7 @@ func (s *Store) ClaimNextCommand(ctx context.Context, deviceID string) (model.Co
 	row := tx.QueryRowContext(ctx, `
 SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at
 FROM commands
-WHERE device_id = ? AND status = 'queued' AND attempt_count < max_attempts AND (expires_at IS NULL OR expires_at > ?)
+WHERE device_id = ? AND status = 'queued' AND attempt_count < max_attempts AND (expires_at IS NULL OR julianday(expires_at) > julianday(?))
 ORDER BY created_at ASC
 LIMIT 1
 `, deviceID, nowText())
@@ -415,28 +489,28 @@ func (s *Store) ExpireClaimedCommands(ctx context.Context, maxAge time.Duration)
 	if _, err := s.db.ExecContext(ctx, `
 UPDATE commands
 SET status = 'expired', expired_at = ?
-WHERE status IN ('queued', 'claimed') AND expires_at IS NOT NULL AND expires_at <= ?
+WHERE status IN ('queued', 'claimed') AND expires_at IS NOT NULL AND julianday(expires_at) <= julianday(?)
 `, now, now); err != nil {
 		return err
 	}
 	if _, err := s.db.ExecContext(ctx, `
 UPDATE commands
 SET status = 'expired', expired_at = ?
-WHERE status = 'claimed' AND claimed_at IS NOT NULL AND claimed_at < ? AND attempt_count >= max_attempts
+WHERE status = 'claimed' AND claimed_at IS NOT NULL AND julianday(claimed_at) <= julianday(?) AND attempt_count >= max_attempts
 `, now, cutoff); err != nil {
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `
 UPDATE commands
 SET status = 'queued', claimed_at = NULL
-WHERE status = 'claimed' AND claimed_at IS NOT NULL AND claimed_at < ? AND attempt_count < max_attempts
+WHERE status = 'claimed' AND claimed_at IS NOT NULL AND julianday(claimed_at) <= julianday(?) AND attempt_count < max_attempts
 `, cutoff)
 	return err
 }
 
 func (s *Store) ListDevices(ctx context.Context) ([]model.Device, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT d.id, d.hostname, d.openwrt_version, d.last_seen_at, d.created_at, d.inventory_json, d.metrics_json, d.group_name, d.tags_json,
+SELECT d.id, d.owner_user_id, d.dns_label, d.hostname, d.openwrt_version, d.last_seen_at, d.created_at, d.inventory_json, d.metrics_json, d.group_name, d.tags_json,
 	(SELECT COUNT(1) FROM alerts a WHERE a.device_id = d.id AND a.status IN ('active', 'acknowledged'))
 FROM devices d
 ORDER BY d.created_at DESC
@@ -459,7 +533,7 @@ ORDER BY d.created_at DESC
 
 func (s *Store) GetDevice(ctx context.Context, deviceID string) (model.Device, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT d.id, d.hostname, d.openwrt_version, d.last_seen_at, d.created_at, d.inventory_json, d.metrics_json, d.group_name, d.tags_json,
+SELECT d.id, d.owner_user_id, d.dns_label, d.hostname, d.openwrt_version, d.last_seen_at, d.created_at, d.inventory_json, d.metrics_json, d.group_name, d.tags_json,
 	(SELECT COUNT(1) FROM alerts a WHERE a.device_id = d.id AND a.status IN ('active', 'acknowledged'))
 FROM devices d
 WHERE d.id = ?
@@ -518,6 +592,8 @@ func (s *Store) DeleteDevice(ctx context.Context, deviceID string) (bool, error)
 	}
 	defer tx.Rollback()
 	for _, stmt := range []string{
+		`DELETE FROM device_access_sessions WHERE device_id = ?`,
+		`DELETE FROM device_access_grants WHERE device_id = ?`,
 		`DELETE FROM remote_sessions WHERE device_id = ?`,
 		`DELETE FROM commands WHERE device_id = ?`,
 		`DELETE FROM metric_samples WHERE device_id = ?`,
@@ -1023,7 +1099,7 @@ func (s *Store) ExpireRemoteSessions(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `
 UPDATE remote_sessions
 SET status = 'expired', closed_at = ?, updated_at = ?
-WHERE status IN ('requested', 'queued', 'active') AND expires_at <= ?
+WHERE status IN ('requested', 'queued', 'active') AND julianday(expires_at) <= julianday(?)
 `, now, now, now)
 	return err
 }
@@ -1124,7 +1200,7 @@ func scanDevice(s scanner) (model.Device, error) {
 	var inventory string
 	var metrics string
 	var tags string
-	if err := s.Scan(&d.ID, &d.Hostname, &d.OpenWrtVersion, &lastSeen, &createdAt, &inventory, &metrics, &d.Group, &tags, &d.ActiveAlerts); err != nil {
+	if err := s.Scan(&d.ID, &d.OwnerUserID, &d.DNSLabel, &d.Hostname, &d.OpenWrtVersion, &lastSeen, &createdAt, &inventory, &metrics, &d.Group, &tags, &d.ActiveAlerts); err != nil {
 		return d, err
 	}
 	d.CreatedAt = parseTime(createdAt)
@@ -1330,6 +1406,37 @@ func randomID(prefix string) (string, error) {
 	return prefix + "_" + hex.EncodeToString(b[:]), nil
 }
 
+func TokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Store) migrateDeviceTokens(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, token FROM devices WHERE token_hash = ''`)
+	if err != nil {
+		return err
+	}
+	type legacyToken struct{ id, token string }
+	legacy := make([]legacyToken, 0)
+	for rows.Next() {
+		var item legacyToken
+		if err := rows.Scan(&item.id, &item.token); err != nil {
+			rows.Close()
+			return err
+		}
+		legacy = append(legacy, item)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range legacy {
+		if _, err := s.db.ExecContext(ctx, `UPDATE devices SET token = ?, token_hash = ? WHERE id = ?`, "redacted:"+item.id, TokenHash(item.token), item.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func isDuplicateColumnError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "duplicate column")
 }
@@ -1343,18 +1450,24 @@ func RedactSensitiveOutput(output string) string {
 }
 
 func redactSensitiveLine(line string) string {
-	lower := strings.ToLower(line)
-	for _, key := range []string{"private_key", "password", "passwd", "secret", "psk", "token"} {
-		idx := strings.Index(lower, key)
-		if idx < 0 {
-			continue
+	keys := []string{"private_key", "password", "passwd", "secret", "psk", "token", "key"}
+	trimmed := strings.TrimSpace(line)
+	fields := strings.Fields(strings.ToLower(trimmed))
+	if len(fields) >= 3 && fields[0] == "option" {
+		for _, key := range keys {
+			if fields[1] == key {
+				index := strings.Index(strings.ToLower(line), key)
+				return line[:index+len(key)] + " '[redacted]'"
+			}
 		}
-		eq := strings.Index(line[idx:], "=")
-		if eq < 0 {
-			continue
+	}
+	if eq := strings.Index(line, "="); eq >= 0 {
+		left := strings.ToLower(strings.TrimSpace(line[:eq]))
+		for _, key := range keys {
+			if left == key || strings.HasSuffix(left, "."+key) || strings.HasSuffix(left, "_"+key) || strings.HasSuffix(left, "-"+key) {
+				return line[:eq+1] + "'[redacted]'"
+			}
 		}
-		valueStart := idx + eq + 1
-		return line[:valueStart] + "'[redacted]'"
 	}
 	return line
 }

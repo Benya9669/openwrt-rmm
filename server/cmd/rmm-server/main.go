@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,32 +17,104 @@ import (
 func main() {
 	addr := env("RMM_ADDR", ":8080")
 	dbPath := env("RMM_DB_PATH", "rmm.db")
+	insecureDevMode := envBool("RMM_INSECURE_DEV_MODE", false)
+	operatorPassword := strings.TrimSpace(os.Getenv("RMM_OPERATOR_PASSWORD"))
+	if operatorPassword == "" {
+		if !insecureDevMode {
+			log.Fatal("RMM_OPERATOR_PASSWORD is required (or explicitly enable RMM_INSECURE_DEV_MODE for a local lab)")
+		}
+		operatorPassword = "dev-operator-password"
+	}
+	if !insecureDevMode && insecurePlaceholder(operatorPassword) {
+		log.Fatal("RMM_OPERATOR_PASSWORD still contains an insecure example value")
+	}
+	operatorToken := strings.TrimSpace(os.Getenv("RMM_OPERATOR_TOKEN"))
+	if operatorToken != "" && !insecureDevMode && insecurePlaceholder(operatorToken) {
+		log.Fatal("RMM_OPERATOR_TOKEN still contains an insecure example value")
+	}
+	allowLegacyEnrollment := envBool("RMM_ALLOW_LEGACY_ENROLLMENT", false)
+	enrollmentToken := ""
+	if allowLegacyEnrollment {
+		enrollmentToken = strings.TrimSpace(os.Getenv("RMM_ENROLLMENT_TOKEN"))
+		if enrollmentToken == "" {
+			log.Fatal("RMM_ENROLLMENT_TOKEN is required when legacy enrollment is enabled")
+		}
+		if !insecureDevMode && insecurePlaceholder(enrollmentToken) {
+			log.Fatal("RMM_ENROLLMENT_TOKEN still contains an insecure example value")
+		}
+	}
 
 	st, err := store.OpenSQLite(context.Background(), dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer st.Close()
+	if err := runMaintenance(context.Background(), st); err != nil {
+		log.Printf("initial maintenance failed: %v", err)
+	}
+	go maintenanceLoop(st)
 
 	handler := httpapi.NewHandler(st, httpapi.Config{
-		EnrollmentToken:  env("RMM_ENROLLMENT_TOKEN", "dev-enroll-token"),
-		OperatorToken:    env("RMM_OPERATOR_TOKEN", "dev-operator-token"),
-		OperatorUsername: env("RMM_OPERATOR_USERNAME", "admin"),
-		OperatorPassword: env("RMM_OPERATOR_PASSWORD", "dev-operator-password"),
-		SessionSecret:    env("RMM_SESSION_SECRET", "dev-session-secret-change-me"),
-		CookieSecure:     envBool("RMM_COOKIE_SECURE", false),
-		TunnelHTTPHost:   env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
-		StaticDir:        env("RMM_WEB_DIR", "web"),
+		EnrollmentToken:       enrollmentToken,
+		AllowLegacyEnrollment: allowLegacyEnrollment,
+		AllowLegacyLuCIProxy:  envBool("RMM_ALLOW_LEGACY_LUCI_PROXY", false),
+		OperatorToken:         operatorToken,
+		OperatorUsername:      env("RMM_OPERATOR_USERNAME", "admin"),
+		OperatorPassword:      operatorPassword,
+		CookieSecure:          envBool("RMM_COOKIE_SECURE", !insecureDevMode),
+		TunnelHTTPHost:        env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
+		DeviceDomain:          strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
+		PublicScheme:          env("RMM_PUBLIC_SCHEME", "https"),
+		StaticDir:             env("RMM_WEB_DIR", "web"),
 	})
 
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	log.Printf("rmm server listening on %s", addr)
 	log.Fatal(srv.ListenAndServe())
+}
+
+func insecurePlaceholder(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return strings.HasPrefix(value, "dev-") || strings.HasPrefix(value, "replace-with-") || strings.Contains(value, "change-me")
+}
+
+type maintenanceStore interface {
+	PurgeExpiredSecurityData(ctx context.Context) error
+	PurgeMetricSamplesBefore(ctx context.Context, cutoff time.Time) (int64, error)
+}
+
+func maintenanceLoop(st maintenanceStore) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if err := runMaintenance(context.Background(), st); err != nil {
+			log.Printf("scheduled maintenance failed: %v", err)
+		}
+	}
+}
+
+func runMaintenance(ctx context.Context, st maintenanceStore) error {
+	if err := st.PurgeExpiredSecurityData(ctx); err != nil {
+		return err
+	}
+	retentionDays := envInt("RMM_METRIC_RETENTION_DAYS", 30, 1, 3650)
+	deleted, err := st.PurgeMetricSamplesBefore(ctx, time.Now().UTC().Add(-time.Duration(retentionDays)*24*time.Hour))
+	if err != nil {
+		return err
+	}
+	if deleted > 0 {
+		log.Printf("maintenance removed %d expired metric samples", deleted)
+	}
+	return nil
 }
 
 func env(key, fallback string) string {
@@ -60,4 +134,17 @@ func envBool(key string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func envInt(key string, fallback, minimum, maximum int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < minimum || value > maximum {
+		log.Print(fmt.Sprintf("invalid %s=%q; using %d", key, raw, fallback))
+		return fallback
+	}
+	return value
 }

@@ -1,0 +1,225 @@
+package httpapi_test
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"rmm-openwrt/server/internal/httpapi"
+	"rmm-openwrt/server/internal/model"
+	"rmm-openwrt/server/internal/store"
+)
+
+func TestMultiUserEnrollmentAndDeviceIsolation(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "security.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		OperatorUsername: "admin",
+		OperatorPassword: "correct-horse-battery-staple",
+		DeviceDomain:     "routers.example.test",
+		PublicScheme:     "https",
+	}))
+	defer srv.Close()
+
+	admin := authenticatedClient(t, srv.URL, "admin", "correct-horse-battery-staple")
+	var aliceUser model.User
+	authRequestJSON(t, admin, http.MethodPost, srv.URL+"/api/users", map[string]any{
+		"username": "alice", "password": "alice-password-long", "role": "user",
+	}, http.StatusCreated, &aliceUser)
+	var bobUser model.User
+	authRequestJSON(t, admin, http.MethodPost, srv.URL+"/api/users", map[string]any{
+		"username": "bob", "password": "bob-password-long", "role": "user",
+	}, http.StatusCreated, &bobUser)
+
+	alice := authenticatedClient(t, srv.URL, "alice", "alice-password-long")
+	bob := authenticatedClient(t, srv.URL, "bob", "bob-password-long")
+	authRequestJSON(t, alice, http.MethodGet, srv.URL+"/api/users", nil, http.StatusForbidden, nil)
+
+	aliceDevice := enrollForClient(t, srv.URL, alice, "alice-router", "alice-edge")
+	bobDevice := enrollForClient(t, srv.URL, bob, "bob-router", "bob-edge")
+
+	var aliceDevices struct {
+		Devices []model.Device `json:"devices"`
+	}
+	authRequestJSON(t, alice, http.MethodGet, srv.URL+"/api/devices", nil, http.StatusOK, &aliceDevices)
+	if len(aliceDevices.Devices) != 1 || aliceDevices.Devices[0].ID != aliceDevice.DeviceID {
+		t.Fatalf("alice received devices outside her account: %#v", aliceDevices.Devices)
+	}
+	if aliceDevices.Devices[0].DomainName != "alice-edge.routers.example.test" {
+		t.Fatalf("unexpected device domain: %q", aliceDevices.Devices[0].DomainName)
+	}
+	authRequestJSON(t, alice, http.MethodGet, srv.URL+"/api/devices/"+bobDevice.DeviceID, nil, http.StatusNotFound, nil)
+	authRequestJSON(t, bob, http.MethodPost, srv.URL+"/api/devices/bulk-commands", map[string]any{
+		"device_ids": []string{aliceDevice.DeviceID}, "type": "ping", "args": map[string]any{"target": "1.1.1.1"},
+	}, http.StatusNotFound, nil)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/enrollment-grants", jsonBody(map[string]any{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.example")
+	copyClientCookies(req, alice, srv.URL)
+	resp, err := alice.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected cross-origin cookie request to be forbidden, got %d", resp.StatusCode)
+	}
+	authRequestJSON(t, admin, http.MethodPatch, srv.URL+"/api/users/"+bobUser.ID, map[string]any{
+		"disabled": true,
+	}, http.StatusOK, nil)
+	authRequestJSON(t, bob, http.MethodGet, srv.URL+"/api/devices", nil, http.StatusUnauthorized, nil)
+}
+
+func TestDeviceDomainUsesOneTimeLuCIAccessGrant(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "luci-security.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		OperatorUsername: "admin",
+		OperatorPassword: "correct-horse-battery-staple",
+		DeviceDomain:     "routers.example.test",
+		PublicScheme:     "https",
+	}))
+	defer srv.Close()
+	admin := authenticatedClient(t, srv.URL, "admin", "correct-horse-battery-staple")
+	device := enrollForClient(t, srv.URL, admin, "office-router", "office")
+
+	remote, found, err := st.CreateRemoteSession(context.Background(), model.RemoteSession{
+		DeviceID:   device.DeviceID,
+		Target:     "luci",
+		Status:     "active",
+		LuCIPort:   22101,
+		LuCIScheme: "http",
+		ExpiresAt:  time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil || !found {
+		t.Fatalf("create remote session: found=%v err=%v", found, err)
+	}
+	var access struct {
+		URL string `json:"url"`
+	}
+	authRequestJSON(t, admin, http.MethodPost, srv.URL+"/api/devices/"+device.DeviceID+"/remote-sessions/"+remote.ID+"/access", nil, http.StatusCreated, &access)
+	parsed, err := url.Parse(access.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Host != "office.routers.example.test" || parsed.Query().Get("token") == "" {
+		t.Fatalf("unexpected access URL: %s", access.URL)
+	}
+
+	noRedirect := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	consume := func(host string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, srv.URL+parsed.RequestURI(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = host
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	wrongHost := consume("wrong.routers.example.test")
+	wrongHost.Body.Close()
+	if wrongHost.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected wrong device host to be rejected, got %d", wrongHost.StatusCode)
+	}
+	valid := consume(parsed.Host)
+	defer valid.Body.Close()
+	if valid.StatusCode != http.StatusSeeOther || valid.Header.Get("Location") != "/cgi-bin/luci/" {
+		body, _ := io.ReadAll(valid.Body)
+		t.Fatalf("expected one-time access redirect, got %d %q: %s", valid.StatusCode, valid.Header.Get("Location"), body)
+	}
+	var deviceCookie *http.Cookie
+	for _, cookie := range valid.Cookies() {
+		if cookie.Name == "rmm_device_access" {
+			deviceCookie = cookie
+		}
+	}
+	if deviceCookie == nil || deviceCookie.Domain != "" || !deviceCookie.HttpOnly || deviceCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("unexpected device access cookie: %#v", deviceCookie)
+	}
+	if route, ok, err := st.AuthorizeDeviceAccessSession(context.Background(), store.TokenHash(deviceCookie.Value), "office"); err != nil || !ok || route.DeviceID != device.DeviceID {
+		t.Fatalf("device access session was not persisted: route=%#v ok=%v err=%v", route, ok, err)
+	}
+
+	reused := consume(parsed.Host)
+	reused.Body.Close()
+	if reused.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected reused access grant to be rejected, got %d", reused.StatusCode)
+	}
+}
+
+type enrolledCredentials struct {
+	DeviceID    string `json:"device_id"`
+	DeviceToken string `json:"device_token"`
+}
+
+func authenticatedClient(t *testing.T, baseURL, username, password string) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	authRequestJSON(t, client, http.MethodPost, baseURL+"/api/auth/login", map[string]any{
+		"username": username, "password": password,
+	}, http.StatusOK, nil)
+	return client
+}
+
+func enrollForClient(t *testing.T, baseURL string, client *http.Client, hostname, dnsLabel string) enrolledCredentials {
+	t.Helper()
+	var grant struct {
+		EnrollmentToken string `json:"enrollment_token"`
+	}
+	authRequestJSON(t, client, http.MethodPost, baseURL+"/api/enrollment-grants", map[string]any{
+		"dns_label": dnsLabel,
+	}, http.StatusCreated, &grant)
+	var enrolled enrolledCredentials
+	requestJSON(t, http.MethodPost, baseURL+"/api/agent/enroll", "", map[string]any{
+		"enrollment_token": grant.EnrollmentToken,
+		"hostname":         hostname,
+		"openwrt_version":  "OpenWrt test",
+	}, http.StatusCreated, &enrolled)
+	requestJSON(t, http.MethodPost, baseURL+"/api/agent/enroll", "", map[string]any{
+		"enrollment_token": grant.EnrollmentToken,
+		"hostname":         hostname,
+		"openwrt_version":  "OpenWrt test",
+	}, http.StatusUnauthorized, nil)
+	return enrolled
+}
+
+func jsonBody(value any) io.Reader {
+	data, _ := json.Marshal(value)
+	return strings.NewReader(string(data))
+}
+
+func copyClientCookies(req *http.Request, client *http.Client, rawURL string) {
+	parsed, _ := url.Parse(rawURL)
+	for _, cookie := range client.Jar.Cookies(parsed) {
+		req.AddCookie(cookie)
+	}
+}

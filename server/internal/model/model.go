@@ -7,6 +7,9 @@ import (
 
 type Device struct {
 	ID             string          `json:"id"`
+	OwnerUserID    string          `json:"owner_user_id,omitempty"`
+	DNSLabel       string          `json:"dns_label,omitempty"`
+	DomainName     string          `json:"domain_name,omitempty"`
 	Hostname       string          `json:"hostname"`
 	OpenWrtVersion string          `json:"openwrt_version"`
 	LastSeenAt     *time.Time      `json:"last_seen_at"`
@@ -17,6 +20,24 @@ type Device struct {
 	Group          string          `json:"group,omitempty"`
 	Tags           []string        `json:"tags,omitempty"`
 	ActiveAlerts   int             `json:"active_alerts"`
+}
+
+type User struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	Role      string    `json:"role"`
+	Disabled  bool      `json:"disabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type EnrollmentGrant struct {
+	ID        string     `json:"id"`
+	UserID    string     `json:"user_id"`
+	DNSLabel  string     `json:"dns_label,omitempty"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 type Command struct {

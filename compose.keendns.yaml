@@ -1,0 +1,14 @@
+services:
+  rmm-server:
+    environment:
+      RMM_COOKIE_SECURE: "true"
+      RMM_PUBLIC_SCHEME: "https"
+      RMM_DEVICE_DOMAIN: "${RMM_DEVICE_DOMAIN:?set RMM_DEVICE_DOMAIN in .env}"
+
+  reverse-proxy:
+    environment:
+      RMM_DEVICE_DOMAIN: "${RMM_DEVICE_DOMAIN:?set RMM_DEVICE_DOMAIN in .env}"
+    volumes:
+      - ./deploy/reverse-proxy/Caddyfile.keendns:/etc/caddy/Caddyfile:ro
+      - "${RMM_WILDCARD_CERT_PATH:?set RMM_WILDCARD_CERT_PATH in .env}:/certs/device-domain.crt:ro"
+      - "${RMM_WILDCARD_KEY_PATH:?set RMM_WILDCARD_KEY_PATH in .env}:/certs/device-domain.key:ro"

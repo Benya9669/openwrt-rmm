@@ -1,15 +1,20 @@
 package httpapi
 
 import (
-	"crypto/hmac"
+	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"net"
 	"net/http"
-	"strconv"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
+
+	"rmm-openwrt/server/internal/authn"
+	"rmm-openwrt/server/internal/model"
+	"rmm-openwrt/server/internal/store"
 )
 
 const (
@@ -17,109 +22,147 @@ const (
 	operatorSessionTTL    = 12 * time.Hour
 )
 
+const principalContextKey contextKey = "auth_principal"
+
+type authPrincipal struct {
+	User        model.User
+	Method      string
+	SessionHash string
+}
+
+func (p authPrincipal) IsAdmin() bool { return p.User.Role == "admin" }
+
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "cross-origin request rejected")
+		return
+	}
+	select {
+	case a.loginSlots <- struct{}{}:
+		defer func() { <-a.loginSlots }()
+	default:
+		w.Header().Set("Retry-After", "2")
+		writeError(w, http.StatusTooManyRequests, "authentication service is busy")
+		return
+	}
 	var req loginRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if !constantTimeEqual(strings.TrimSpace(req.Username), a.operatorUsername) || !constantTimeEqual(req.Password, a.operatorPassword) {
-		time.Sleep(250 * time.Millisecond)
+	key := clientIP(r) + "|" + strings.ToLower(strings.TrimSpace(req.Username))
+	if !a.loginLimiter.Allow(key) {
+		w.Header().Set("Retry-After", "300")
+		writeError(w, http.StatusTooManyRequests, "too many login attempts")
+		return
+	}
+	if len(req.Username) > 64 || len(req.Password) > 1024 {
+		a.loginLimiter.Fail(key)
 		writeError(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
-	token, expiresAt, err := a.newOperatorSession(req.Username)
+	user, passwordHash, found, err := a.store.GetUserByUsername(r.Context(), req.Username)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to authenticate")
+		return
+	}
+	if !found {
+		passwordHash = a.dummyPasswordHash
+	}
+	passwordOK := authn.VerifyPassword(passwordHash, req.Password)
+	if !found || user.Disabled || !passwordOK {
+		a.loginLimiter.Fail(key)
+		writeError(w, http.StatusUnauthorized, "invalid username or password")
+		return
+	}
+
+	token, err := randomToken(32)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create session")
 		return
 	}
+	expiresAt := time.Now().UTC().Add(operatorSessionTTL)
+	if err := a.store.CreateOperatorSession(r.Context(), store.TokenHash(token), user.ID, expiresAt); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	a.loginLimiter.Success(key)
 	http.SetCookie(w, &http.Cookie{
 		Name:     operatorSessionCookie,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   a.cookieSecure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Expires:  expiresAt,
 		MaxAge:   int(operatorSessionTTL.Seconds()),
 	})
-	_, _ = a.store.AddAuditEvent(r.Context(), req.Username, "auth.login", "", "", mustJSON(map[string]string{
+	_, _ = a.store.AddAuditEvent(r.Context(), user.Username, "auth.login", "", "", mustJSON(map[string]string{
 		"request_id": requestID(r.Context()),
 	}))
-	writeJSON(w, http.StatusOK, map[string]any{"username": req.Username, "expires_at": expiresAt})
+	writeJSON(w, http.StatusOK, map[string]any{"username": user.Username, "user": user, "expires_at": expiresAt})
 }
 
 func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
-	username, _ := a.operatorSessionUsername(r)
+	principal, _ := principalFromContext(r.Context())
+	if principal.SessionHash != "" {
+		_ = a.store.RevokeOperatorSession(r.Context(), principal.SessionHash)
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     operatorSessionCookie,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   a.cookieSecure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),
 	})
-	if username != "" {
-		_, _ = a.store.AddAuditEvent(r.Context(), username, "auth.logout", "", "", mustJSON(map[string]string{
-			"request_id": requestID(r.Context()),
-		}))
-	}
+	_, _ = a.store.AddAuditEvent(r.Context(), principal.User.Username, "auth.logout", "", "", mustJSON(map[string]string{
+		"request_id": requestID(r.Context()),
+	}))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
-	username, ok := a.operatorSessionUsername(r)
-	if !ok {
-		username = a.operatorUsername
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"username": username})
+	principal, _ := principalFromContext(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"username": principal.User.Username, "user": principal.User})
 }
 
-func (a *App) newOperatorSession(username string) (string, time.Time, error) {
-	var nonce [16]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return "", time.Time{}, err
+func (a *App) authenticateOperator(r *http.Request) (authPrincipal, bool) {
+	if token, ok := bearerToken(r); ok && a.operatorToken != "" && constantTimeEqual(token, a.operatorToken) {
+		user, _, found, err := a.store.GetUserByUsername(r.Context(), a.operatorUsername)
+		if err == nil && found && !user.Disabled {
+			return authPrincipal{User: user, Method: "bearer"}, true
+		}
+		return authPrincipal{}, false
 	}
-	expiresAt := time.Now().UTC().Add(operatorSessionTTL)
-	payload := strings.Join([]string{
-		username,
-		strconv.FormatInt(expiresAt.Unix(), 10),
-		base64.RawURLEncoding.EncodeToString(nonce[:]),
-	}, "|")
-	encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
-	signature := a.signSessionPayload(encodedPayload)
-	return encodedPayload + "." + signature, expiresAt, nil
-}
-
-func (a *App) operatorSessionUsername(r *http.Request) (string, bool) {
 	cookie, err := r.Cookie(operatorSessionCookie)
 	if err != nil || cookie.Value == "" {
-		return "", false
+		return authPrincipal{}, false
 	}
-	encodedPayload, signature, ok := strings.Cut(cookie.Value, ".")
-	if !ok || !hmac.Equal([]byte(signature), []byte(a.signSessionPayload(encodedPayload))) {
-		return "", false
+	hash := store.TokenHash(cookie.Value)
+	user, found, err := a.store.AuthorizeOperatorSession(r.Context(), hash)
+	if err != nil || !found {
+		return authPrincipal{}, false
 	}
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(encodedPayload)
-	if err != nil {
-		return "", false
-	}
-	parts := strings.Split(string(payloadBytes), "|")
-	if len(parts) != 3 || !constantTimeEqual(parts[0], a.operatorUsername) {
-		return "", false
-	}
-	expiresUnix, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil || time.Now().UTC().Unix() >= expiresUnix {
-		return "", false
-	}
-	return parts[0], true
+	return authPrincipal{User: user, Method: "cookie", SessionHash: hash}, true
 }
 
-func (a *App) signSessionPayload(payload string) string {
-	mac := hmac.New(sha256.New, a.sessionSecret)
-	_, _ = mac.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+func (a *App) adminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := principalFromContext(r.Context())
+		if !ok || !principal.IsAdmin() {
+			writeError(w, http.StatusForbidden, "administrator access is required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func principalFromContext(ctx context.Context) (authPrincipal, bool) {
+	principal, ok := ctx.Value(principalContextKey).(authPrincipal)
+	return principal, ok
 }
 
 func constantTimeEqual(left, right string) bool {
@@ -129,10 +172,94 @@ func constantTimeEqual(left, right string) bool {
 	return subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
 }
 
-func (a *App) operatorAuthorized(r *http.Request) bool {
-	if token, ok := bearerToken(r); ok && constantTimeEqual(token, a.operatorToken) {
+func randomToken(size int) (string, error) {
+	data := make([]byte, size)
+	if _, err := rand.Read(data); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func sameOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
 		return true
 	}
-	_, ok := a.operatorSessionUsername(r)
-	return ok
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded == "http" || forwarded == "https" {
+		scheme = forwarded
+	}
+	return strings.EqualFold(parsed.Scheme, scheme) && strings.EqualFold(parsed.Host, r.Host)
+}
+
+func unsafeMethod(method string) bool {
+	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+type loginAttempt struct {
+	count     int
+	resetTime time.Time
+}
+
+type loginRateLimiter struct {
+	mu       sync.Mutex
+	limit    int
+	window   time.Duration
+	attempts map[string]loginAttempt
+}
+
+func newLoginRateLimiter(limit int, window time.Duration) *loginRateLimiter {
+	return &loginRateLimiter{limit: limit, window: window, attempts: make(map[string]loginAttempt)}
+}
+
+func (l *loginRateLimiter) Allow(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	attempt, ok := l.attempts[key]
+	if ok && now.After(attempt.resetTime) {
+		delete(l.attempts, key)
+		return true
+	}
+	return !ok || attempt.count < l.limit
+}
+
+func (l *loginRateLimiter) Fail(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if len(l.attempts) > 1024 {
+		for candidate, value := range l.attempts {
+			if now.After(value.resetTime) {
+				delete(l.attempts, candidate)
+			}
+		}
+	}
+	attempt, ok := l.attempts[key]
+	if !ok || now.After(attempt.resetTime) {
+		attempt = loginAttempt{resetTime: now.Add(l.window)}
+	}
+	attempt.count++
+	l.attempts[key] = attempt
+}
+
+func (l *loginRateLimiter) Success(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.attempts, key)
 }

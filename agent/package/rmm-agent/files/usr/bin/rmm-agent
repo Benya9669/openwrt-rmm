@@ -3,8 +3,8 @@ set -u
 
 AGENT_VERSION="${AGENT_VERSION:-0.4.0}"
 CONFIG_FILE="${CONFIG_FILE:-/etc/rmm-agent.conf}"
-SERVER_URL="${SERVER_URL:-http://127.0.0.1:8080}"
-ENROLLMENT_TOKEN="${ENROLLMENT_TOKEN:-dev-enroll-token}"
+SERVER_URL="${SERVER_URL:-https://rmm.example.com}"
+ENROLLMENT_TOKEN="${ENROLLMENT_TOKEN:-}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-30}"
 DEVICE_ID="${DEVICE_ID:-}"
 DEVICE_TOKEN="${DEVICE_TOKEN:-}"
@@ -446,7 +446,12 @@ enroll() {
 		return 1
 	fi
 
+	ENROLLMENT_TOKEN=""
 	save_config
+	if command -v uci >/dev/null 2>&1; then
+		uci -q delete rmm-agent.main.enrollment_token 2>/dev/null || true
+		uci -q commit rmm-agent 2>/dev/null || true
+	fi
 	log "enrolled as $DEVICE_ID"
 	return 0
 }

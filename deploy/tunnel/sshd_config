@@ -12,9 +12,11 @@ AuthorizedKeysFile /data/authorized_keys
 
 AllowUsers rmm-tunnel
 AllowTcpForwarding remote
+AllowStreamLocalForwarding no
 GatewayPorts yes
 PermitTunnel no
 PermitTTY no
+MaxSessions 0
 X11Forwarding no
 AllowAgentForwarding no
 
@@ -23,4 +25,3 @@ ClientAliveCountMax 3
 LoginGraceTime 30
 MaxAuthTries 3
 LogLevel VERBOSE
-Subsystem sftp internal-sftp

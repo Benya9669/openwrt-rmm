@@ -5,19 +5,20 @@ MVP backend for OpenWrt RMM.
 ## Run
 
 ```sh
-go run ./server/cmd/rmm-server
+RMM_INSECURE_DEV_MODE=true go run ./server/cmd/rmm-server
 ```
 
 Environment variables:
 
 - `RMM_ADDR` - listen address, default `:8080`
 - `RMM_DB_PATH` - SQLite database path, default `rmm.db`
-- `RMM_ENROLLMENT_TOKEN` - shared enrollment token for MVP, default `dev-enroll-token`
-- `RMM_OPERATOR_TOKEN` - operator API bearer token, default `dev-operator-token`
+- `RMM_OPERATOR_PASSWORD` - required bootstrap administrator password
+- `RMM_OPERATOR_TOKEN` - optional emergency/API bearer token
 - `RMM_OPERATOR_USERNAME` - web UI username, default `admin`
-- `RMM_OPERATOR_PASSWORD` - web UI password
-- `RMM_SESSION_SECRET` - secret used to sign browser sessions
-- `RMM_COOKIE_SECURE` - set `true` behind an HTTPS reverse proxy
+- `RMM_COOKIE_SECURE` - defaults to `true` outside explicit development mode
+- `RMM_DEVICE_DOMAIN` - wildcard device domain, for example `routers.example.com`
+- `RMM_ALLOW_LEGACY_ENROLLMENT` - opt-in shared enrollment compatibility mode
+- `RMM_METRIC_RETENTION_DAYS` - metric history retention, default `30`
 - `RMM_WEB_DIR` - static web UI directory, default `web`
 
 ## Docker Compose
@@ -41,6 +42,11 @@ Agent API:
 
 Operator API:
 
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET|POST /api/users` (administrator only)
+- `POST /api/enrollment-grants`
+
 - `GET /api/devices`
 - `GET /api/devices/{id}`
 - `POST /api/devices/{id}/commands`
@@ -49,8 +55,13 @@ Operator API:
 - `POST /api/devices/{id}/commands/{command_id}/cancel`
 - `GET /api/audit-events`
 
-Operator API requests require:
+The web UI uses revocable, server-side sessions. Each normal user only sees and controls
+devices enrolled with their own one-time grants. The optional bootstrap bearer token is
+administrator-scoped:
 
 ```http
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <RMM_OPERATOR_TOKEN>
 ```
+
+See [KeenDNS-like cloud mode](../docs/keendns.md) for wildcard DNS, wildcard TLS, and the
+isolated LuCI access flow.

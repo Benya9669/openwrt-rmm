@@ -85,6 +85,8 @@
           </div>
           <div class="topbar-actions">
             <span id="statusLine" class="status-line">Готово</span>
+            <button id="addRouterBtn" class="primary" type="button">Добавить роутер</button>
+            <button id="addUserBtn" class="is-hidden" type="button">Новый пользователь</button>
             <button id="refreshBtn" class="icon-button" type="button" title="Обновить данные" aria-label="Обновить данные">↻</button>
           </div>
         </header>
@@ -671,6 +673,39 @@
       </main>
     </div>
 
-    <script src="/app.js?v=18" defer></script>
+    <dialog id="enrollmentGrantDialog">
+      <form method="dialog" class="login-form">
+        <h2>Добавление роутера</h2>
+        <p>Grant действует 15 минут и используется только один раз. Вставьте его в LuCI → Службы → RMM agent.</p>
+        <label>
+          Одноразовый grant
+          <input id="enrollmentTokenOutput" type="text" readonly>
+        </label>
+        <div class="topbar-actions">
+          <button id="copyEnrollmentTokenBtn" type="button">Копировать</button>
+          <button class="primary" type="submit">Готово</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="createUserDialog">
+      <form id="createUserForm" method="dialog" class="login-form">
+        <h2>Новый пользователь</h2>
+        <label>
+          Логин
+          <input id="newUsername" type="text" minlength="3" maxlength="64" autocomplete="off" required>
+        </label>
+        <label>
+          Временный пароль
+          <input id="newUserPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required>
+        </label>
+        <div class="topbar-actions">
+          <button id="cancelCreateUserBtn" value="cancel" type="button">Отмена</button>
+          <button class="primary" type="submit">Создать</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/app.js?v=19" defer></script>
   </body>
 </html>

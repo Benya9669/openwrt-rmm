@@ -4,7 +4,9 @@ Base URL examples use `http://127.0.0.1:8080`.
 
 ## Operator Authentication
 
-Browser operators sign in with username/password. The server returns a signed `HttpOnly` session cookie.
+Browser users sign in with username/password. The server returns a random, revocable
+`HttpOnly`, `SameSite=Strict` session cookie. Normal users are scoped to their own devices;
+the bootstrap account has the `admin` role.
 
 ```http
 POST /api/auth/login
@@ -33,8 +35,33 @@ POST /api/auth/logout
 Operator API automation may continue using:
 
 ```http
-Authorization: Bearer operator-token
+Authorization: Bearer <operator-api-token>
 ```
+
+The bearer token is optional and administrator-scoped.
+
+## Users and enrollment grants
+
+Administrators can list, create, disable, re-enable and reset passwords for accounts:
+
+```http
+GET /api/users
+POST /api/users
+PATCH /api/users/{user_id}
+```
+
+Every authenticated user can create a 60-second to 24-hour one-time enrollment grant
+(15 minutes by default):
+
+```http
+POST /api/enrollment-grants
+Content-Type: application/json
+
+{"dns_label":"office-1","expires_seconds":900}
+```
+
+The response returns `enrollment_token` once. The agent exchanges it for its device ID and
+token; a second exchange is rejected.
 
 ## Health
 
@@ -59,7 +86,7 @@ Request:
 
 ```json
 {
-  "enrollment_token": "dev-enroll-token",
+  "enrollment_token": "one-time-enrollment-grant",
   "hostname": "openwrt-router-1",
   "openwrt_version": "OpenWrt 23.05.3"
 }
@@ -178,7 +205,7 @@ Request:
 
 ```http
 GET /api/devices
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Response:
@@ -193,14 +220,14 @@ Response:
 
 ```http
 GET /api/devices/{device_id}
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 ## Update Device Fleet Metadata
 
 ```http
 PATCH /api/devices/{device_id}/fleet
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 Content-Type: application/json
 ```
 
@@ -217,7 +244,7 @@ Request:
 
 ```http
 GET /api/devices/{device_id}/metrics-history?limit=100
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Response:
@@ -240,7 +267,7 @@ Response:
 
 ```http
 GET /api/devices/{device_id}/alerts
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Alerts are computed from current device state, recent metric samples, and recent commands. The MVP alert types are:
@@ -285,7 +312,7 @@ Response:
 
 ```http
 POST /api/devices/{device_id}/alerts/{alert_id}/acknowledge
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Acknowledged alerts remain open while the condition still exists. When the condition disappears, the server marks the alert as `resolved`.
@@ -294,7 +321,7 @@ Acknowledged alerts remain open while the condition still exists. When the condi
 
 ```http
 POST /api/devices/{device_id}/commands
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 Content-Type: application/json
 ```
 
@@ -339,7 +366,7 @@ UCI commands are queued through the same command endpoint:
 
 ```http
 POST /api/devices/{device_id}/commands
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 Content-Type: application/json
 ```
 
@@ -450,7 +477,7 @@ Remote sessions create a short-lived SSH reverse tunnel command for the agent.
 
 ```http
 POST /api/devices/{device_id}/remote-sessions
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 Content-Type: application/json
 ```
 
@@ -493,27 +520,27 @@ List sessions:
 
 ```http
 GET /api/devices/{device_id}/remote-sessions?limit=25
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Close a session and queue tunnel termination on the agent:
 
 ```http
 POST /api/devices/{device_id}/remote-sessions/{session_id}/close
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Open LuCI for an active session through the authenticated RMM proxy:
 
 ```http
-GET /luci/{device_id}/{session_id}/
+GET /luci/{device_id}/{session_id}/  # legacy lab-only compatibility route
 ```
 
 ## Create Bulk Command
 
 ```http
 POST /api/devices/bulk-commands
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 Content-Type: application/json
 ```
 
@@ -533,7 +560,7 @@ The server creates one command per unique device id.
 
 ```http
 GET /api/devices/{device_id}/commands?limit=50
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Response:
@@ -573,14 +600,14 @@ Command lifecycle defaults:
 
 ```http
 GET /api/devices/{device_id}/commands/{command_id}
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 ## Cancel Command
 
 ```http
 POST /api/devices/{device_id}/commands/{command_id}/cancel
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Only `queued` and `claimed` commands can transition to `cancelled`.
@@ -589,7 +616,7 @@ Only `queued` and `claimed` commands can transition to `cancelled`.
 
 ```http
 GET /api/audit-events?device_id=dev_...&limit=50
-Authorization: Bearer dev-operator-token
+Authorization: Bearer <operator-api-token>
 ```
 
 Response:

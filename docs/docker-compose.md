@@ -9,7 +9,7 @@ Published ports:
 
 - `18080/tcp`: RMM API and web UI.
 - `2222/tcp`: router-to-server SSH tunnel connection.
-- `22000-22099/tcp`: temporary operator endpoints created by remote sessions.
+- `22000-22099/tcp`: temporary operator endpoints, bound to loopback by default.
 - `22100-22199/tcp`: internal LuCI proxy forwards; these are not published by Compose.
 
 ## 1. Configure Secrets
@@ -21,7 +21,9 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Replace `RMM_ENROLLMENT_TOKEN` and `RMM_OPERATOR_TOKEN` before exposing the server outside a trusted network.
+Set a long `RMM_OPERATOR_PASSWORD`. Shared enrollment is disabled: users add routers with
+15-minute one-time grants created in the web UI. Leave `RMM_OPERATOR_TOKEN` empty unless
+an emergency/API bearer token is required.
 
 ## 2. Start The Stack
 
@@ -31,7 +33,8 @@ docker compose ps
 docker compose logs --tail 100
 ```
 
-Open:
+For a local HTTP-only lab, explicitly set `RMM_INSECURE_DEV_MODE=true` and
+`RMM_COOKIE_SECURE=false`. Production should use the HTTPS overlays. Open:
 
 ```text
 http://127.0.0.1:18080
@@ -39,7 +42,7 @@ http://127.0.0.1:18080
 
 The SQLite database and SSH keys are stored in named Docker volumes.
 
-For HTTPS and domain-based access, use [npmplus.md](npmplus.md) or the optional Caddy overlay described in [reverse-proxy.md](reverse-proxy.md).
+For HTTPS and domain-based access, use [npmplus.md](npmplus.md) or the optional Caddy overlay described in [reverse-proxy.md](reverse-proxy.md). The wildcard device-domain setup is documented in [keendns.md](keendns.md).
 
 ## 3. Generate And Install The Tunnel Key
 
@@ -128,4 +131,5 @@ docker compose cp rmm-server:/data/rmm.db .\tmp\rmm-backup.db
 - Port `2222` must be reachable by managed routers.
 - Ports `22000-22099` should only be reachable by trusted operators or VPN clients.
 - Use long random enrollment/operator tokens.
-- Current MVP uses one persistent router tunnel key. Per-device or per-session keys are the next hardening step.
+- SSH shell, PTY and SFTP sessions are disabled on the tunnel account; only remote forwarding is allowed.
+- The current stack still uses one persistent router tunnel key. Per-device SSH certificates are the next hardening step.

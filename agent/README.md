@@ -21,8 +21,8 @@ Default config path:
 Example:
 
 ```sh
-SERVER_URL="http://server:8080"
-ENROLLMENT_TOKEN="dev-enroll-token"
+SERVER_URL="https://rmm.example.com"
+ENROLLMENT_TOKEN="paste-a-one-time-grant-from-your-account"
 INTERVAL_SECONDS="30"
 TUNNEL_IDENTITY_FILE="/etc/rmm-agent/tunnel_key"
 ```

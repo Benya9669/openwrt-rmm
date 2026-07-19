@@ -1,5 +1,6 @@
 const state = {
   username: "",
+  user: null,
   devices: [],
   selectedDeviceId: null,
   deviceTab: "overview",
@@ -37,6 +38,16 @@ const els = {
   logoutBtn: document.querySelector("#logoutBtn"),
   apiState: document.querySelector("#apiState"),
   refreshBtn: document.querySelector("#refreshBtn"),
+  addRouterBtn: document.querySelector("#addRouterBtn"),
+  addUserBtn: document.querySelector("#addUserBtn"),
+  enrollmentGrantDialog: document.querySelector("#enrollmentGrantDialog"),
+  enrollmentTokenOutput: document.querySelector("#enrollmentTokenOutput"),
+  copyEnrollmentTokenBtn: document.querySelector("#copyEnrollmentTokenBtn"),
+  createUserDialog: document.querySelector("#createUserDialog"),
+  createUserForm: document.querySelector("#createUserForm"),
+  newUsername: document.querySelector("#newUsername"),
+  newUserPassword: document.querySelector("#newUserPassword"),
+  cancelCreateUserBtn: document.querySelector("#cancelCreateUserBtn"),
   deviceList: document.querySelector("#deviceList"),
   fleetView: document.querySelector("#fleetView"),
   fleetTotalCount: document.querySelector("#fleetTotalCount"),
@@ -248,9 +259,11 @@ function showLogin(message = "") {
   els.loginPassword.value = "";
 }
 
-function showApp(username) {
-  state.username = username || "operator";
+function showApp(user) {
+  state.user = user || null;
+  state.username = user && user.username ? user.username : "operator";
   els.operatorName.textContent = state.username;
+  els.addUserBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.loginView.classList.add("is-hidden");
   els.appShell.classList.remove("is-hidden");
   els.loginError.textContent = "";
@@ -259,7 +272,7 @@ function showApp(username) {
 async function checkSession() {
   try {
     const me = await api("/api/auth/me");
-    showApp(me.username);
+    showApp(me.user || { username: me.username, role: "user" });
     await loadDevices();
   } catch {
     showLogin();
@@ -275,13 +288,14 @@ async function login() {
       password: els.loginPassword.value,
     }),
   });
-  showApp(response.username);
+  showApp(response.user || { username: response.username, role: "user" });
   await loadDevices();
 }
 
 async function logout() {
   await api("/api/auth/logout", { method: "POST" });
   state.devices = [];
+  state.user = null;
   state.selectedDeviceId = null;
   showLogin();
 }
@@ -639,7 +653,7 @@ function renderDeviceDetail(device) {
   const displayName = deviceDisplayName(device);
   els.pageTitle.textContent = displayName;
   els.deviceName.textContent = displayName;
-  els.deviceMeta.textContent = `${device.id} - ${device.openwrt_version || "unknown"}`;
+  els.deviceMeta.textContent = `${device.id} - ${device.openwrt_version || "unknown"}${device.domain_name ? ` - ${device.domain_name}` : ""}`;
   els.deviceBadge.textContent = device.online ? "online" : "offline";
   els.deviceBadge.className = `badge ${device.online ? "online" : "offline"}`;
   els.lastSeen.textContent = formatDate(device.last_seen_at);
@@ -992,10 +1006,28 @@ function renderDeviceTab() {
   }
 }
 
+async function openLuCIAccess(session) {
+  const popup = window.open("", "_blank");
+  try {
+    const data = await api(`/api/devices/${encodeURIComponent(session.device_id)}/remote-sessions/${encodeURIComponent(session.id)}/access`, {
+      method: "POST",
+    });
+    if (popup) {
+      popup.opener = null;
+      popup.location = data.url;
+    } else {
+      window.location.assign(data.url);
+    }
+  } catch (error) {
+    if (popup) popup.close();
+    throw error;
+  }
+}
+
 function openLuciOrRemoteAccess() {
   const activeSession = state.remoteSessions.find((session) => session.status === "active" && session.luci_port);
   if (activeSession) {
-    window.open(`/luci/${encodeURIComponent(activeSession.device_id)}/${encodeURIComponent(activeSession.id)}/`, "_blank", "noopener");
+    openLuCIAccess(activeSession).catch(reportError);
     return;
   }
   selectDeviceTab("operations");
@@ -1183,7 +1215,7 @@ function renderRemoteSessions(sessions) {
       </div>
     `;
     row.querySelector('[data-action="luci"]').addEventListener("click", () => {
-      window.open(`/luci/${encodeURIComponent(session.device_id)}/${encodeURIComponent(session.id)}/`, "_blank", "noopener");
+      openLuCIAccess(session).catch(reportError);
     });
     row.querySelector('[data-action="copy"]').addEventListener("click", async () => {
       await navigator.clipboard.writeText(connectCommand);
@@ -1652,6 +1684,29 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+async function createEnrollmentGrant() {
+  const suggested = (window.prompt("Имя роутера в домене (например office-1); можно оставить пустым", "") || "").trim().toLowerCase();
+  const data = await api("/api/enrollment-grants", {
+    method: "POST",
+    body: JSON.stringify({ dns_label: suggested, expires_seconds: 900 }),
+  });
+  els.enrollmentTokenOutput.value = data.enrollment_token;
+  els.enrollmentGrantDialog.showModal();
+  notify("Grant для добавления роутера создан", "success");
+}
+
+async function createUserAccount() {
+  const username = els.newUsername.value.trim();
+  const password = els.newUserPassword.value;
+  await api("/api/users", {
+    method: "POST",
+    body: JSON.stringify({ username, password, role: "user" }),
+  });
+  els.createUserDialog.close();
+  els.createUserForm.reset();
+  notify(`Пользователь ${username} создан`, "success");
+}
+
 async function checkHealth() {
   try {
     const response = await fetch("/healthz");
@@ -1670,6 +1725,17 @@ els.loginForm.addEventListener("submit", (event) => {
 els.logoutBtn.addEventListener("click", () => logout().catch(reportError));
 
 els.refreshBtn.addEventListener("click", () => loadDevices().catch(reportError));
+els.addRouterBtn.addEventListener("click", () => createEnrollmentGrant().catch(reportError));
+els.addUserBtn.addEventListener("click", () => els.createUserDialog.showModal());
+els.createUserForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  createUserAccount().catch(reportError);
+});
+els.cancelCreateUserBtn.addEventListener("click", () => els.createUserDialog.close());
+els.copyEnrollmentTokenBtn.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(els.enrollmentTokenOutput.value);
+  notify("Grant скопирован", "success");
+});
 els.backToFleetBtn.addEventListener("click", showFleet);
 els.quickDiagnosticBtn.addEventListener("click", () => selectDeviceTab("operations"));
 els.openLuciBtn.addEventListener("click", openLuciOrRemoteAccess);

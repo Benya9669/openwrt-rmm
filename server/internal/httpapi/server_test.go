@@ -491,9 +491,13 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 		if strings.Contains(r.Header.Get("Cookie"), "rmm_luci_route=") {
 			t.Fatal("LuCI route cookie leaked to LuCI upstream")
 		}
+		if strings.Contains(r.Header.Get("Cookie"), "rmm_device_access=") {
+			t.Fatal("device access cookie leaked to LuCI upstream")
+		}
 		upstreamPath = r.URL.Path
 		if r.Method == http.MethodPost && r.URL.Path == "/cgi-bin/luci/" {
-			http.SetCookie(w, &http.Cookie{Name: "sysauth", Value: "session-token", Path: "/cgi-bin/luci"})
+			http.SetCookie(w, &http.Cookie{Name: "sysauth", Value: "session-token", Path: "/cgi-bin/luci", Domain: "example.test"})
+			http.SetCookie(w, &http.Cookie{Name: "rmm_operator_session", Value: "attacker-controlled", Domain: "example.test", Path: "/"})
 			w.Header().Set("Location", "/cgi-bin/luci/admin/status/overview")
 			w.WriteHeader(http.StatusFound)
 			return
@@ -548,8 +552,9 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	}
 
 	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
-		OperatorToken:  "operator-test",
-		TunnelHTTPHost: "127.0.0.1",
+		OperatorToken:        "operator-test",
+		TunnelHTTPHost:       "127.0.0.1",
+		AllowLegacyLuCIProxy: true,
 	}))
 	defer srv.Close()
 
@@ -613,6 +618,12 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || !authenticated {
 		t.Fatalf("LuCI login cookie was not preserved, status=%d authenticated=%t", resp.StatusCode, authenticated)
+	}
+	serverURL, _ := url.Parse(srv.URL)
+	for _, cookie := range jar.Cookies(serverURL) {
+		if cookie.Name == "rmm_operator_session" {
+			t.Fatal("LuCI upstream was able to inject a reserved RMM cookie")
+		}
 	}
 	menuReq, err := http.NewRequest(http.MethodGet, srv.URL+"/cgi-bin/luci/admin/menu", nil)
 	if err != nil {

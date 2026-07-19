@@ -15,8 +15,8 @@ Create config:
 
 ```sh
 cat >/etc/rmm-agent.conf <<'EOF'
-SERVER_URL="http://server:8080"
-ENROLLMENT_TOKEN="dev-enroll-token"
+SERVER_URL="https://rmm.example.com"
+ENROLLMENT_TOKEN="paste-a-one-time-grant-from-your-account"
 INTERVAL_SECONDS="30"
 CHECK_TARGETS="1.1.1.1 8.8.8.8"
 TUNNEL_IDENTITY_FILE="/etc/rmm-agent/tunnel_key"

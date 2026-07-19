@@ -1,0 +1,68 @@
+#!/bin/sh
+set -eu
+
+UCI_CONFIG="rmm-agent"
+SHELL_CONFIG="/etc/rmm-agent.conf"
+
+uci_get() {
+	uci -q get "$UCI_CONFIG.main.$1" 2>/dev/null || true
+}
+
+shell_get() {
+	key="$1"
+	[ -f "$SHELL_CONFIG" ] || return 0
+	sed -n "s/^${key}=\"\(.*\)\"$/\1/p" "$SHELL_CONFIG" | tail -n 1
+}
+
+escape_value() {
+	printf '%s' "$1" | tr -d '\r\n' | sed 's/[\\`"$]/\\&/g'
+}
+
+device_id="$(shell_get DEVICE_ID)"
+device_token="$(shell_get DEVICE_TOKEN)"
+if [ "$(uci_get migration_complete)" != "1" ]; then
+	legacy_url="$(shell_get SERVER_URL)"
+	if [ -n "$device_id" ] && [ -n "$device_token" ]; then
+		[ -z "$legacy_url" ] || uci -q set "$UCI_CONFIG.main.server_url=$legacy_url"
+		case "$legacy_url" in http://*) uci -q set "$UCI_CONFIG.main.allow_insecure_http=1" ;; esac
+		uci -q set "$UCI_CONFIG.main.enabled=1"
+	fi
+	uci -q set "$UCI_CONFIG.main.migration_complete=1"
+	uci -q commit "$UCI_CONFIG"
+fi
+
+server_url="$(uci_get server_url)"
+allow_insecure="$(uci_get allow_insecure_http)"
+case "$server_url" in
+	https://*) ;;
+	http://*) [ "$allow_insecure" = "1" ] || exit 1 ;;
+	*) exit 1 ;;
+esac
+
+if [ "$(uci_get reset_identity)" = "1" ]; then
+	device_id=""
+	device_token=""
+	uci -q set "$UCI_CONFIG.main.reset_identity=0"
+	uci -q commit "$UCI_CONFIG"
+fi
+
+enrollment_token="$(uci_get enrollment_token)"
+if [ -n "$device_id" ] && [ -n "$device_token" ]; then
+	enrollment_token=""
+	uci -q delete "$UCI_CONFIG.main.enrollment_token"
+	uci -q commit "$UCI_CONFIG"
+fi
+
+umask 077
+temporary="${SHELL_CONFIG}.tmp"
+{
+	printf 'SERVER_URL="%s"\n' "$(escape_value "$server_url")"
+	printf 'ENROLLMENT_TOKEN="%s"\n' "$(escape_value "$enrollment_token")"
+	printf 'INTERVAL_SECONDS="%s"\n' "$(escape_value "$(uci_get interval_seconds)")"
+	printf 'CHECK_TARGETS="%s"\n' "$(escape_value "$(uci_get check_targets)")"
+	printf 'TUNNEL_IDENTITY_FILE="%s"\n' "$(escape_value "$(uci_get tunnel_identity_file)")"
+	printf 'DEVICE_ID="%s"\n' "$(escape_value "$device_id")"
+	printf 'DEVICE_TOKEN="%s"\n' "$(escape_value "$device_token")"
+} > "$temporary"
+chmod 0600 "$temporary"
+mv "$temporary" "$SHELL_CONFIG"

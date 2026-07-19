@@ -7,18 +7,34 @@ services:
       RMM_ADDR: ":8080"
       RMM_DB_PATH: /data/rmm.db
       RMM_WEB_DIR: /app/web
-      RMM_ENROLLMENT_TOKEN: "${RMM_ENROLLMENT_TOKEN:-dev-enroll-token}"
-      RMM_OPERATOR_TOKEN: "${RMM_OPERATOR_TOKEN:-dev-operator-token}"
+      RMM_INSECURE_DEV_MODE: "${RMM_INSECURE_DEV_MODE:-false}"
+      RMM_ALLOW_LEGACY_ENROLLMENT: "${RMM_ALLOW_LEGACY_ENROLLMENT:-false}"
+      RMM_ALLOW_LEGACY_LUCI_PROXY: "${RMM_ALLOW_LEGACY_LUCI_PROXY:-false}"
+      RMM_ENROLLMENT_TOKEN: "${RMM_ENROLLMENT_TOKEN:-}"
+      RMM_OPERATOR_TOKEN: "${RMM_OPERATOR_TOKEN:-}"
       RMM_OPERATOR_USERNAME: "${RMM_OPERATOR_USERNAME:-admin}"
-      RMM_OPERATOR_PASSWORD: "${RMM_OPERATOR_PASSWORD:-dev-operator-password}"
-      RMM_SESSION_SECRET: "${RMM_SESSION_SECRET:-dev-session-secret-change-me}"
-      RMM_COOKIE_SECURE: "${RMM_COOKIE_SECURE:-false}"
+      RMM_OPERATOR_PASSWORD: "${RMM_OPERATOR_PASSWORD:?set RMM_OPERATOR_PASSWORD in .env}"
+      RMM_COOKIE_SECURE: "${RMM_COOKIE_SECURE:-true}"
       RMM_TUNNEL_HTTP_HOST: tunnel-ssh
-      RMM_TUNNEL_KEY_PATH: "${RMM_TUNNEL_KEY_PATH:-./secrets/router_tunnel_key.pub}"
+      RMM_DEVICE_DOMAIN: "${RMM_DEVICE_DOMAIN:-}"
+      RMM_PUBLIC_SCHEME: "${RMM_PUBLIC_SCHEME:-https}"
+      RMM_METRIC_RETENTION_DAYS: "${RMM_METRIC_RETENTION_DAYS:-30}"
     ports:
-      - "${RMM_HTTP_BIND_IP:-0.0.0.0}:${RMM_HTTP_PORT:-18080}:8080"
+      - "${RMM_HTTP_BIND_IP:-127.0.0.1}:${RMM_HTTP_PORT:-18080}:8080"
     volumes:
       - rmm-data:/data
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
     restart: unless-stopped
 
   tunnel-ssh:
@@ -26,10 +42,12 @@ services:
       context: ./deploy/tunnel
     ports:
       - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:${RMM_TUNNEL_SSH_PORT:-2222}:22"
-      - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:22000-22099:22000-22099"
+      - "${RMM_TUNNEL_OPERATOR_BIND_IP:-127.0.0.1}:22000-22099:22000-22099"
     volumes:
       - tunnel-data:/data
-      - "${RMM_TUNNEL_KEY_PATH}:/bootstrap/router_tunnel_key.pub:ro"
+      - "${RMM_TUNNEL_KEY_PATH:-./secrets/router_tunnel_key.pub}:/bootstrap/router_tunnel_key.pub:ro"
+    pids_limit: 128
+    mem_limit: 128m
     restart: unless-stopped
 
 volumes:

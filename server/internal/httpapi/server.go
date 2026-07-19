@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -18,13 +19,33 @@ import (
 	"strings"
 	"time"
 
+	"rmm-openwrt/server/internal/authn"
 	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
 )
 
 type Store interface {
 	EnrollDevice(ctx context.Context, hostname, openwrtVersion string) (store.EnrolledDevice, error)
+	EnrollDeviceWithGrant(ctx context.Context, tokenHash, hostname, openwrtVersion string) (store.EnrolledDevice, bool, error)
 	AuthorizeDevice(ctx context.Context, deviceID, token string) (bool, error)
+	EnsureBootstrapUser(ctx context.Context, username, passwordHash string) (model.User, error)
+	CreateUser(ctx context.Context, username, passwordHash, role string) (model.User, error)
+	UpdateUserSecurity(ctx context.Context, userID string, disabled *bool, passwordHash string) (model.User, bool, error)
+	ListUsers(ctx context.Context) ([]model.User, error)
+	GetUserByUsername(ctx context.Context, username string) (model.User, string, bool, error)
+	GetUserByID(ctx context.Context, id string) (model.User, bool, error)
+	CreateOperatorSession(ctx context.Context, tokenHash, userID string, expiresAt time.Time) error
+	AuthorizeOperatorSession(ctx context.Context, tokenHash string) (model.User, bool, error)
+	RevokeOperatorSession(ctx context.Context, tokenHash string) error
+	CreateEnrollmentGrant(ctx context.Context, userID, dnsLabel, tokenHash string, expiresAt time.Time) (model.EnrollmentGrant, error)
+	ListDevicesForUser(ctx context.Context, userID string, admin bool) ([]model.Device, error)
+	DeviceAccessible(ctx context.Context, deviceID, userID string, admin bool) (bool, error)
+	GetDeviceByDNSLabel(ctx context.Context, dnsLabel string) (model.Device, bool, error)
+	UpdateDeviceDNSLabel(ctx context.Context, deviceID, dnsLabel string) (model.Device, bool, error)
+	CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, deviceID, remoteSessionID string, expiresAt time.Time) error
+	ConsumeDeviceAccessGrant(ctx context.Context, grantHash, sessionHash, dnsLabel string, sessionExpiresAt time.Time) (store.AccessRoute, bool, error)
+	AuthorizeDeviceAccessSession(ctx context.Context, sessionHash, dnsLabel string) (store.AccessRoute, bool, error)
+	PurgeExpiredSecurityData(ctx context.Context) error
 	SaveHeartbeat(ctx context.Context, deviceID string, inventory, metrics json.RawMessage) ([]model.Command, error)
 	ClaimNextCommand(ctx context.Context, deviceID string) (model.Command, bool, error)
 	SaveCommandResult(ctx context.Context, commandID, deviceID, status string, exitCode int, output string, result json.RawMessage) (bool, error)
@@ -54,31 +75,40 @@ type Store interface {
 }
 
 type Config struct {
-	EnrollmentToken  string
-	OperatorToken    string
-	OperatorUsername string
-	OperatorPassword string
-	SessionSecret    string
-	CookieSecure     bool
-	TunnelHTTPHost   string
-	StaticDir        string
+	EnrollmentToken       string
+	AllowLegacyEnrollment bool
+	AllowLegacyLuCIProxy  bool
+	OperatorToken         string
+	OperatorUsername      string
+	OperatorPassword      string
+	SessionSecret         string
+	CookieSecure          bool
+	TunnelHTTPHost        string
+	DeviceDomain          string
+	PublicScheme          string
+	StaticDir             string
 }
 
 type App struct {
-	store            Store
-	enrollmentToken  string
-	operatorToken    string
-	operatorUsername string
-	operatorPassword string
-	sessionSecret    []byte
-	cookieSecure     bool
-	tunnelHTTPHost   string
+	store                 Store
+	enrollmentToken       string
+	allowLegacyEnrollment bool
+	operatorToken         string
+	operatorUsername      string
+	dummyPasswordHash     string
+	cookieSecure          bool
+	tunnelHTTPHost        string
+	deviceDomain          string
+	publicScheme          string
+	loginLimiter          *loginRateLimiter
+	loginSlots            chan struct{}
 }
 
 type contextKey string
 
 const requestIDContextKey contextKey = "request_id"
 const luciRouteCookie = "rmm_luci_route"
+const deviceAccessCookie = "rmm_device_access"
 
 type enrollRequest struct {
 	EnrollmentToken string `json:"enrollment_token"`
@@ -144,6 +174,26 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+type createUserRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+}
+
+type updateUserRequest struct {
+	Disabled *bool  `json:"disabled"`
+	Password string `json:"password"`
+}
+
+type enrollmentGrantRequest struct {
+	DNSLabel       string `json:"dns_label"`
+	ExpiresSeconds int    `json:"expires_seconds"`
+}
+
+type dnsLabelRequest struct {
+	DNSLabel string `json:"dns_label"`
+}
+
 func NewHandler(s Store, cfg Config) http.Handler {
 	if strings.TrimSpace(cfg.OperatorUsername) == "" {
 		cfg.OperatorUsername = "admin"
@@ -151,27 +201,50 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	if cfg.OperatorPassword == "" {
 		cfg.OperatorPassword = cfg.OperatorToken
 	}
-	if cfg.SessionSecret == "" {
-		cfg.SessionSecret = cfg.OperatorToken
+	passwordHash, err := authn.HashPassword(cfg.OperatorPassword)
+	if err != nil {
+		panic("invalid bootstrap operator password: " + err.Error())
+	}
+	if _, err := s.EnsureBootstrapUser(context.Background(), cfg.OperatorUsername, passwordHash); err != nil {
+		panic("initialize bootstrap operator: " + err.Error())
+	}
+	dummyPasswordHash, err := authn.HashPassword("this-password-is-never-valid")
+	if err != nil {
+		panic("initialize password verifier: " + err.Error())
 	}
 	a := &App{
-		store:            s,
-		enrollmentToken:  cfg.EnrollmentToken,
-		operatorToken:    cfg.OperatorToken,
-		operatorUsername: cfg.OperatorUsername,
-		operatorPassword: cfg.OperatorPassword,
-		sessionSecret:    []byte(cfg.SessionSecret),
-		cookieSecure:     cfg.CookieSecure,
-		tunnelHTTPHost:   strings.TrimSpace(cfg.TunnelHTTPHost),
+		store:                 s,
+		enrollmentToken:       cfg.EnrollmentToken,
+		allowLegacyEnrollment: cfg.AllowLegacyEnrollment || strings.TrimSpace(cfg.EnrollmentToken) != "",
+		operatorToken:         cfg.OperatorToken,
+		operatorUsername:      cfg.OperatorUsername,
+		dummyPasswordHash:     dummyPasswordHash,
+		cookieSecure:          cfg.CookieSecure,
+		tunnelHTTPHost:        strings.TrimSpace(cfg.TunnelHTTPHost),
+		deviceDomain:          strings.Trim(strings.ToLower(strings.TrimSpace(cfg.DeviceDomain)), "."),
+		publicScheme:          strings.ToLower(strings.TrimSpace(cfg.PublicScheme)),
+		loginLimiter:          newLoginRateLimiter(5, 5*time.Minute),
+		loginSlots:            make(chan struct{}, 4),
 	}
 	if a.tunnelHTTPHost == "" {
 		a.tunnelHTTPHost = "tunnel-ssh"
 	}
+	if a.publicScheme != "http" && a.publicScheme != "https" {
+		if a.cookieSecure {
+			a.publicScheme = "https"
+		} else {
+			a.publicScheme = "http"
+		}
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
-	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
+	mux.Handle("POST /api/auth/logout", a.operatorAuth(http.HandlerFunc(a.handleLogout)))
 	mux.Handle("GET /api/auth/me", a.operatorAuth(http.HandlerFunc(a.handleAuthMe)))
+	mux.Handle("GET /api/users", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleListUsers))))
+	mux.Handle("POST /api/users", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleCreateUser))))
+	mux.Handle("PATCH /api/users/", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleUpdateUser))))
+	mux.Handle("POST /api/enrollment-grants", a.operatorAuth(http.HandlerFunc(a.handleCreateEnrollmentGrant)))
 	mux.HandleFunc("POST /api/agent/enroll", a.handleEnroll)
 	mux.HandleFunc("POST /api/agent/heartbeat", a.handleHeartbeat)
 	mux.HandleFunc("POST /api/agent/commands/next", a.handleNextCommand)
@@ -183,12 +256,14 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("PATCH /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("DELETE /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("GET /api/audit-events", a.operatorAuth(http.HandlerFunc(a.handleListAuditEvents)))
-	mux.Handle("DELETE /api/audit-events", a.operatorAuth(http.HandlerFunc(a.handlePurgeAuditEvents)))
-	mux.Handle("GET /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
-	mux.Handle("POST /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
-	for _, path := range []string{"/cgi-bin/", "/luci-static/", "/ubus/", "/ubus"} {
-		mux.Handle("GET "+path, a.operatorAuth(http.HandlerFunc(a.handleLuCIFallback)))
-		mux.Handle("POST "+path, a.operatorAuth(http.HandlerFunc(a.handleLuCIFallback)))
+	mux.Handle("DELETE /api/audit-events", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handlePurgeAuditEvents))))
+	if cfg.AllowLegacyLuCIProxy {
+		mux.Handle("GET /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
+		mux.Handle("POST /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
+		for _, path := range []string{"/cgi-bin/", "/luci-static/", "/ubus/", "/ubus"} {
+			mux.Handle("GET "+path, a.operatorAuth(http.HandlerFunc(a.handleLuCIFallback)))
+			mux.Handle("POST "+path, a.operatorAuth(http.HandlerFunc(a.handleLuCIFallback)))
+		}
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -197,7 +272,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		mux.Handle("GET /", staticHandler(cfg.StaticDir))
 	}
 
-	return withRequestLogging(mux)
+	return withRequestLogging(a.routeByHost(mux))
 }
 
 func (a *App) handleEnroll(w http.ResponseWriter, r *http.Request) {
@@ -205,14 +280,21 @@ func (a *App) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.EnrollmentToken != a.enrollmentToken {
-		writeError(w, http.StatusUnauthorized, "invalid enrollment token")
+	if len(req.EnrollmentToken) > 512 || len(req.Hostname) > 255 || len(req.OpenWrtVersion) > 512 {
+		writeError(w, http.StatusBadRequest, "enrollment fields exceed allowed length")
 		return
 	}
-
-	enrolled, err := a.store.EnrollDevice(r.Context(), req.Hostname, req.OpenWrtVersion)
+	enrolled, ok, err := a.store.EnrollDeviceWithGrant(r.Context(), store.TokenHash(req.EnrollmentToken), req.Hostname, req.OpenWrtVersion)
+	if err == nil && !ok && a.allowLegacyEnrollment && a.enrollmentToken != "" && constantTimeEqual(req.EnrollmentToken, a.enrollmentToken) {
+		enrolled, err = a.store.EnrollDevice(r.Context(), req.Hostname, req.OpenWrtVersion)
+		ok = err == nil
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to enroll device")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or expired enrollment grant")
 		return
 	}
 	_, _ = a.store.AddAuditEvent(r.Context(), "agent", "agent.enroll", enrolled.DeviceID, "", mustJSON(map[string]string{
@@ -321,7 +403,8 @@ func (a *App) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleListDevices(w http.ResponseWriter, r *http.Request) {
-	devices, err := a.store.ListDevices(r.Context())
+	principal, _ := principalFromContext(r.Context())
+	devices, err := a.store.ListDevicesForUser(r.Context(), principal.User.ID, principal.IsAdmin())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load devices")
 		return
@@ -332,12 +415,13 @@ func (a *App) handleListDevices(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	devices, err = a.store.ListDevices(r.Context())
+	devices, err = a.store.ListDevicesForUser(r.Context(), principal.User.ID, principal.IsAdmin())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load devices")
 		return
 	}
 
+	a.decorateDevices(devices)
 	writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
 }
 
@@ -357,7 +441,7 @@ func (a *App) handleGetDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "device not found")
 		return
 	}
-
+	a.decorateDevice(&d)
 	writeJSON(w, http.StatusOK, d)
 }
 
@@ -376,7 +460,7 @@ func (a *App) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "device not found")
 		return
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "device.delete", id, "", mustJSON(map[string]string{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "device.delete", id, "", mustJSON(map[string]string{
 		"request_id": requestID(r.Context()),
 	}))
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
@@ -384,6 +468,24 @@ func (a *App) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 3 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid operator credentials")
+		return
+	}
+	accessible, err := a.store.DeviceAccessible(r.Context(), parts[2], principal.User.ID, principal.IsAdmin())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to authorize device")
+		return
+	}
+	if !accessible {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
 	if len(parts) == 3 && r.Method == http.MethodGet {
 		a.handleGetDevice(w, r)
 		return
@@ -394,6 +496,10 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 4 && parts[3] == "fleet" && r.Method == http.MethodPatch {
 		a.handleUpdateDeviceFleet(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "dns" && r.Method == http.MethodPatch {
+		a.handleUpdateDeviceDNS(w, r)
 		return
 	}
 	if len(parts) == 4 && parts[3] == "metrics-history" && r.Method == http.MethodGet {
@@ -444,6 +550,10 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 		a.handleCloseRemoteSession(w, r)
 		return
 	}
+	if len(parts) == 6 && parts[3] == "remote-sessions" && parts[5] == "access" && r.Method == http.MethodPost {
+		a.handleCreateDeviceAccess(w, r)
+		return
+	}
 	writeError(w, http.StatusNotFound, "not found")
 }
 
@@ -467,11 +577,12 @@ func (a *App) handleUpdateDeviceFleet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "device not found")
 		return
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "device.fleet_update", deviceID, "", mustJSON(map[string]any{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "device.fleet_update", deviceID, "", mustJSON(map[string]any{
 		"group":      req.Group,
 		"tags":       req.Tags,
 		"request_id": requestID(r.Context()),
 	}))
+	a.decorateDevice(&d)
 	writeJSON(w, http.StatusOK, d)
 }
 
@@ -537,7 +648,7 @@ func (a *App) handleAcknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	alert, changed, err := a.store.AcknowledgeAlert(r.Context(), deviceID, alertID, "operator")
+	alert, changed, err := a.store.AcknowledgeAlert(r.Context(), deviceID, alertID, actorName(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to acknowledge alert")
 		return
@@ -546,7 +657,7 @@ func (a *App) handleAcknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "active alert not found")
 		return
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "alert.acknowledge", deviceID, "", mustJSON(map[string]string{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "alert.acknowledge", deviceID, "", mustJSON(map[string]string{
 		"alert_id":   alertID,
 		"type":       alert.Type,
 		"request_id": requestID(r.Context()),
@@ -573,7 +684,7 @@ func (a *App) handlePurgeDeviceAlerts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to purge alerts")
 		return
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "alerts.purge", deviceID, "", mustJSON(map[string]any{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "alerts.purge", deviceID, "", mustJSON(map[string]any{
 		"deleted":    deleted,
 		"request_id": requestID(r.Context()),
 	}))
@@ -865,7 +976,7 @@ func (a *App) handleCreateCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "command.create", deviceID, c.ID, mustJSON(map[string]string{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "command.create", deviceID, c.ID, mustJSON(map[string]string{
 		"type":       req.Type,
 		"request_id": requestID(r.Context()),
 	}))
@@ -896,7 +1007,17 @@ func (a *App) handleCreateBulkCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	commands := make([]model.Command, 0, len(req.DeviceIDs))
+	principal, _ := principalFromContext(r.Context())
 	for _, deviceID := range uniqueStrings(req.DeviceIDs) {
+		accessible, err := a.store.DeviceAccessible(r.Context(), deviceID, principal.User.ID, principal.IsAdmin())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to authorize device")
+			return
+		}
+		if !accessible {
+			writeError(w, http.StatusNotFound, "device not found: "+deviceID)
+			return
+		}
 		c, found, err := a.store.CreateCommand(r.Context(), deviceID, req.Type, req.Args)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create command")
@@ -907,7 +1028,7 @@ func (a *App) handleCreateBulkCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		commands = append(commands, c)
-		_, _ = a.store.AddAuditEvent(r.Context(), "operator", "command.bulk_create", deviceID, c.ID, mustJSON(map[string]string{
+		_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "command.bulk_create", deviceID, c.ID, mustJSON(map[string]string{
 			"type":       req.Type,
 			"request_id": requestID(r.Context()),
 		}))
@@ -974,7 +1095,7 @@ func (a *App) handleCancelCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "command.cancel", deviceID, commandID, mustJSON(map[string]string{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "command.cancel", deviceID, commandID, mustJSON(map[string]string{
 		"request_id": requestID(r.Context()),
 	}))
 	writeJSON(w, http.StatusOK, c)
@@ -999,7 +1120,7 @@ func (a *App) handlePurgeDeviceCommands(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to purge command history")
 		return
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "commands.purge", deviceID, "", mustJSON(map[string]any{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "commands.purge", deviceID, "", mustJSON(map[string]any{
 		"deleted":    deleted,
 		"request_id": requestID(r.Context()),
 	}))
@@ -1146,7 +1267,7 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "remote_session.create", deviceID, command.ID, mustJSON(map[string]any{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "remote_session.create", deviceID, command.ID, mustJSON(map[string]any{
 		"session_id":  session.ID,
 		"target":      session.Target,
 		"server_host": session.ServerHost,
@@ -1169,6 +1290,9 @@ func (a *App) handleLuCIProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	deviceID, sessionID := parts[0], parts[1]
+	if !a.authorizeOperatorDevice(w, r, deviceID) {
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     luciRouteCookie,
 		Value:    deviceID + "|" + sessionID,
@@ -1196,10 +1320,35 @@ func (a *App) handleLuCIFallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "invalid LuCI route")
 		return
 	}
+	if !a.authorizeOperatorDevice(w, r, deviceID) {
+		return
+	}
 	a.proxyLuCI(w, r, deviceID, sessionID, r.URL.Path)
 }
 
+func (a *App) authorizeOperatorDevice(w http.ResponseWriter, r *http.Request, deviceID string) bool {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid operator credentials")
+		return false
+	}
+	accessible, err := a.store.DeviceAccessible(r.Context(), deviceID, principal.User.ID, principal.IsAdmin())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to authorize device")
+		return false
+	}
+	if !accessible {
+		writeError(w, http.StatusNotFound, "device not found")
+		return false
+	}
+	return true
+}
+
 func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessionID, upstreamPath string) {
+	a.proxyLuCIWithPrefix(w, r, deviceID, sessionID, upstreamPath, "/luci/"+deviceID+"/"+sessionID)
+}
+
+func (a *App) proxyLuCIWithPrefix(w http.ResponseWriter, r *http.Request, deviceID, sessionID, upstreamPath, prefix string) {
 	session, found, err := a.store.GetRemoteSession(r.Context(), deviceID, sessionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load LuCI session")
@@ -1210,7 +1359,6 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 		return
 	}
 
-	prefix := "/luci/" + deviceID + "/" + sessionID
 	scheme := session.LuCIScheme
 	if scheme == "" {
 		scheme = "http"
@@ -1242,6 +1390,7 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 		req.Header["X-Forwarded-For"] = nil
 		removeCookie(req, operatorSessionCookie)
 		removeCookie(req, luciRouteCookie)
+		removeCookie(req, deviceAccessCookie)
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		if resp.StatusCode >= 400 && resp.Header.Get("X-LuCI-Login-Required") == "" {
@@ -1255,7 +1404,7 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 				"content_type": resp.Header.Get("Content-Type"),
 			})
 		}
-		rewriteLuCIHeaders(resp.Header, prefix)
+		rewriteLuCIHeaders(resp.Header, prefix, a.cookieSecure)
 		return nil
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -1285,33 +1434,70 @@ func removeCookie(r *http.Request, name string) {
 	r.Header.Set("Cookie", strings.Join(cookies, "; "))
 }
 
-func rewriteLuCIHeaders(header http.Header, prefix string) {
+func rewriteLuCIHeaders(header http.Header, prefix string, secure bool) {
 	if location := header.Get("Location"); strings.HasPrefix(location, "/") {
 		header.Set("Location", prefix+location)
 	}
-	for index, cookie := range header.Values("Set-Cookie") {
-		header["Set-Cookie"][index] = rewriteLuCICookie(cookie, prefix)
+	cookies := make([]string, 0, len(header.Values("Set-Cookie")))
+	for _, cookie := range header.Values("Set-Cookie") {
+		if rewritten, ok := rewriteLuCICookie(cookie, secure); ok {
+			cookies = append(cookies, rewritten)
+		}
+	}
+	header.Del("Set-Cookie")
+	for _, cookie := range cookies {
+		header.Add("Set-Cookie", cookie)
 	}
 }
 
-func rewriteLuCICookie(cookie, _ string) string {
+func rewriteLuCICookie(cookie string, secure bool) (string, bool) {
 	parts := strings.Split(cookie, ";")
+	name, _, ok := strings.Cut(strings.TrimSpace(parts[0]), "=")
+	if !ok {
+		return "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case operatorSessionCookie, deviceAccessCookie, luciRouteCookie:
+		return "", false
+	}
 	pathFound := false
+	httpOnlyFound := false
+	sameSiteFound := false
+	secureFound := false
+	filtered := []string{parts[0]}
 	for index := 1; index < len(parts); index++ {
 		attribute := strings.TrimSpace(parts[index])
-		if !strings.HasPrefix(strings.ToLower(attribute), "path=") {
+		lower := strings.ToLower(attribute)
+		if strings.HasPrefix(lower, "domain=") {
 			continue
 		}
-		// LuCI themes and JavaScript use absolute /cgi-bin, /ubus and
-		// /luci-static requests. The auth cookie must cover those fallback
-		// routes as well as the session-prefixed entry point.
-		parts[index] = " Path=/"
-		pathFound = true
+		if strings.HasPrefix(lower, "path=") {
+			filtered = append(filtered, " Path=/")
+			pathFound = true
+			continue
+		}
+		if strings.HasPrefix(lower, "samesite=") {
+			filtered = append(filtered, " SameSite=Strict")
+			sameSiteFound = true
+			continue
+		}
+		httpOnlyFound = httpOnlyFound || lower == "httponly"
+		secureFound = secureFound || lower == "secure"
+		filtered = append(filtered, " "+attribute)
 	}
 	if !pathFound {
-		parts = append(parts, " Path=/")
+		filtered = append(filtered, " Path=/")
 	}
-	return strings.Join(parts, ";")
+	if !httpOnlyFound {
+		filtered = append(filtered, " HttpOnly")
+	}
+	if !sameSiteFound {
+		filtered = append(filtered, " SameSite=Strict")
+	}
+	if secure && !secureFound {
+		filtered = append(filtered, " Secure")
+	}
+	return strings.Join(filtered, ";"), true
 }
 
 func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
@@ -1343,7 +1529,7 @@ func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to close remote session")
 		return
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", "remote_session.close", deviceID, closeCommand.ID, mustJSON(map[string]string{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "remote_session.close", deviceID, closeCommand.ID, mustJSON(map[string]string{
 		"session_id":       sessionID,
 		"open_command_id":  session.CommandID,
 		"close_command_id": closeCommand.ID,
@@ -1355,8 +1541,25 @@ func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
+	principal, _ := principalFromContext(r.Context())
+	if !principal.IsAdmin() {
+		if deviceID == "" {
+			writeError(w, http.StatusForbidden, "device_id is required for this account")
+			return
+		}
+		accessible, err := a.store.DeviceAccessible(r.Context(), deviceID, principal.User.ID, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to authorize device")
+			return
+		}
+		if !accessible {
+			writeError(w, http.StatusNotFound, "device not found")
+			return
+		}
+	}
 	events, err := a.store.ListAuditEvents(r.Context(), store.AuditListOptions{
-		DeviceID: r.URL.Query().Get("device_id"),
+		DeviceID: deviceID,
 		Limit:    limit,
 		Offset:   offset,
 	})
@@ -1379,7 +1582,7 @@ func (a *App) handlePurgeAuditEvents(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(deviceID) != "" {
 		action = "device_audit.purge"
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), "operator", action, deviceID, "", mustJSON(map[string]any{
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), action, deviceID, "", mustJSON(map[string]any{
 		"deleted":    deleted,
 		"request_id": requestID(r.Context()),
 	}))
@@ -1407,12 +1610,25 @@ func (a *App) authorizeDevice(r *http.Request, deviceID string) error {
 
 func (a *App) operatorAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !a.operatorAuthorized(r) {
+		principal, ok := a.authenticateOperator(r)
+		if !ok {
 			writeError(w, http.StatusUnauthorized, "invalid operator credentials")
 			return
 		}
-		next.ServeHTTP(w, r)
+		if principal.Method == "cookie" && unsafeMethod(r.Method) && !sameOrigin(r) {
+			writeError(w, http.StatusForbidden, "cross-origin request rejected")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalContextKey, principal)))
 	})
+}
+
+func actorName(r *http.Request) string {
+	principal, ok := principalFromContext(r.Context())
+	if !ok || principal.User.Username == "" {
+		return "operator"
+	}
+	return principal.User.Username
 }
 
 func bearerToken(r *http.Request) (string, bool) {
@@ -1596,6 +1812,7 @@ func randomLuCIPort() int {
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
@@ -1605,6 +1822,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 			return false
 		}
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid json: %v", err))
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "request body must contain a single JSON value")
 		return false
 	}
 	return true

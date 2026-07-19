@@ -2132,3 +2132,13 @@ select {
     width: auto;
   }
 }
+dialog {
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgb(15 23 42 / 35%);
+  max-width: min(520px, calc(100vw - 32px));
+}
+
+dialog::backdrop {
+  background: rgb(15 23 42 / 55%);
+}

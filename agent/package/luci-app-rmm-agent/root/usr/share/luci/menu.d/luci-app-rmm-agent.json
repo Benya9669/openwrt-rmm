@@ -1,0 +1,14 @@
+{
+	"admin/services/rmm-agent": {
+		"title": "RMM agent",
+		"order": 45,
+		"action": {
+			"type": "view",
+			"path": "services/rmm-agent"
+		},
+		"depends": {
+			"acl": [ "luci-app-rmm-agent" ],
+			"uci": { "rmm-agent": true }
+		}
+	}
+}

@@ -1,0 +1,18 @@
+{
+	"luci-app-rmm-agent": {
+		"description": "Configure and control the RMM agent",
+		"read": {
+			"ubus": {
+				"rc": [ "list" ],
+				"service": [ "list" ]
+			},
+			"uci": [ "rmm-agent" ]
+		},
+		"write": {
+			"ubus": {
+				"rc": [ "init" ]
+			},
+			"uci": [ "rmm-agent" ]
+		}
+	}
+}

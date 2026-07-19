@@ -94,6 +94,7 @@ func main() {
 			logf("failed to save config: %v", err)
 			os.Exit(1)
 		}
+		clearUCIEnrollmentGrant(ctx)
 		logf("enrolled as %s", cfg.DeviceID)
 	}
 
@@ -121,8 +122,8 @@ func main() {
 
 func loadConfig(path string) (config, error) {
 	cfg := config{
-		ServerURL:        envDefault("SERVER_URL", "http://127.0.0.1:8080"),
-		EnrollmentToken:  envDefault("ENROLLMENT_TOKEN", "dev-enroll-token"),
+		ServerURL:        envDefault("SERVER_URL", "https://rmm.example.com"),
+		EnrollmentToken:  os.Getenv("ENROLLMENT_TOKEN"),
 		IntervalSeconds:  intDefault(os.Getenv("INTERVAL_SECONDS"), 30),
 		DeviceID:         os.Getenv("DEVICE_ID"),
 		DeviceToken:      os.Getenv("DEVICE_TOKEN"),
@@ -232,6 +233,14 @@ func saveConfig(cfg config) error {
 	return os.Rename(tmp, cfg.ConfigFile)
 }
 
+func clearUCIEnrollmentGrant(ctx context.Context) {
+	if _, err := exec.LookPath("uci"); err != nil {
+		return
+	}
+	_ = exec.CommandContext(ctx, "uci", "-q", "delete", "rmm-agent.main.enrollment_token").Run()
+	_ = exec.CommandContext(ctx, "uci", "-q", "commit", "rmm-agent").Run()
+}
+
 func writeConfigLine(b *strings.Builder, key, value string) {
 	_, _ = fmt.Fprintf(b, "%s=\"%s\"\n", key, strings.ReplaceAll(value, `"`, `\"`))
 }
@@ -258,6 +267,7 @@ func enroll(ctx context.Context, client *http.Client, cfg *config) error {
 	}
 	cfg.DeviceID = resp.DeviceID
 	cfg.DeviceToken = resp.DeviceToken
+	cfg.EnrollmentToken = ""
 	return nil
 }
 
@@ -1267,9 +1277,12 @@ func postJSONRaw(ctx context.Context, client *http.Client, url, token string, bo
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	respData, err := io.ReadAll(resp.Body)
+	respData, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
 	if err != nil {
 		return resp.StatusCode, nil, err
+	}
+	if len(respData) > 2<<20 {
+		return resp.StatusCode, nil, errors.New("server response exceeds 2 MiB")
 	}
 	return resp.StatusCode, respData, nil
 }

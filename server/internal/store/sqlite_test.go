@@ -63,6 +63,24 @@ VALUES ('rs_legacy', 'dev_legacy');
 	if sessions[0].Target != "ssh" {
 		t.Fatalf("got target %q, want ssh", sessions[0].Target)
 	}
+	if allowed, err := st.AuthorizeDevice(ctx, "dev_legacy", "tok_legacy"); err != nil || !allowed {
+		t.Fatalf("legacy device token did not survive hash migration: allowed=%v err=%v", allowed, err)
+	}
+	var storedToken, storedHash string
+	if err := st.db.QueryRowContext(ctx, `SELECT token, token_hash FROM devices WHERE id = 'dev_legacy'`).Scan(&storedToken, &storedHash); err != nil {
+		t.Fatal(err)
+	}
+	if storedToken == "tok_legacy" || storedHash != TokenHash("tok_legacy") {
+		t.Fatalf("legacy token was not replaced safely: token=%q hash=%q", storedToken, storedHash)
+	}
+}
+
+func TestRedactSensitiveOpenWrtOutput(t *testing.T) {
+	input := "wireless.radio0.key='wifi-secret'\n\toption private_key 'private-value'\nmonkey=value\n"
+	got := RedactSensitiveOutput(input)
+	if got != "wireless.radio0.key='[redacted]'\n\toption private_key '[redacted]'\nmonkey=value\n" {
+		t.Fatalf("unexpected redaction:\n%s", got)
+	}
 }
 
 func TestSQLiteConcurrentAccessDoesNotReturnBusy(t *testing.T) {
