@@ -29,8 +29,8 @@ type Store interface {
 	EnrollDeviceWithGrant(ctx context.Context, tokenHash, hostname, openwrtVersion string) (store.EnrolledDevice, bool, error)
 	AuthorizeDevice(ctx context.Context, deviceID, token string) (bool, error)
 	EnsureBootstrapUser(ctx context.Context, username, passwordHash string) (model.User, error)
-	CreateUser(ctx context.Context, username, passwordHash, role string) (model.User, error)
-	UpdateUserSecurity(ctx context.Context, userID string, disabled *bool, passwordHash string) (model.User, bool, error)
+	CreateUser(ctx context.Context, username, displayName, email, passwordHash, role string) (model.User, error)
+	UpdateUserSecurity(ctx context.Context, userID string, disabled *bool, passwordHash, role string) (model.User, bool, error)
 	ListUsers(ctx context.Context) ([]model.User, error)
 	GetUserByUsername(ctx context.Context, username string) (model.User, string, bool, error)
 	GetUserByID(ctx context.Context, id string) (model.User, bool, error)
@@ -40,11 +40,15 @@ type Store interface {
 	UpdateUserProfile(ctx context.Context, userID, displayName, email string) (model.User, bool, error)
 	UpdateOwnPassword(ctx context.Context, userID, passwordHash, currentSessionHash string) error
 	RevokeUserSessions(ctx context.Context, userID string) error
+	GetUserForPasswordReset(ctx context.Context, identifier string) (model.User, bool, error)
+	CreatePasswordReset(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	ResetPassword(ctx context.Context, tokenHash, passwordHash string) (bool, error)
 	CreateEnrollmentGrant(ctx context.Context, userID, dnsLabel, tokenHash string, expiresAt time.Time) (model.EnrollmentGrant, error)
 	ListDevicesForUser(ctx context.Context, userID string, admin bool) ([]model.Device, error)
 	DeviceAccessible(ctx context.Context, deviceID, userID string, admin bool) (bool, error)
 	GetDeviceByDNSLabel(ctx context.Context, dnsLabel string) (model.Device, bool, error)
 	UpdateDeviceDNSLabel(ctx context.Context, deviceID, dnsLabel string) (model.Device, bool, error)
+	TransferDevice(ctx context.Context, deviceID, targetUserID, requesterUserID string, admin bool) (model.Device, bool, error)
 	CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, deviceID, remoteSessionID string, expiresAt time.Time) error
 	ConsumeDeviceAccessGrant(ctx context.Context, grantHash, sessionHash, dnsLabel string, sessionExpiresAt time.Time) (store.AccessRoute, bool, error)
 	AuthorizeDeviceAccessSession(ctx context.Context, sessionHash, dnsLabel string) (store.AccessRoute, bool, error)
@@ -89,6 +93,8 @@ type Config struct {
 	TunnelHTTPHost        string
 	DeviceDomain          string
 	PublicScheme          string
+	PublicURL             string
+	PasswordResetSender   PasswordResetSender
 	StaticDir             string
 }
 
@@ -103,7 +109,10 @@ type App struct {
 	tunnelHTTPHost        string
 	deviceDomain          string
 	publicScheme          string
+	publicURL             string
+	passwordResetSender   PasswordResetSender
 	loginLimiter          *loginRateLimiter
+	passwordResetLimiter  *loginRateLimiter
 	loginSlots            chan struct{}
 }
 
@@ -178,14 +187,17 @@ type loginRequest struct {
 }
 
 type createUserRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Role        string `json:"role"`
 }
 
 type updateUserRequest struct {
 	Disabled *bool  `json:"disabled"`
 	Password string `json:"password"`
+	Role     string `json:"role"`
 }
 
 type updateProfileRequest struct {
@@ -196,6 +208,20 @@ type updateProfileRequest struct {
 type changePasswordRequest struct {
 	CurrentPassword string `json:"current_password"`
 	NewPassword     string `json:"new_password"`
+}
+
+type passwordResetRequest struct {
+	Identifier string `json:"identifier"`
+}
+
+type passwordResetConfirmRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
+type deviceTransferRequest struct {
+	TargetUsername  string `json:"target_username"`
+	CurrentPassword string `json:"current_password"`
 }
 
 type enrollmentGrantRequest struct {
@@ -213,6 +239,12 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	}
 	if cfg.OperatorPassword == "" {
 		cfg.OperatorPassword = cfg.OperatorToken
+	}
+	if cfg.PasswordResetSender != nil {
+		publicURL, err := url.Parse(strings.TrimSpace(cfg.PublicURL))
+		if err != nil || publicURL.Host == "" || (publicURL.Scheme != "https" && publicURL.Scheme != "http") || publicURL.RawQuery != "" || publicURL.Fragment != "" {
+			panic("password recovery requires an absolute RMM public URL without query or fragment")
+		}
 	}
 	passwordHash, err := authn.HashPassword(cfg.OperatorPassword)
 	if err != nil {
@@ -236,7 +268,10 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		tunnelHTTPHost:        strings.TrimSpace(cfg.TunnelHTTPHost),
 		deviceDomain:          strings.Trim(strings.ToLower(strings.TrimSpace(cfg.DeviceDomain)), "."),
 		publicScheme:          strings.ToLower(strings.TrimSpace(cfg.PublicScheme)),
+		publicURL:             strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),
+		passwordResetSender:   cfg.PasswordResetSender,
 		loginLimiter:          newLoginRateLimiter(5, 5*time.Minute),
+		passwordResetLimiter:  newLoginRateLimiter(3, time.Hour),
 		loginSlots:            make(chan struct{}, 4),
 	}
 	if a.tunnelHTTPHost == "" {
@@ -252,6 +287,8 @@ func NewHandler(s Store, cfg Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
+	mux.HandleFunc("POST /api/auth/password-reset/request", a.handlePasswordResetRequest)
+	mux.HandleFunc("POST /api/auth/password-reset/confirm", a.handlePasswordResetConfirm)
 	mux.Handle("POST /api/auth/logout", a.operatorAuth(http.HandlerFunc(a.handleLogout)))
 	mux.Handle("GET /api/auth/me", a.operatorAuth(http.HandlerFunc(a.handleAuthMe)))
 	mux.Handle("PATCH /api/auth/profile", a.operatorAuth(http.HandlerFunc(a.handleUpdateProfile)))
@@ -516,6 +553,10 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 4 && parts[3] == "dns" && r.Method == http.MethodPatch {
 		a.handleUpdateDeviceDNS(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "transfer" && r.Method == http.MethodPost {
+		a.handleTransferDevice(w, r)
 		return
 	}
 	if len(parts) == 4 && parts[3] == "metrics-history" && r.Method == http.MethodGet {

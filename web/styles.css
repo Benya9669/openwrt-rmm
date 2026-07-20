@@ -3262,7 +3262,7 @@ select:focus-visible,
   }
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1500px) {
   .fleet-view { grid-template-columns: minmax(0, 1fr); }
   .fleet-summary,
   .fleet-toolbar,
@@ -3353,4 +3353,170 @@ select:focus-visible,
     padding-bottom: 2px;
   }
   .client-filter { width: auto; flex: 0 0 auto; }
+}
+
+.profile-dialog {
+  width: min(760px, calc(100vw - 24px));
+  max-width: min(760px, calc(100vw - 24px));
+}
+
+.device-transfer-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.device-transfer-form label,
+.user-row label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.device-transfer-form .form-message {
+  grid-column: 1 / -1;
+}
+
+.user-list {
+  display: grid;
+  gap: 9px;
+}
+
+.user-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  padding: 12px;
+}
+
+.user-row.is-disabled {
+  opacity: .7;
+}
+
+.user-row-identity {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: center;
+}
+
+.user-row-identity .profile-avatar {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+  border-radius: 12px;
+  font-size: 16px;
+}
+
+.user-row-identity > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.user-row-identity small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-row-actions {
+  display: flex;
+  gap: 7px;
+}
+
+@media (max-width: 1200px) {
+  .uci-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .uci-grid .check-row {
+    grid-column: 1 / -1;
+  }
+
+  .network-table-head {
+    display: none;
+  }
+
+  .network-list {
+    display: grid;
+    gap: 10px;
+    overflow: visible;
+  }
+
+  .network-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 16px;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    background: var(--surface-raised);
+    padding: 14px;
+  }
+
+  .network-row > * {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+    overflow-wrap: anywhere;
+  }
+
+  .network-row > :nth-child(1)::before { content: "Интерфейс"; }
+  .network-row > :nth-child(2)::before { content: "Адреса"; }
+  .network-row > :nth-child(3)::before { content: "Получено"; }
+  .network-row > :nth-child(4)::before { content: "Передано"; }
+  .network-row > :nth-child(5)::before { content: "Ошибки"; }
+  .network-row > *::before {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+
+  .alert-row {
+    grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+    min-width: 0;
+  }
+
+  .alert-row > strong,
+  .alert-row > .alert-detail {
+    grid-column: 1 / -1;
+  }
+
+  .device-transfer-form,
+  .user-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .device-transfer-form button,
+  .user-row-identity,
+  .user-row-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .device-transfer-form,
+  .user-row {
+    grid-template-columns: 1fr;
+  }
+
+  .device-transfer-form > *,
+  .user-row > * {
+    grid-column: 1;
+  }
+
+  .user-row-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
 }

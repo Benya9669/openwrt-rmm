@@ -5,9 +5,10 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"log"
 	"net"
-	"net/mail"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strings"
 	"sync"
@@ -155,6 +156,10 @@ func (a *App) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	principal, _ := principalFromContext(r.Context())
 	user, found, err := a.store.UpdateUserProfile(r.Context(), principal.User.ID, req.DisplayName, req.Email)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "email is already in use") {
+			writeError(w, http.StatusConflict, "email is already in use")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to update profile")
 		return
 	}
@@ -166,6 +171,94 @@ func (a *App) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		"request_id": requestID(r.Context()),
 	}))
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func (a *App) handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "cross-origin request rejected")
+		return
+	}
+	if a.passwordResetSender == nil || a.publicURL == "" {
+		writeError(w, http.StatusServiceUnavailable, "password recovery is not configured")
+		return
+	}
+	var req passwordResetRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	identifier := strings.TrimSpace(req.Identifier)
+	if identifier == "" || len(identifier) > 254 {
+		writeError(w, http.StatusBadRequest, "username or email is required")
+		return
+	}
+	limitKey := strings.ToLower(identifier)
+	if !a.passwordResetLimiter.Allow(limitKey) {
+		w.Header().Set("Retry-After", "3600")
+		writeError(w, http.StatusTooManyRequests, "too many password recovery attempts")
+		return
+	}
+	a.passwordResetLimiter.Fail(limitKey)
+	user, found, err := a.store.GetUserForPasswordReset(r.Context(), identifier)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start password recovery")
+		return
+	}
+	if found {
+		token, err := randomToken(32)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to start password recovery")
+			return
+		}
+		if err := a.store.CreatePasswordReset(r.Context(), user.ID, store.TokenHash(token), time.Now().UTC().Add(30*time.Minute)); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to start password recovery")
+			return
+		}
+		resetURL := a.publicURL + "/#password-reset=" + url.QueryEscape(token)
+		go func(userID, recipient, targetURL string) {
+			if err := a.passwordResetSender.SendPasswordReset(context.Background(), recipient, targetURL); err != nil {
+				log.Printf("password reset email delivery failed for user %s: %v", userID, err)
+			}
+		}(user.ID, user.Email, resetURL)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"status":  "accepted",
+		"message": "if the account has a recovery email, a reset link will be sent",
+	})
+}
+
+func (a *App) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "cross-origin request rejected")
+		return
+	}
+	var req passwordResetConfirmRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if len(req.Token) < 32 || len(req.Token) > 512 {
+		writeError(w, http.StatusBadRequest, "password reset link is invalid or expired")
+		return
+	}
+	passwordHash, err := authn.HashPassword(req.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	reset, err := a.store.ResetPassword(r.Context(), store.TokenHash(req.Token), passwordHash)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reset password")
+		return
+	}
+	if !reset {
+		writeError(w, http.StatusBadRequest, "password reset link is invalid or expired")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), "password-reset", "auth.password_reset", "", "", mustJSON(map[string]string{
+		"request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {

@@ -214,6 +214,14 @@ CREATE TABLE IF NOT EXISTS operator_sessions (
 	FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+	token_hash TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS enrollment_grants (
 	id TEXT PRIMARY KEY,
 	token_hash TEXT NOT NULL UNIQUE,
@@ -291,6 +299,7 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_dns_label ON devices(dns_label) WHERE dns_label != ''`,
 		`CREATE INDEX IF NOT EXISTS idx_devices_owner_created_at ON devices(owner_user_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_operator_sessions_user_expires ON operator_sessions(user_id, expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_expires ON password_reset_tokens(user_id, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_enrollment_grants_user_created ON enrollment_grants(user_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_device_access_sessions_device_expires ON device_access_sessions(device_id, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_device_created_at ON remote_sessions(device_id, created_at)`,

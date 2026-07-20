@@ -15,6 +15,11 @@ Environment variables:
 - `RMM_OPERATOR_PASSWORD` - required password used only when the bootstrap administrator is first created; rotate it later in the account UI
 - `RMM_OPERATOR_TOKEN` - optional emergency/API bearer token
 - `RMM_OPERATOR_USERNAME` - web UI username, default `admin`
+- `RMM_PUBLIC_URL` - trusted external base URL used in password recovery links
+- `RMM_SMTP_HOST`, `RMM_SMTP_PORT`, `RMM_SMTP_USERNAME`, `RMM_SMTP_PASSWORD`,
+  `RMM_SMTP_FROM` - optional SMTP delivery for password recovery
+- `RMM_SMTP_TLS_MODE` - `starttls` (default), `tls`, or `none` in insecure local mode only
+- `RMM_SMTP_SERVER_NAME` - optional TLS server name override
 - `RMM_COOKIE_SECURE` - defaults to `true` outside explicit development mode
 - `RMM_DEVICE_DOMAIN` - wildcard device domain, for example `routers.example.com`
 - `RMM_ALLOW_LEGACY_ENROLLMENT` - opt-in shared enrollment compatibility mode
@@ -43,16 +48,20 @@ Agent API:
 Operator API:
 
 - `POST /api/auth/login`
+- `POST /api/auth/password-reset/request`
+- `POST /api/auth/password-reset/confirm`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 - `PATCH /api/auth/profile`
 - `POST /api/auth/change-password`
 - `POST /api/auth/logout-all`
 - `GET|POST /api/users` (administrator only)
+- `PATCH /api/users/{id}` (administrator only)
 - `POST /api/enrollment-grants`
 
 - `GET /api/devices`
 - `GET /api/devices/{id}`
+- `POST /api/devices/{id}/transfer`
 - `POST /api/devices/{id}/commands`
 - `GET /api/devices/{id}/commands`
 - `GET /api/devices/{id}/commands/{command_id}`

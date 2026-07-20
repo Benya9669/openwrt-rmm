@@ -43,6 +43,34 @@ func main() {
 			log.Fatal("RMM_ENROLLMENT_TOKEN still contains an insecure example value")
 		}
 	}
+	var passwordResetSender httpapi.PasswordResetSender
+	smtpHost := strings.TrimSpace(os.Getenv("RMM_SMTP_HOST"))
+	publicURL := strings.TrimRight(strings.TrimSpace(os.Getenv("RMM_PUBLIC_URL")), "/")
+	if smtpHost != "" {
+		tlsMode := env("RMM_SMTP_TLS_MODE", "starttls")
+		if !insecureDevMode && strings.EqualFold(tlsMode, "none") {
+			log.Fatal("RMM_SMTP_TLS_MODE=none is allowed only in insecure development mode")
+		}
+		if publicURL == "" {
+			log.Fatal("RMM_PUBLIC_URL is required when SMTP password recovery is enabled")
+		}
+		if !insecureDevMode && !strings.HasPrefix(strings.ToLower(publicURL), "https://") {
+			log.Fatal("RMM_PUBLIC_URL must use https when SMTP password recovery is enabled")
+		}
+		sender, smtpErr := httpapi.NewSMTPPasswordResetSender(httpapi.SMTPConfig{
+			Host:       smtpHost,
+			Port:       envInt("RMM_SMTP_PORT", 587, 1, 65535),
+			Username:   strings.TrimSpace(os.Getenv("RMM_SMTP_USERNAME")),
+			Password:   os.Getenv("RMM_SMTP_PASSWORD"),
+			From:       strings.TrimSpace(os.Getenv("RMM_SMTP_FROM")),
+			TLSMode:    tlsMode,
+			ServerName: strings.TrimSpace(os.Getenv("RMM_SMTP_SERVER_NAME")),
+		})
+		if smtpErr != nil {
+			log.Fatalf("invalid SMTP configuration: %v", smtpErr)
+		}
+		passwordResetSender = sender
+	}
 
 	st, err := store.OpenSQLite(context.Background(), dbPath)
 	if err != nil {
@@ -65,6 +93,8 @@ func main() {
 		TunnelHTTPHost:        env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
 		DeviceDomain:          strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
 		PublicScheme:          env("RMM_PUBLIC_SCHEME", "https"),
+		PublicURL:             publicURL,
+		PasswordResetSender:   passwordResetSender,
 		StaticDir:             env("RMM_WEB_DIR", "web"),
 	})
 

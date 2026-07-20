@@ -25,6 +25,23 @@ Set a long `RMM_OPERATOR_PASSWORD`. Shared enrollment is disabled: users add rou
 15-minute one-time grants created in the web UI. Leave `RMM_OPERATOR_TOKEN` empty unless
 an emergency/API bearer token is required.
 
+To enable password recovery, set `RMM_PUBLIC_URL` to the external HTTPS address and
+configure SMTP in `.env`:
+
+```dotenv
+RMM_PUBLIC_URL=https://rmm.example.com
+RMM_SMTP_HOST=smtp.example.com
+RMM_SMTP_PORT=587
+RMM_SMTP_USERNAME=rmm@example.com
+RMM_SMTP_PASSWORD=replace-with-the-smtp-password
+RMM_SMTP_FROM=OpenWrt RMM <rmm@example.com>
+RMM_SMTP_TLS_MODE=starttls
+```
+
+Use `RMM_SMTP_TLS_MODE=tls` for implicit TLS on port 465. Plain SMTP is rejected in
+production mode. Reset links are one-time, expire after 30 minutes, and revoke all
+existing web sessions after the password is changed.
+
 ## 2. Start The Stack
 
 ```powershell
@@ -99,6 +116,11 @@ ssh -p 22022 root@10.10.10.2
 The actual port is selected per session.
 
 ## Operations
+
+Administrators can create users, change their roles, disable accounts, and issue a
+temporary password from the profile dialog. Every user receives routers through their
+own one-time enrollment grants. A router can be transferred from its Expert tab after
+the current user confirms their password; active LuCI access is closed during transfer.
 
 View logs:
 

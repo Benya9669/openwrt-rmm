@@ -10,7 +10,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=17">
+    <link rel="stylesheet" href="/styles.css?v=21">
   </head>
   <body>
     <main id="loginView" class="landing-view">
@@ -72,6 +72,7 @@
           <label>Логин<input id="loginUsername" type="text" autocomplete="username" placeholder="Введите логин" required></label>
           <label>Пароль<input id="loginPassword" type="password" autocomplete="current-password" required></label>
           <button class="primary" type="submit">Войти в RMM</button>
+          <button id="forgotPasswordBtn" class="text-button" type="button">Забыли пароль?</button>
           <p id="loginError" class="login-error" role="alert"></p>
         </form>
       </section>
@@ -498,6 +499,21 @@
 
           <section class="panel" data-device-tab="expert">
             <div class="section-title">
+              <div>
+                <h2>Передача роутера</h2>
+                <p class="section-subtitle">Новый владелец получит управление устройством. Текущие LuCI-сессии будут закрыты.</p>
+              </div>
+            </div>
+            <form id="deviceTransferForm" class="device-transfer-form">
+              <label>Логин нового владельца<input id="transferUsername" type="text" minlength="3" maxlength="64" autocomplete="off" required></label>
+              <label>Ваш текущий пароль<input id="transferPassword" type="password" autocomplete="current-password" required></label>
+              <button class="danger" type="submit">Передать роутер</button>
+              <p id="transferMessage" class="form-message" role="status"></p>
+            </form>
+          </section>
+
+          <section class="panel" data-device-tab="expert">
+            <div class="section-title">
               <h2>UCI configuration</h2>
             </div>
             <div class="uci-grid">
@@ -764,8 +780,16 @@
           <input id="newUsername" type="text" minlength="3" maxlength="64" autocomplete="off" required>
         </label>
         <label>
+          E-mail для восстановления
+          <input id="newUserEmail" type="email" maxlength="254" autocomplete="off" placeholder="name@example.com">
+        </label>
+        <label>
           Временный пароль
           <input id="newUserPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required>
+        </label>
+        <label>
+          Роль
+          <select id="newUserRole"><option value="user">Пользователь</option><option value="admin">Администратор</option></select>
         </label>
         <div class="topbar-actions">
           <button id="cancelCreateUserBtn" value="cancel" type="button">Отмена</button>
@@ -805,11 +829,35 @@
           <button type="submit">Изменить пароль</button>
           <p id="passwordMessage" class="form-message" role="status"></p>
         </form>
+        <section id="userManagementSection" class="profile-form user-management is-hidden">
+          <div class="profile-section-heading"><strong>Пользователи</strong><span>Роли и доступы всех аккаунтов</span></div>
+          <div id="userList" class="user-list"></div>
+        </section>
         <div class="profile-session-actions">
           <button id="logoutAllBtn" class="danger" type="button">Завершить все сессии</button>
           <button id="profileLogoutBtn" type="button">Выйти на этом устройстве</button>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="forgotPasswordDialog">
+      <form id="forgotPasswordForm" class="login-form">
+        <div class="dialog-heading"><div><span class="eyebrow">Восстановление доступа</span><h2>Сбросить пароль</h2></div><button id="closeForgotPasswordBtn" class="icon-button" type="button" aria-label="Закрыть">×</button></div>
+        <p>Введите логин или e-mail. Если для аккаунта настроено восстановление, мы отправим одноразовую ссылку на 30 минут.</p>
+        <label>Логин или e-mail<input id="passwordResetIdentifier" type="text" maxlength="254" autocomplete="username" required></label>
+        <button class="primary" type="submit">Отправить ссылку</button>
+        <p id="forgotPasswordMessage" class="form-message" role="status"></p>
+      </form>
+    </dialog>
+
+    <dialog id="passwordResetDialog">
+      <form id="passwordResetForm" class="login-form">
+        <div class="dialog-heading"><div><span class="eyebrow">Новый пароль</span><h2>Восстановление доступа</h2></div><button id="closePasswordResetBtn" class="icon-button" type="button" aria-label="Закрыть">×</button></div>
+        <label>Новый пароль<input id="resetNewPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+        <label>Повторите пароль<input id="resetConfirmPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+        <button class="primary" type="submit">Установить новый пароль</button>
+        <p id="passwordResetMessage" class="form-message" role="status"></p>
+      </form>
     </dialog>
 
     <dialog id="luciStateDialog" class="luci-state-dialog">
@@ -834,6 +882,6 @@
       </div>
     </dialog>
 
-    <script src="/app.js?v=24" defer></script>
+    <script src="/app.js?v=25" defer></script>
   </body>
 </html>

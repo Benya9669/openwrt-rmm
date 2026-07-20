@@ -62,8 +62,10 @@ VALUES (?, ?, ?, 'admin', 0, ?, ?)
 	return user, nil
 }
 
-func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role string) (model.User, error) {
+func (s *Store) CreateUser(ctx context.Context, username, displayName, email, passwordHash, role string) (model.User, error) {
 	username = strings.TrimSpace(username)
+	displayName = strings.TrimSpace(displayName)
+	email = strings.ToLower(strings.TrimSpace(email))
 	role = strings.ToLower(strings.TrimSpace(role))
 	if username == "" || passwordHash == "" || (role != "admin" && role != "user") {
 		return model.User{}, errors.New("invalid user")
@@ -73,11 +75,28 @@ func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role str
 		return model.User{}, err
 	}
 	now := nowText()
-	_, err = s.db.ExecContext(ctx, `
-INSERT INTO users (id, username, password_hash, role, disabled, created_at, updated_at)
-VALUES (?, ?, ?, ?, 0, ?, ?)
-`, id, username, passwordHash, role, now, now)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return model.User{}, err
+	}
+	defer tx.Rollback()
+	if email != "" {
+		var inUse bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email = ? COLLATE NOCASE)`, email).Scan(&inUse); err != nil {
+			return model.User{}, err
+		}
+		if inUse {
+			return model.User{}, errors.New("email is already in use")
+		}
+	}
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO users (id, username, display_name, email, password_hash, role, disabled, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+`, id, username, displayName, email, passwordHash, role, now, now)
+	if err != nil {
+		return model.User{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return model.User{}, err
 	}
 	user, _, found, err := s.GetUserByUsername(ctx, username)
@@ -87,25 +106,33 @@ VALUES (?, ?, ?, ?, 0, ?, ?)
 	return user, nil
 }
 
-func (s *Store) UpdateUserSecurity(ctx context.Context, userID string, disabled *bool, passwordHash string) (model.User, bool, error) {
-	user, found, err := s.GetUserByID(ctx, userID)
-	if err != nil || !found {
-		return model.User{}, found, err
-	}
-	if disabled != nil && *disabled && user.Role == "admin" {
-		var activeAdmins int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&activeAdmins); err != nil {
-			return model.User{}, false, err
-		}
-		if activeAdmins <= 1 && !user.Disabled {
-			return model.User{}, false, errors.New("cannot disable the last active administrator")
-		}
+func (s *Store) UpdateUserSecurity(ctx context.Context, userID string, disabled *bool, passwordHash, role string) (model.User, bool, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role != "" && role != "admin" && role != "user" {
+		return model.User{}, false, errors.New("invalid user role")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return model.User{}, false, err
 	}
 	defer tx.Rollback()
+	var currentRole string
+	var currentDisabled int
+	if err := tx.QueryRowContext(ctx, `SELECT role, disabled FROM users WHERE id = ?`, userID).Scan(&currentRole, &currentDisabled); errors.Is(err, sql.ErrNoRows) {
+		return model.User{}, false, nil
+	} else if err != nil {
+		return model.User{}, false, err
+	}
+	removesActiveAdmin := currentRole == "admin" && currentDisabled == 0 && ((disabled != nil && *disabled) || role == "user")
+	if removesActiveAdmin {
+		var activeAdmins int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&activeAdmins); err != nil {
+			return model.User{}, false, err
+		}
+		if activeAdmins <= 1 {
+			return model.User{}, false, errors.New("cannot disable or demote the last active administrator")
+		}
+	}
 	if disabled != nil {
 		if _, err := tx.ExecContext(ctx, `UPDATE users SET disabled = ?, updated_at = ? WHERE id = ?`, *disabled, nowText(), userID); err != nil {
 			return model.User{}, false, err
@@ -116,7 +143,12 @@ func (s *Store) UpdateUserSecurity(ctx context.Context, userID string, disabled 
 			return model.User{}, false, err
 		}
 	}
-	if disabled != nil && *disabled || passwordHash != "" {
+	if role != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`, role, nowText(), userID); err != nil {
+			return model.User{}, false, err
+		}
+	}
+	if disabled != nil && *disabled || passwordHash != "" || role != "" {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID); err != nil {
 			return model.User{}, false, err
 		}
@@ -207,14 +239,32 @@ func (s *Store) RevokeOperatorSession(ctx context.Context, tokenHash string) err
 }
 
 func (s *Store) UpdateUserProfile(ctx context.Context, userID, displayName, email string) (model.User, bool, error) {
-	result, err := s.db.ExecContext(ctx, `
+	email = strings.ToLower(strings.TrimSpace(email))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.User{}, false, err
+	}
+	defer tx.Rollback()
+	if email != "" {
+		var inUse bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?)`, email, userID).Scan(&inUse); err != nil {
+			return model.User{}, false, err
+		}
+		if inUse {
+			return model.User{}, false, errors.New("email is already in use")
+		}
+	}
+	result, err := tx.ExecContext(ctx, `
 UPDATE users SET display_name = ?, email = ?, updated_at = ? WHERE id = ?
-`, strings.TrimSpace(displayName), strings.ToLower(strings.TrimSpace(email)), nowText(), userID)
+`, strings.TrimSpace(displayName), email, nowText(), userID)
 	if err != nil {
 		return model.User{}, false, err
 	}
 	changed, err := result.RowsAffected()
 	if err != nil || changed == 0 {
+		return model.User{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
 		return model.User{}, false, err
 	}
 	return s.GetUserByID(ctx, userID)
@@ -243,6 +293,84 @@ func (s *Store) UpdateOwnPassword(ctx context.Context, userID, passwordHash, cur
 func (s *Store) RevokeUserSessions(ctx context.Context, userID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID)
 	return err
+}
+
+func (s *Store) GetUserForPasswordReset(ctx context.Context, identifier string) (model.User, bool, error) {
+	identifier = strings.ToLower(strings.TrimSpace(identifier))
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, username, display_name, email, role, disabled, created_at, updated_at
+FROM users
+WHERE disabled = 0 AND (username = ? COLLATE NOCASE OR (email != '' AND email = ? COLLATE NOCASE))
+LIMIT 2
+`, identifier, identifier)
+	if err != nil {
+		return model.User{}, false, err
+	}
+	defer rows.Close()
+	users := make([]model.User, 0, 2)
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return model.User{}, false, err
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return model.User{}, false, err
+	}
+	if len(users) != 1 || users[0].Email == "" {
+		return model.User{}, false, nil
+	}
+	return users[0], true, nil
+}
+
+func (s *Store) CreatePasswordReset(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO password_reset_tokens (token_hash, user_id, expires_at, created_at)
+VALUES (?, ?, ?, ?)
+`, tokenHash, userID, expiresAt.UTC().Format(time.RFC3339Nano), nowText()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ResetPassword(ctx context.Context, tokenHash, passwordHash string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var userID string
+	if err := tx.QueryRowContext(ctx, `
+SELECT t.user_id FROM password_reset_tokens t
+JOIN users u ON u.id = t.user_id
+WHERE t.token_hash = ? AND julianday(t.expires_at) > julianday(?) AND u.disabled = 0
+`, tokenHash, nowText()).Scan(&userID); errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ? AND disabled = 0`, passwordHash, nowText(), userID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE user_id = ?`, userID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *Store) CreateEnrollmentGrant(ctx context.Context, userID, dnsLabel, tokenHash string, expiresAt time.Time) (model.EnrollmentGrant, error) {
@@ -405,6 +533,58 @@ func (s *Store) UpdateDeviceDNSLabel(ctx context.Context, deviceID, dnsLabel str
 	return s.GetDevice(ctx, deviceID)
 }
 
+func (s *Store) TransferDevice(ctx context.Context, deviceID, targetUserID, requesterUserID string, admin bool) (model.Device, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.Device{}, false, err
+	}
+	defer tx.Rollback()
+	var targetAvailable bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = ? AND disabled = 0)`, targetUserID).Scan(&targetAvailable); err != nil {
+		return model.Device{}, false, err
+	}
+	if !targetAvailable {
+		return model.Device{}, false, errors.New("target user is unavailable")
+	}
+	query := `UPDATE devices SET owner_user_id = ? WHERE id = ? AND owner_user_id != ?`
+	args := []any{targetUserID, deviceID, targetUserID}
+	if !admin {
+		query += ` AND owner_user_id = ?`
+		args = append(args, requesterUserID)
+	}
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return model.Device{}, false, err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return model.Device{}, false, nil
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM device_access_grants WHERE device_id = ?`, deviceID); err != nil {
+		return model.Device{}, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM device_access_sessions WHERE device_id = ?`, deviceID); err != nil {
+		return model.Device{}, false, err
+	}
+	now := nowText()
+	if _, err := tx.ExecContext(ctx, `
+UPDATE commands SET status = 'cancelled', cancelled_at = ?
+WHERE device_id = ? AND status IN ('queued', 'claimed')
+  AND id IN (SELECT command_id FROM remote_sessions WHERE device_id = ?)
+`, now, deviceID, deviceID); err != nil {
+		return model.Device{}, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE remote_sessions SET status = 'closed', closed_at = ?, updated_at = ?
+WHERE device_id = ? AND status IN ('requested', 'queued', 'active')
+`, now, now, deviceID); err != nil {
+		return model.Device{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.Device{}, false, err
+	}
+	return s.GetDevice(ctx, deviceID)
+}
+
 func (s *Store) CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, deviceID, remoteSessionID string, expiresAt time.Time) error {
 	var activeGrants int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM device_access_grants WHERE user_id = ? AND julianday(expires_at) > julianday(?)`, userID, nowText()).Scan(&activeGrants); err != nil {
@@ -492,6 +672,7 @@ func (s *Store) PurgeExpiredSecurityData(ctx context.Context) error {
 	now := nowText()
 	for _, statement := range []string{
 		`DELETE FROM operator_sessions WHERE julianday(expires_at) <= julianday(?)`,
+		`DELETE FROM password_reset_tokens WHERE julianday(expires_at) <= julianday(?)`,
 		`DELETE FROM enrollment_grants WHERE julianday(expires_at) <= julianday(?)`,
 		`DELETE FROM device_access_grants WHERE julianday(expires_at) <= julianday(?)`,
 		`DELETE FROM device_access_sessions WHERE julianday(expires_at) <= julianday(?)`,

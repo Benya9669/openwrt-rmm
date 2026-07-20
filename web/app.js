@@ -2,6 +2,8 @@ const state = {
   username: "",
   user: null,
   devices: [],
+  users: [],
+  passwordResetToken: "",
   selectedDeviceId: null,
   deviceTab: "overview",
   filter: "all",
@@ -36,6 +38,18 @@ const els = {
   loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),
   loginError: document.querySelector("#loginError"),
+  forgotPasswordBtn: document.querySelector("#forgotPasswordBtn"),
+  forgotPasswordDialog: document.querySelector("#forgotPasswordDialog"),
+  forgotPasswordForm: document.querySelector("#forgotPasswordForm"),
+  closeForgotPasswordBtn: document.querySelector("#closeForgotPasswordBtn"),
+  passwordResetIdentifier: document.querySelector("#passwordResetIdentifier"),
+  forgotPasswordMessage: document.querySelector("#forgotPasswordMessage"),
+  passwordResetDialog: document.querySelector("#passwordResetDialog"),
+  passwordResetForm: document.querySelector("#passwordResetForm"),
+  closePasswordResetBtn: document.querySelector("#closePasswordResetBtn"),
+  resetNewPassword: document.querySelector("#resetNewPassword"),
+  resetConfirmPassword: document.querySelector("#resetConfirmPassword"),
+  passwordResetMessage: document.querySelector("#passwordResetMessage"),
   appShell: document.querySelector("#appShell"),
   operatorName: document.querySelector("#operatorName"),
   fleetNavBtn: document.querySelector("#fleetNavBtn"),
@@ -53,7 +67,9 @@ const els = {
   createUserDialog: document.querySelector("#createUserDialog"),
   createUserForm: document.querySelector("#createUserForm"),
   newUsername: document.querySelector("#newUsername"),
+  newUserEmail: document.querySelector("#newUserEmail"),
   newUserPassword: document.querySelector("#newUserPassword"),
+  newUserRole: document.querySelector("#newUserRole"),
   cancelCreateUserBtn: document.querySelector("#cancelCreateUserBtn"),
   deviceList: document.querySelector("#deviceList"),
   fleetView: document.querySelector("#fleetView"),
@@ -180,6 +196,10 @@ const els = {
   clearCommandsBtn: document.querySelector("#clearCommandsBtn"),
   clearAuditBtn: document.querySelector("#clearAuditBtn"),
   deleteDeviceBtn: document.querySelector("#deleteDeviceBtn"),
+  deviceTransferForm: document.querySelector("#deviceTransferForm"),
+  transferUsername: document.querySelector("#transferUsername"),
+  transferPassword: document.querySelector("#transferPassword"),
+  transferMessage: document.querySelector("#transferMessage"),
   toastRegion: document.querySelector("#toastRegion"),
   profileDialog: document.querySelector("#profileDialog"),
   closeProfileBtn: document.querySelector("#closeProfileBtn"),
@@ -197,6 +217,8 @@ const els = {
   confirmPassword: document.querySelector("#confirmPassword"),
   passwordMessage: document.querySelector("#passwordMessage"),
   logoutAllBtn: document.querySelector("#logoutAllBtn"),
+  userManagementSection: document.querySelector("#userManagementSection"),
+  userList: document.querySelector("#userList"),
   luciStateDialog: document.querySelector("#luciStateDialog"),
   luciStateCode: document.querySelector("#luciStateCode"),
   luciStateTitle: document.querySelector("#luciStateTitle"),
@@ -314,6 +336,7 @@ function showApp(user) {
   els.profileAvatar.textContent = initial;
   document.querySelector(".operator-avatar").textContent = initial;
   els.addUserBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
+  els.userManagementSection.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.loginView.classList.add("is-hidden");
   els.loginView.hidden = true;
   els.loginView.setAttribute("aria-hidden", "true");
@@ -1356,6 +1379,11 @@ function showProfile() {
   setFormMessage(els.passwordMessage, "");
   els.passwordForm.reset();
   if (!els.profileDialog.open) els.profileDialog.showModal();
+  if (state.user && state.user.role === "admin") {
+    loadUsers().catch((error) => {
+      els.userList.innerHTML = inlineStateMarkup("Не удалось загрузить пользователей", error.message);
+    });
+  }
 }
 
 function closeProfile() {
@@ -1402,6 +1430,90 @@ async function logoutAll() {
   state.devices = [];
   state.user = null;
   showLogin("Все сессии завершены. Войдите снова.");
+}
+
+async function loadUsers() {
+  const response = await api("/api/users");
+  state.users = response.users || [];
+  renderUsers();
+}
+
+function renderUsers() {
+  els.userList.innerHTML = "";
+  for (const user of state.users) {
+    const ownAccount = state.user && user.id === state.user.id;
+    const row = document.createElement("article");
+    row.className = `user-row${user.disabled ? " is-disabled" : ""}`;
+    row.innerHTML = `
+      <div class="user-row-identity">
+        <span class="profile-avatar">${escapeHtml((user.display_name || user.username || "U").charAt(0).toUpperCase())}</span>
+        <div><strong>${escapeHtml(user.display_name || user.username)}</strong><small>${escapeHtml(user.username)}${user.email ? ` · ${escapeHtml(user.email)}` : " · e-mail не задан"}</small></div>
+      </div>
+      <label>Роль<select data-user-role ${ownAccount ? "disabled" : ""}><option value="user" ${user.role === "user" ? "selected" : ""}>Пользователь</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>Администратор</option></select></label>
+      <div class="user-row-actions">
+        <button type="button" data-user-password ${ownAccount ? "disabled" : ""}>Новый пароль</button>
+        <button type="button" data-user-disabled class="${user.disabled ? "" : "danger"}" ${ownAccount ? "disabled" : ""}>${user.disabled ? "Включить" : "Отключить"}</button>
+      </div>
+    `;
+    row.querySelector("[data-user-role]").addEventListener("change", (event) => updateManagedUser(user, { role: event.target.value }));
+    row.querySelector("[data-user-disabled]").addEventListener("click", () => updateManagedUser(user, { disabled: !user.disabled }));
+    row.querySelector("[data-user-password]").addEventListener("click", () => resetManagedUserPassword(user));
+    els.userList.appendChild(row);
+  }
+}
+
+async function updateManagedUser(user, changes) {
+  try {
+    await api(`/api/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(changes) });
+    await loadUsers();
+    notify(`Аккаунт ${user.username} обновлён`, "success");
+  } catch (error) {
+    await loadUsers();
+    reportError(error);
+  }
+}
+
+function resetManagedUserPassword(user) {
+  const password = window.prompt(`Новый временный пароль для ${user.username} (минимум 12 символов)`);
+  if (password === null) return;
+  updateManagedUser(user, { password }).catch(reportError);
+}
+
+async function requestPasswordReset() {
+  setFormMessage(els.forgotPasswordMessage, "Отправляем…");
+  await api("/api/auth/password-reset/request", {
+    method: "POST",
+    body: JSON.stringify({ identifier: els.passwordResetIdentifier.value.trim() }),
+  });
+  els.forgotPasswordForm.reset();
+  setFormMessage(els.forgotPasswordMessage, "Если e-mail восстановления настроен, ссылка уже отправлена.", "success");
+}
+
+async function confirmPasswordReset() {
+  setFormMessage(els.passwordResetMessage, "");
+  if (els.resetNewPassword.value !== els.resetConfirmPassword.value) {
+    setFormMessage(els.passwordResetMessage, "Пароли не совпадают", "error");
+    return;
+  }
+  await api("/api/auth/password-reset/confirm", {
+    method: "POST",
+    body: JSON.stringify({ token: state.passwordResetToken, new_password: els.resetNewPassword.value }),
+  });
+  state.passwordResetToken = "";
+  history.replaceState(null, "", `${location.pathname}${location.search}`);
+  els.passwordResetForm.reset();
+  setFormMessage(els.passwordResetMessage, "Пароль изменён. Теперь можно войти.", "success");
+}
+
+function openPasswordResetFromURL() {
+  const match = location.hash.match(/^#password-reset=(.+)$/);
+  if (!match) return;
+  try {
+    state.passwordResetToken = decodeURIComponent(match[1]);
+  } catch {
+    state.passwordResetToken = "";
+  }
+  if (state.passwordResetToken) els.passwordResetDialog.showModal();
 }
 
 async function runLuCIPrimaryAction() {
@@ -1992,6 +2104,23 @@ async function deleteSelectedDevice() {
   notify("Устройство удалено", "success");
 }
 
+async function transferSelectedDevice() {
+  const device = currentDevice();
+  if (!device) return;
+  const targetUsername = els.transferUsername.value.trim();
+  if (!window.confirm(`Передать роутер «${deviceDisplayName(device)}» пользователю ${targetUsername}? Текущий удалённый доступ будет закрыт.`)) return;
+  setFormMessage(els.transferMessage, "Передаём…");
+  await api(`/api/devices/${encodeURIComponent(device.id)}/transfer`, {
+    method: "POST",
+    body: JSON.stringify({ target_username: targetUsername, current_password: els.transferPassword.value }),
+  });
+  els.deviceTransferForm.reset();
+  state.selectedDeviceId = null;
+  await loadDevices();
+  render();
+  notify(`Роутер передан пользователю ${targetUsername}`, "success");
+}
+
 function diagnosticCommand(name) {
   const serverHost = window.location.hostname || "10.10.10.2";
   switch (name) {
@@ -2091,10 +2220,11 @@ async function createUserAccount() {
   const password = els.newUserPassword.value;
   await api("/api/users", {
     method: "POST",
-    body: JSON.stringify({ username, password, role: "user" }),
+    body: JSON.stringify({ username, email: els.newUserEmail.value.trim(), password, role: els.newUserRole.value }),
   });
   els.createUserDialog.close();
   els.createUserForm.reset();
+  if (els.profileDialog.open) await loadUsers();
   notify(`Пользователь ${username} создан`, "success");
 }
 
@@ -2112,6 +2242,20 @@ initFleetTableSorting();
 els.loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
   login().catch((error) => showLogin(error.message));
+});
+els.forgotPasswordBtn.addEventListener("click", () => {
+  setFormMessage(els.forgotPasswordMessage, "");
+  els.forgotPasswordDialog.showModal();
+});
+els.closeForgotPasswordBtn.addEventListener("click", () => els.forgotPasswordDialog.close());
+els.forgotPasswordForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  requestPasswordReset().catch((error) => setFormMessage(els.forgotPasswordMessage, error.message, "error"));
+});
+els.closePasswordResetBtn.addEventListener("click", () => els.passwordResetDialog.close());
+els.passwordResetForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  confirmPasswordReset().catch((error) => setFormMessage(els.passwordResetMessage, error.message, "error"));
 });
 els.logoutBtn.addEventListener("click", () => logout().catch(reportError));
 els.fleetNavBtn.addEventListener("click", showFleet);
@@ -2194,6 +2338,10 @@ els.clearAlertsBtn.addEventListener("click", () => clearDeviceAlerts().catch(rep
 els.clearCommandsBtn.addEventListener("click", () => clearDeviceCommands().catch(reportError));
 els.clearAuditBtn.addEventListener("click", () => clearDeviceAudit().catch(reportError));
 els.deleteDeviceBtn.addEventListener("click", () => deleteSelectedDevice().catch(reportError));
+els.deviceTransferForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  transferSelectedDevice().catch((error) => setFormMessage(els.transferMessage, error.message, "error"));
+});
 els.sendPackageCommandBtn.addEventListener("click", () => sendPackageCommand().catch(reportError));
 els.createRemoteSessionBtn.addEventListener("click", () => createRemoteSession().catch(reportError));
 els.uciBackupBtn.addEventListener("click", () => sendUciCommand("uci_backup").catch(reportError));
@@ -2295,6 +2443,7 @@ els.bulkCommandType.addEventListener("change", () => {
   els.bulkCommandTarget.disabled = els.bulkCommandType.value === "pkg_list_installed";
 });
 
+openPasswordResetFromURL();
 checkHealth();
 checkSession();
 setInterval(() => {

@@ -64,6 +64,18 @@ func TestMultiUserEnrollmentAndDeviceIsolation(t *testing.T) {
 	authRequestJSON(t, bob, http.MethodPost, srv.URL+"/api/devices/bulk-commands", map[string]any{
 		"device_ids": []string{aliceDevice.DeviceID}, "type": "ping", "args": map[string]any{"target": "1.1.1.1"},
 	}, http.StatusNotFound, nil)
+	authRequestJSON(t, alice, http.MethodPost, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/transfer", map[string]any{
+		"target_username": "bob", "current_password": "alice-password-long",
+	}, http.StatusOK, nil)
+	authRequestJSON(t, alice, http.MethodGet, srv.URL+"/api/devices/"+aliceDevice.DeviceID, nil, http.StatusNotFound, nil)
+	authRequestJSON(t, bob, http.MethodGet, srv.URL+"/api/devices/"+aliceDevice.DeviceID, nil, http.StatusOK, nil)
+	authRequestJSON(t, admin, http.MethodPatch, srv.URL+"/api/users/"+aliceUser.ID, map[string]any{
+		"role": "admin",
+	}, http.StatusOK, nil)
+	authRequestJSON(t, admin, http.MethodPatch, srv.URL+"/api/users/"+aliceUser.ID, map[string]any{
+		"role": "user",
+	}, http.StatusOK, nil)
+	alice = authenticatedClient(t, srv.URL, "alice", "alice-password-long")
 
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/enrollment-grants", jsonBody(map[string]any{}))
 	if err != nil {
@@ -84,6 +96,77 @@ func TestMultiUserEnrollmentAndDeviceIsolation(t *testing.T) {
 		"disabled": true,
 	}, http.StatusOK, nil)
 	authRequestJSON(t, bob, http.MethodGet, srv.URL+"/api/devices", nil, http.StatusUnauthorized, nil)
+}
+
+type capturedResetMessage struct {
+	recipient string
+	resetURL  string
+}
+
+type captureResetSender struct {
+	messages chan capturedResetMessage
+}
+
+func (s *captureResetSender) SendPasswordReset(_ context.Context, recipient, resetURL string) error {
+	s.messages <- capturedResetMessage{recipient: recipient, resetURL: resetURL}
+	return nil
+}
+
+func TestPasswordResetIsOneTimeAndRevokesSessions(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "password-reset.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	sender := &captureResetSender{messages: make(chan capturedResetMessage, 1)}
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		OperatorUsername:    "admin",
+		OperatorPassword:    "initial-password-123",
+		PublicURL:           "https://rmm.example.test",
+		PasswordResetSender: sender,
+	}))
+	defer srv.Close()
+	client := authenticatedClient(t, srv.URL, "admin", "initial-password-123")
+	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
+		"display_name": "Owner", "email": "owner@example.test",
+	}, http.StatusOK, nil)
+	authRequestJSON(t, client, http.MethodPost, srv.URL+"/api/users", map[string]any{
+		"username": "duplicate-email", "email": "owner@example.test", "password": "temporary-password-123", "role": "user",
+	}, http.StatusConflict, nil)
+
+	authRequestJSON(t, &http.Client{}, http.MethodPost, srv.URL+"/api/auth/password-reset/request", map[string]any{
+		"identifier": "owner@example.test",
+	}, http.StatusAccepted, nil)
+	var message capturedResetMessage
+	select {
+	case message = <-sender.messages:
+	case <-time.After(2 * time.Second):
+		t.Fatal("password reset email was not sent")
+	}
+	parsed, err := url.Parse(message.resetURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.recipient != "owner@example.test" || !strings.HasPrefix(parsed.Fragment, "password-reset=") {
+		t.Fatalf("unexpected password reset message: %#v", message)
+	}
+	token, err := url.QueryUnescape(strings.TrimPrefix(parsed.Fragment, "password-reset="))
+	if err != nil {
+		t.Fatal(err)
+	}
+	authRequestJSON(t, &http.Client{}, http.MethodPost, srv.URL+"/api/auth/password-reset/confirm", map[string]any{
+		"token": token, "new_password": "recovered-password-123",
+	}, http.StatusOK, nil)
+	authRequestJSON(t, client, http.MethodGet, srv.URL+"/api/auth/me", nil, http.StatusUnauthorized, nil)
+	authRequestJSON(t, &http.Client{}, http.MethodPost, srv.URL+"/api/auth/password-reset/confirm", map[string]any{
+		"token": token, "new_password": "another-password-123",
+	}, http.StatusBadRequest, nil)
+	authRequestJSON(t, &http.Client{}, http.MethodPost, srv.URL+"/api/auth/login", map[string]any{
+		"username": "admin", "password": "initial-password-123",
+	}, http.StatusUnauthorized, nil)
+	authRequestJSON(t, &http.Client{}, http.MethodPost, srv.URL+"/api/auth/login", map[string]any{
+		"username": "admin", "password": "recovered-password-123",
+	}, http.StatusOK, nil)
 }
 
 func TestDeviceDomainUsesOneTimeLuCIAccessGrant(t *testing.T) {

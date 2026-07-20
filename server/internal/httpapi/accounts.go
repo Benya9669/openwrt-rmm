@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/mail"
 	"regexp"
 	"strings"
 	"time"
@@ -31,6 +32,8 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	req.Role = strings.ToLower(strings.TrimSpace(req.Role))
 	if req.Role == "" {
 		req.Role = "user"
@@ -43,15 +46,34 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "role must be user or admin")
 		return
 	}
+	if len([]rune(req.DisplayName)) > 80 {
+		writeError(w, http.StatusBadRequest, "display_name must not exceed 80 characters")
+		return
+	}
+	if len(req.Email) > 254 {
+		writeError(w, http.StatusBadRequest, "email must not exceed 254 characters")
+		return
+	}
+	if req.Email != "" {
+		address, err := mail.ParseAddress(req.Email)
+		if err != nil || !strings.EqualFold(address.Address, req.Email) {
+			writeError(w, http.StatusBadRequest, "email is invalid")
+			return
+		}
+	}
 	passwordHash, err := authn.HashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	user, err := a.store.CreateUser(r.Context(), req.Username, passwordHash, req.Role)
+	user, err := a.store.CreateUser(r.Context(), req.Username, req.DisplayName, req.Email, passwordHash, req.Role)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "email is already in use") {
+			writeError(w, http.StatusConflict, "email is already in use")
+			return
+		}
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			writeError(w, http.StatusConflict, "username is already in use")
+			writeError(w, http.StatusConflict, "username or email is already in use")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to create user")
@@ -77,13 +99,22 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.Disabled == nil && req.Password == "" {
-		writeError(w, http.StatusBadRequest, "disabled or password is required")
+	req.Role = strings.ToLower(strings.TrimSpace(req.Role))
+	if req.Disabled == nil && req.Password == "" && req.Role == "" {
+		writeError(w, http.StatusBadRequest, "disabled, password or role is required")
 		return
 	}
 	principal, _ := principalFromContext(r.Context())
 	if parts[2] == principal.User.ID && req.Disabled != nil && *req.Disabled {
 		writeError(w, http.StatusBadRequest, "you cannot disable your current account")
+		return
+	}
+	if parts[2] == principal.User.ID && req.Role != "" && req.Role != principal.User.Role {
+		writeError(w, http.StatusBadRequest, "you cannot change the role of your current account")
+		return
+	}
+	if req.Role != "" && req.Role != "user" && req.Role != "admin" {
+		writeError(w, http.StatusBadRequest, "role must be user or admin")
 		return
 	}
 	passwordHash := ""
@@ -95,7 +126,7 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	user, found, err := a.store.UpdateUserSecurity(r.Context(), parts[2], req.Disabled, passwordHash)
+	user, found, err := a.store.UpdateUserSecurity(r.Context(), parts[2], req.Disabled, passwordHash, req.Role)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "last active") {
 			writeError(w, http.StatusConflict, err.Error())
@@ -112,9 +143,70 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		"updated_user_id": user.ID,
 		"disabled":        req.Disabled,
 		"password_reset":  passwordHash != "",
+		"role":            req.Role,
 		"request_id":      requestID(r.Context()),
 	}))
 	writeJSON(w, http.StatusOK, user)
+}
+
+func (a *App) handleTransferDevice(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "devices" || parts[3] != "transfer" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	var req deviceTransferRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	req.TargetUsername = strings.TrimSpace(req.TargetUsername)
+	if !usernamePattern.MatchString(req.TargetUsername) || req.CurrentPassword == "" {
+		writeError(w, http.StatusBadRequest, "target username and current password are required")
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	_, currentHash, found, err := a.store.GetUserByUsername(r.Context(), principal.User.Username)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify transfer")
+		return
+	}
+	if !found || !authn.VerifyPassword(currentHash, req.CurrentPassword) {
+		writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+	target, _, found, err := a.store.GetUserByUsername(r.Context(), req.TargetUsername)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to find target account")
+		return
+	}
+	if !found || target.Disabled {
+		writeError(w, http.StatusConflict, "target account is unavailable")
+		return
+	}
+	currentDevice, found, err := a.store.GetDevice(r.Context(), parts[2])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load device owner")
+		return
+	}
+	if !found || target.ID == currentDevice.OwnerUserID {
+		writeError(w, http.StatusConflict, "device is already assigned to that account")
+		return
+	}
+	device, transferred, err := a.store.TransferDevice(r.Context(), parts[2], target.ID, principal.User.ID, principal.IsAdmin())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to transfer device")
+		return
+	}
+	if !transferred {
+		writeError(w, http.StatusConflict, "device is already assigned to that account")
+		return
+	}
+	a.decorateDevice(&device)
+	_, _ = a.store.AddAuditEvent(r.Context(), principal.User.Username, "device.transfer", device.ID, "", mustJSON(map[string]string{
+		"target_user_id": target.ID,
+		"request_id":     requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, device)
 }
 
 func (a *App) handleCreateEnrollmentGrant(w http.ResponseWriter, r *http.Request) {
