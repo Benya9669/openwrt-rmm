@@ -1,5 +1,8 @@
 # OpenWrt RMM Agent
 
+Current stable Go agent: `0.5.2`. It reports runtime health, pending command results,
+and the last heartbeat transport error after connectivity is restored.
+
 Production Go agent for OpenWrt, with the shell implementation retained as a fallback runtime.
 
 The agent uses outbound HTTP polling:

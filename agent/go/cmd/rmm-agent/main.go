@@ -23,7 +23,45 @@ import (
 	"time"
 )
 
-const agentVersion = "0.5.1"
+const agentVersion = "0.5.2"
+
+type agentRuntimeHealth struct {
+	StartedAt            time.Time
+	ConsecutiveFailures  int
+	LastHeartbeatError   string
+	LastHeartbeatErrorAt time.Time
+	LastHeartbeatSuccess time.Time
+}
+
+func (h *agentRuntimeHealth) recordFailure(err error) {
+	h.ConsecutiveFailures++
+	h.LastHeartbeatError = strings.TrimSpace(err.Error())
+	if len(h.LastHeartbeatError) > 512 {
+		h.LastHeartbeatError = h.LastHeartbeatError[:512]
+	}
+	h.LastHeartbeatErrorAt = time.Now().UTC()
+}
+
+func (h *agentRuntimeHealth) recordSuccess() {
+	h.ConsecutiveFailures = 0
+	h.LastHeartbeatSuccess = time.Now().UTC()
+}
+
+func (h *agentRuntimeHealth) snapshot(spoolDir string) map[string]any {
+	result := map[string]any{
+		"started_at":           h.StartedAt.UTC().Format(time.RFC3339),
+		"consecutive_failures": h.ConsecutiveFailures,
+		"pending_results":      pendingResultCount(spoolDir),
+	}
+	if !h.LastHeartbeatSuccess.IsZero() {
+		result["last_heartbeat_success_at"] = h.LastHeartbeatSuccess.UTC().Format(time.RFC3339)
+	}
+	if h.LastHeartbeatError != "" {
+		result["last_heartbeat_error"] = h.LastHeartbeatError
+		result["last_heartbeat_error_at"] = h.LastHeartbeatErrorAt.UTC().Format(time.RFC3339)
+	}
+	return result
+}
 
 type config struct {
 	ServerURL        string
@@ -99,14 +137,17 @@ func main() {
 	}
 
 	backoff := time.Duration(cfg.IntervalSeconds) * time.Second
+	health := &agentRuntimeHealth{StartedAt: time.Now().UTC()}
 	for {
-		if err := heartbeatOnce(ctx, client, cfg); err != nil {
+		if err := heartbeatOnce(ctx, client, cfg, health.snapshot(cfg.SpoolDir)); err != nil {
+			health.recordFailure(err)
 			logf("heartbeat failed: %v", err)
 			backoff *= 2
 			if backoff > 5*time.Minute {
 				backoff = 5 * time.Minute
 			}
 		} else {
+			health.recordSuccess()
 			backoff = time.Duration(cfg.IntervalSeconds) * time.Second
 		}
 		if *once {
@@ -271,14 +312,14 @@ func enroll(ctx context.Context, client *http.Client, cfg *config) error {
 	return nil
 }
 
-func heartbeatOnce(ctx context.Context, client *http.Client, cfg config) error {
+func heartbeatOnce(ctx context.Context, client *http.Client, cfg config, agentHealth map[string]any) error {
 	if err := flushSpooledResults(ctx, client, cfg); err != nil {
 		logf("spool flush warning: %v", err)
 	}
 	body := map[string]any{
 		"device_id": cfg.DeviceID,
 		"inventory": buildInventory(cfg),
-		"metrics":   buildMetrics(cfg),
+		"metrics":   buildMetrics(cfg, agentHealth),
 	}
 	var resp heartbeatResponse
 	if err := postJSON(ctx, client, cfg.ServerURL+"/api/agent/heartbeat", cfg.DeviceToken, body, &resp); err != nil {
@@ -313,7 +354,7 @@ func (cfg config) displayHostname() string {
 	return hostnameValue() + strings.TrimSpace(cfg.HostnameSuffix)
 }
 
-func buildMetrics(cfg config) map[string]any {
+func buildMetrics(cfg config, agentHealth map[string]any) map[string]any {
 	serverTarget := serverCheckTarget(cfg.ServerURL)
 	return map[string]any{
 		"system":              jsonObjectOrEmpty(commandOutput("ubus", "call", "system", "info")),
@@ -324,7 +365,22 @@ func buildMetrics(cfg config) map[string]any {
 		"interface_counters":  interfaceCounters(),
 		"connectivity_checks": connectivityChecks(effectiveCheckTargets(cfg.CheckTargets, serverTarget)),
 		"server_check_target": serverTarget,
+		"agent_health":        agentHealth,
 	}
+}
+
+func pendingResultCount(spoolDir string) int {
+	entries, err := os.ReadDir(spoolDir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			count++
+		}
+	}
+	return count
 }
 
 func effectiveCheckTargets(targets []string, serverTarget string) []string {

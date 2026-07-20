@@ -10,7 +10,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=14">
+    <link rel="stylesheet" href="/styles.css?v=17">
   </head>
   <body>
     <main id="loginView" class="landing-view">
@@ -183,7 +183,7 @@
               <span>Объект</span>
               <span>Модель и группа</span>
               <span>WAN / интернет</span>
-              <span>Известно клиентов</span>
+              <span>Онлайн / всего</span>
               <span>Проблемы</span>
               <span>Последний контакт</span>
               <span></span>
@@ -226,7 +226,9 @@
               <h2>Состояние объекта</h2>
               <span class="summary-pill">обновляется автоматически</span>
             </div>
+            <div id="deviceStatusHero" class="device-status-hero"></div>
             <div id="healthSummary" class="health-summary"></div>
+            <div id="agentHealthSummary" class="agent-health-summary"></div>
           </section>
 
           <section class="panel device-information-panel" data-device-tab="information">
@@ -432,8 +434,10 @@
               <input id="clientSearch" type="search" placeholder="Поиск по имени, IP или MAC">
               <div class="filters client-filters">
                 <button class="client-filter is-active" data-client-filter="all" type="button">Все</button>
+                <button class="client-filter" data-client-filter="online" type="button">Сейчас в сети</button>
                 <button class="client-filter" data-client-filter="wifi" type="button">Wi-Fi</button>
                 <button class="client-filter" data-client-filter="wired" type="button">Проводные</button>
+                <button class="client-filter" data-client-filter="unconfirmed" type="button">Не подтверждены</button>
               </div>
             </div>
             <div class="client-table-head">
@@ -483,7 +487,10 @@
 
           <section class="panel" data-device-tab="overview">
             <div class="section-title">
-              <h2>История мониторинга</h2>
+              <div>
+                <h2>История мониторинга</h2>
+                <p class="section-subtitle">Последние показатели с временной шкалой</p>
+              </div>
               <span id="metricsHistorySummary" class="summary-pill">12 замеров</span>
             </div>
             <div id="metricsHistory" class="metrics-chart-grid"></div>
@@ -827,6 +834,6 @@
       </div>
     </dialog>
 
-    <script src="/app.js?v=23" defer></script>
+    <script src="/app.js?v=24" defer></script>
   </body>
 </html>

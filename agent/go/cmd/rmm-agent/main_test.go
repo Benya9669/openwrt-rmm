@@ -5,11 +5,32 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.5.1" {
+	if agentVersion != "0.5.2" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
+	}
+}
+
+func TestAgentRuntimeHealthSnapshot(t *testing.T) {
+	spoolDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(spoolDir, "pending.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	health := &agentRuntimeHealth{StartedAt: time.Unix(100, 0).UTC()}
+	health.recordFailure(errors.New("temporary connection failure"))
+	snapshot := health.snapshot(spoolDir)
+	if snapshot["consecutive_failures"] != 1 || snapshot["pending_results"] != 1 {
+		t.Fatalf("unexpected health snapshot: %#v", snapshot)
+	}
+	if snapshot["last_heartbeat_error"] != "temporary connection failure" {
+		t.Fatalf("unexpected heartbeat error: %#v", snapshot)
+	}
+	health.recordSuccess()
+	if health.ConsecutiveFailures != 0 || health.LastHeartbeatSuccess.IsZero() {
+		t.Fatalf("recordSuccess did not reset runtime state: %#v", health)
 	}
 }
 

@@ -28,7 +28,7 @@ const state = {
   previousMobileRoute: "fleet",
 };
 
-const EXPECTED_AGENT_VERSION = "0.5.1";
+const EXPECTED_AGENT_VERSION = "0.5.2";
 
 const els = {
   loginView: document.querySelector("#loginView"),
@@ -91,6 +91,8 @@ const els = {
   infoBoardName: document.querySelector("#infoBoardName"),
   infoRootfs: document.querySelector("#infoRootfs"),
   healthSummary: document.querySelector("#healthSummary"),
+  deviceStatusHero: document.querySelector("#deviceStatusHero"),
+  agentHealthSummary: document.querySelector("#agentHealthSummary"),
   lastSeen: document.querySelector("#lastSeen"),
   loadAvg: document.querySelector("#loadAvg"),
   uptime: document.querySelector("#uptime"),
@@ -522,15 +524,16 @@ function deviceAgentVersion(device) {
 }
 
 function agentVersionLabel(version) {
-  if (!version) return "неизвестна";
-  if (version === EXPECTED_AGENT_VERSION) return `${version} актуальная`;
-  return `${version} требуется обновление`;
+  if (!version) return "Версия не определена";
+  if (version === EXPECTED_AGENT_VERSION) return `${version} · актуальная`;
+  return `${version} · доступна ${EXPECTED_AGENT_VERSION}`;
 }
 
 function deviceClientCount(device) {
-  const leases = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases.length : 0;
-  const wifi = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients.length : 0;
-  return { leases, wifi, total: Math.max(leases, wifi) };
+  const clients = normalizedClients(device);
+  const online = clients.filter((client) => client.presence === "online").length;
+  const unconfirmed = clients.length - online;
+  return { online, unconfirmed, total: clients.length };
 }
 
 function deviceWanSummary(device) {
@@ -696,8 +699,8 @@ function renderDevices() {
         <span class="wan-state ${wan.className}">${escapeHtml(wan.label)}</span>
       </div>
       <div class="device-field">
-        <span class="device-field-label">Известно клиентов</span>
-        <span class="client-count">${clients.total}</span>
+        <span class="device-field-label">Онлайн / всего</span>
+        <span class="client-count">${clients.online} / ${clients.total}</span>
       </div>
       <span class="${device.active_alerts ? "problem-count has-problems" : "problem-count"}">
         ${device.active_alerts ? `${device.active_alerts} активн.` : "Нет"}
@@ -739,14 +742,14 @@ function renderDeviceDetail(device) {
   els.wanIp.textContent = device.inventory && device.inventory.wan_ip ? device.inventory.wan_ip : "-";
   els.memoryUsage.textContent = formatMemory(device.metrics && device.metrics.memory);
   els.diskUsage.textContent = formatDisk(device.metrics && device.metrics.disk);
-  const leaseCount = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases.length : 0;
-  const wifiCount = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients.length : 0;
-  els.clientCounts.textContent = `${leaseCount} DHCP-аренды / ${wifiCount} Wi-Fi онлайн`;
+  const clientCounts = deviceClientCount(device);
+  els.clientCounts.textContent = `${clientCounts.online} в сети / ${clientCounts.total} известно`;
   els.connectivityStatus.textContent = formatConnectivity(device.metrics && device.metrics.connectivity_checks);
   els.fleetGroup.value = device.group || "";
   els.fleetTags.value = Array.isArray(device.tags) ? device.tags.join(", ") : "";
   els.inventoryJson.textContent = JSON.stringify(device.inventory || {}, null, 2);
   renderDeviceInformation(device);
+  renderDeviceStatus(device);
   renderHealthSummary(device);
   renderClients(device);
   renderInterfaceCounters(device);
@@ -798,6 +801,117 @@ function formatConnectivity(checks) {
   return `${reachable}/${checks.length} up / ${worstReachableLatency} ms / no loss`;
 }
 
+function formatRelativeTime(value) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return "время неизвестно";
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return `${seconds} сек. назад`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} мин. назад`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ч. назад`;
+  return `${Math.floor(hours / 24)} дн. назад`;
+}
+
+function humanizeAgentError(value) {
+  const message = String(value || "").trim();
+  if (!message) return "Ошибок обмена не зафиксировано";
+  const normalized = message.toLowerCase();
+  if (normalized.includes("x509") || normalized.includes("certificate")) {
+    return "Ошибка TLS-сертификата: имя или цепочка сертификата не совпадает с адресом сервера";
+  }
+  if (normalized.includes("no such host") || normalized.includes("bad address")) {
+    return "DNS не смог определить адрес RMM-сервера";
+  }
+  if (normalized.includes("connection refused")) return "RMM-сервер отклонил подключение";
+  if (normalized.includes("timeout") || normalized.includes("deadline exceeded")) return "RMM-сервер не ответил вовремя";
+  if (normalized.includes("401") || normalized.includes("unauthorized")) return "Сервер отклонил ключ устройства";
+  if (normalized.includes("403") || normalized.includes("forbidden")) return "Сервер запретил запрос агента";
+  return message;
+}
+
+function renderDeviceStatus(device) {
+  const checks = Array.isArray(device.metrics && device.metrics.connectivity_checks) ? device.metrics.connectivity_checks : [];
+  const serverHost = (device.metrics && device.metrics.server_check_target) || window.location.hostname;
+  const serverCheck = checks.find((check) => check.target === serverHost);
+  const wanChecks = checks.filter((check) => check.target !== serverHost);
+  const version = deviceAgentVersion(device);
+  const agentHealth = device.metrics && device.metrics.agent_health ? device.metrics.agent_health : null;
+  const pending = Number(agentHealth && agentHealth.pending_results || 0);
+  const failures = Number(agentHealth && agentHealth.consecutive_failures || 0);
+  let tone = "good";
+  let title = "Роутер работает нормально";
+  let description = `Heartbeat получен ${formatRelativeTime(device.last_seen_at)}. Интернет и связь с сервером доступны.`;
+  let icon = "✓";
+
+  if (!device.online) {
+    tone = "bad";
+    title = "Агент не выходит на связь";
+    description = `Последний heartbeat был ${formatRelativeTime(device.last_seen_at)}. Проверьте службу агента, DNS, время роутера и TLS-сертификат.`;
+    icon = "!";
+  } else if (serverCheck && !serverCheck.reachable) {
+    tone = "bad";
+    title = "Проблема связи с RMM-сервером";
+    description = "Heartbeat дошёл, но проверка адреса сервера с роутера завершается ошибкой.";
+    icon = "!";
+  } else if (wanChecks.length && !wanChecks.some((check) => check.reachable)) {
+    tone = "bad";
+    title = "Интернет с роутера недоступен";
+    description = "Агент подключён к серверу, но внешние контрольные адреса не отвечают.";
+    icon = "!";
+  } else if (failures > 0) {
+    tone = "warn";
+    title = "Агент восстанавливает связь";
+    description = `Неудачных попыток подряд: ${failures}. Интервал повторов временно увеличен.`;
+    icon = "↻";
+  } else if (pending > 0) {
+    tone = "warn";
+    title = "Есть данные, ожидающие отправки";
+    description = `Агент хранит ${pending} ${resultWord(pending)} выполнения команд локально и повторит отправку автоматически.`;
+    icon = "↻";
+  } else if (Number(device.active_alerts || 0) > 0) {
+    tone = "warn";
+    title = "Роутер требует внимания";
+    description = `Активных проблем: ${device.active_alerts}. Подробности находятся ниже в журнале проблем.`;
+    icon = "!";
+  } else if (version && version !== EXPECTED_AGENT_VERSION) {
+    tone = "warn";
+    title = "Работает, доступно обновление агента";
+    description = `Установлена версия ${version}; актуальная стабильная версия — ${EXPECTED_AGENT_VERSION}.`;
+    icon = "↻";
+  }
+
+  els.deviceStatusHero.className = `device-status-hero ${tone}`;
+  els.deviceStatusHero.innerHTML = `
+    <span class="device-status-icon">${icon}</span>
+    <div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(description)}</p></div>
+  `;
+
+  const lastError = agentHealth && agentHealth.last_heartbeat_error;
+  const errorAt = agentHealth && agentHealth.last_heartbeat_error_at;
+  const errorText = agentHealth
+    ? (lastError
+      ? `${failures ? "Последняя ошибка" : "Последний восстановленный сбой"}: ${humanizeAgentError(lastError)} · ${formatRelativeTime(errorAt)}`
+      : "Ошибок обмена не зафиксировано")
+    : `Расширенная диагностика появится после обновления агента до ${EXPECTED_AGENT_VERSION}`;
+  els.agentHealthSummary.innerHTML = `
+    <div><span>Агент</span><strong>${escapeHtml(agentVersionLabel(version))}</strong></div>
+    <div><span>Runtime</span><strong>${escapeHtml(device.inventory && device.inventory.agent_runtime || "неизвестно")}</strong></div>
+    <div class="${failures ? "has-agent-error" : ""}"><span>Обмен с сервером</span><strong>${failures ? `${failures} ошибок подряд` : "Стабильно"}</strong></div>
+    <div class="${pending ? "has-agent-warning" : ""}"><span>Ожидают отправки</span><strong>${pending} ${resultWord(pending)}</strong></div>
+    <p class="agent-health-message">${escapeHtml(errorText)}</p>
+  `;
+}
+
+function resultWord(value) {
+  const number = Math.abs(Number(value || 0));
+  const lastTwo = number % 100;
+  if (lastTwo >= 11 && lastTwo <= 14) return "результатов";
+  if (number % 10 === 1) return "результат";
+  if (number % 10 >= 2 && number % 10 <= 4) return "результата";
+  return "результатов";
+}
+
 function renderHealthSummary(device) {
   const checks = Array.isArray(device.metrics && device.metrics.connectivity_checks) ? device.metrics.connectivity_checks : [];
   const serverHost = (device.metrics && device.metrics.server_check_target) || window.location.hostname;
@@ -843,19 +957,21 @@ function normalizedClients(device) {
   const neighbors = Array.isArray(device.inventory && device.inventory.neighbors) ? device.inventory.neighbors : [];
   const neighborsByMAC = new Map(neighbors.filter((neighbor) => neighbor.mac).map((neighbor) => [String(neighbor.mac).toLowerCase(), neighbor]));
   const neighborsByIP = new Map(neighbors.filter((neighbor) => neighbor.ip).map((neighbor) => [String(neighbor.ip), neighbor]));
-  const activeNeighborStates = new Set(["REACHABLE", "DELAY", "PROBE", "PERMANENT", "NOARP"]);
+  // Only states backed by recent neighbour discovery count as online.
+  // STALE, PERMANENT and NOARP can survive after a client disconnects.
+  const activeNeighborStates = new Set(["REACHABLE", "DELAY", "PROBE"]);
   const byMac = new Map();
   for (const lease of leases) {
     const mac = String(lease.mac || "").toLowerCase();
-    const key = mac || `ip:${lease.ip || Math.random()}`;
+    const key = mac || `ip:${lease.ip || "unknown"}`;
     const neighbor = neighborsByMAC.get(mac) || neighborsByIP.get(String(lease.ip || ""));
     const neighborState = String(neighbor && neighbor.state || "").toUpperCase();
-    const presence = activeNeighborStates.has(neighborState) ? "online" : (neighborState === "STALE" ? "recent" : "reserved");
+    const presence = activeNeighborStates.has(neighborState) ? "online" : (neighborState === "STALE" ? "stale" : "reserved");
     byMac.set(key, {
       name: lease.hostname && lease.hostname !== "*" ? lease.hostname : "",
       ip: lease.ip || "-",
       mac: lease.mac || "-",
-      connection: "Проводное / DHCP",
+      connection: presence === "online" ? `LAN ${neighbor && neighbor.interface || ""}`.trim() : "DHCP-запись",
       type: "wired",
       online: presence === "online",
       presence,
@@ -877,26 +993,34 @@ function normalizedClients(device) {
       presence: "online",
     });
   }
-  return [...byMac.values()];
+  const presenceRank = { online: 0, stale: 1, reserved: 2 };
+  return [...byMac.values()].sort((left, right) => {
+    const rank = (presenceRank[left.presence] ?? 3) - (presenceRank[right.presence] ?? 3);
+    if (rank !== 0) return rank;
+    return String(left.name || left.ip).localeCompare(String(right.name || right.ip), undefined, { numeric: true, sensitivity: "base" });
+  });
 }
 
 function renderClients(device) {
   const clients = normalizedClients(device);
   const search = els.clientSearch.value.trim().toLowerCase();
   const filtered = clients.filter((client) => {
-    if (state.clientFilter !== "all" && client.type !== state.clientFilter) return false;
+    if (state.clientFilter === "online" && client.presence !== "online") return false;
+    if (state.clientFilter === "unconfirmed" && client.presence === "online") return false;
+    if (["wifi", "wired"].includes(state.clientFilter) && client.type !== state.clientFilter) return false;
     return !search || [client.name, client.ip, client.mac, client.connection].join(" ").toLowerCase().includes(search);
   });
   els.clientList.innerHTML = "";
-  const wifiCount = clients.filter((client) => client.type === "wifi").length;
-  els.clientSummary.textContent = `${clients.length} всего / ${wifiCount} Wi-Fi`;
+  const onlineCount = clients.filter((client) => client.presence === "online").length;
+  const wifiOnline = clients.filter((client) => client.type === "wifi" && client.presence === "online").length;
+  els.clientSummary.textContent = `${onlineCount} в сети · ${wifiOnline} Wi-Fi · ${clients.length} известно`;
   if (filtered.length === 0) {
     els.clientList.innerHTML = inlineStateMarkup("Клиенты не найдены", "Проверьте фильтр или дождитесь обновления DHCP и Wi-Fi данных.");
     return;
   }
   for (const client of filtered) {
     const presence = client.presence || (client.online ? "online" : "reserved");
-    const presenceLabel = presence === "online" ? "В сети" : (presence === "recent" ? "Недавно" : "DHCP-аренда");
+    const presenceLabel = presence === "online" ? "В сети" : (presence === "stale" ? "Не подтверждён" : "Нет в сети");
     const row = document.createElement("div");
     row.className = "client-row";
     row.innerHTML = `
@@ -947,7 +1071,7 @@ function renderInterfaceCounters(device) {
 
 async function loadMetricsHistory() {
   if (!state.selectedDeviceId) return;
-  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/metrics-history?limit=12`);
+  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/metrics-history?limit=48`);
   renderMetricsHistory(data.samples || []);
 }
 
@@ -958,35 +1082,61 @@ function renderMetricsHistory(samples) {
     els.metricsHistory.innerHTML = inlineStateMarkup("История мониторинга пока пуста", "Графики появятся после нескольких heartbeat от агента.");
     return;
   }
-  els.metricsHistorySummary.textContent = `${samples.length} замеров`;
   const ordered = [...samples].reverse();
+  const historyRange = ordered.length > 1
+    ? `${formatRelativeTime(ordered[0].created_at)} — сейчас`
+    : "первый замер";
+  els.metricsHistorySummary.textContent = `${samples.length} точек · ${historyRange}`;
+  const point = (sample, value) => ({ value: Number.isFinite(Number(value)) ? Number(value) : 0, time: sample.created_at });
   const memoryPoints = ordered.map((sample) => {
     const memory = sample.metrics && sample.metrics.memory;
-    return memory && memory.total_kb ? Math.round((Number(memory.used_kb || 0) / Number(memory.total_kb)) * 100) : 0;
+    return point(sample, memory && memory.total_kb ? Math.round((Number(memory.used_kb || 0) / Number(memory.total_kb)) * 100) : 0);
   });
   const diskPoints = ordered.map((sample) => {
     const disk = sample.metrics && sample.metrics.disk;
-    return disk && disk.used_percent ? Number(String(disk.used_percent).replace("%", "")) : 0;
+    return point(sample, disk && disk.used_percent ? Number(String(disk.used_percent).replace("%", "")) : 0);
   });
   const latencyPoints = ordered.map((sample) => {
     const checks = Array.isArray(sample.metrics && sample.metrics.connectivity_checks) ? sample.metrics.connectivity_checks : [];
-    return Math.max(0, ...checks.filter((check) => check.reachable).map((check) => Number(check.latency_ms || 0)));
+    return point(sample, Math.max(0, ...checks.filter((check) => check.reachable).map((check) => Number(check.latency_ms || 0))));
   });
-  els.metricsHistory.appendChild(metricChart("Память", "%", memoryPoints, "warn"));
-  els.metricsHistory.appendChild(metricChart("Хранилище", "%", diskPoints, "good"));
+  const loadPoints = ordered.map((sample) => point(sample, Number.parseFloat(String(sample.metrics && sample.metrics.loadavg || "0")) || 0));
+  els.metricsHistory.appendChild(metricChart("Память", "%", memoryPoints, "warn", 100));
+  els.metricsHistory.appendChild(metricChart("Хранилище", "%", diskPoints, "good", 100));
   els.metricsHistory.appendChild(metricChart("Задержка", "ms", latencyPoints, "accent"));
+  els.metricsHistory.appendChild(metricChart("Нагрузка", "", loadPoints, "violet"));
 }
 
-function metricChart(label, unit, points, tone) {
-  const max = Math.max(1, ...points);
+function metricChart(label, unit, points, tone, fixedMax = 0) {
+  const values = points.map((point) => Number(point.value || 0));
+  const max = fixedMax || Math.max(1, ...values);
+  const min = Math.min(...values);
+  const width = 320;
+  const height = 92;
+  const coordinates = values.map((value, index) => {
+    const x = values.length <= 1 ? width / 2 : (index / (values.length - 1)) * width;
+    const y = height - Math.max(2, Math.min(height - 2, (value / max) * (height - 8) + 4));
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const linePoints = coordinates.join(" ");
+  const areaPoints = values.length ? `0,${height} ${linePoints} ${width},${height}` : "";
   const card = document.createElement("div");
   card.className = `metric-chart ${tone}`;
-  const latest = points.length ? points[points.length - 1] : 0;
+  const latest = values.length ? values[values.length - 1] : 0;
+  const formatValue = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: unit === "%" ? 0 : 2 });
+  const startTime = points.length ? formatShortDate(points[0].time) : "-";
+  const endTime = points.length ? formatShortDate(points[points.length - 1].time) : "-";
   card.innerHTML = `
-    <div class="metric-chart-title"><span>${escapeHtml(label)}</span><strong>${escapeHtml(latest)} ${escapeHtml(unit)}</strong></div>
-    <div class="metric-bars">
-      ${points.map((point) => `<i style="height:${Math.max(4, Math.round((point / max) * 100))}%"></i>`).join("")}
+    <div class="metric-chart-title"><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatValue(latest))}${unit ? ` ${escapeHtml(unit)}` : ""}</strong></div>
+    <div class="metric-chart-meta"><span>мин. ${escapeHtml(formatValue(min))}</span><span>макс. ${escapeHtml(formatValue(Math.max(...values)))}</span></div>
+    <div class="metric-line-chart">
+      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(label)}: последнее значение ${escapeHtml(formatValue(latest))} ${escapeHtml(unit)}">
+        <line x1="0" y1="${height / 2}" x2="${width}" y2="${height / 2}"></line>
+        <polygon points="${areaPoints}"></polygon>
+        <polyline points="${linePoints}"></polyline>
+      </svg>
     </div>
+    <div class="metric-chart-axis"><span>${escapeHtml(startTime)}</span><span>${escapeHtml(endTime)}</span></div>
   `;
   return card;
 }
