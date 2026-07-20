@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpenWrt RMM — варианты мобильного интерфейса</title>
+    <link rel="stylesheet" href="preview.css">
+  </head>
+  <body data-concept="evolution">
+    <header class="preview-toolbar">
+      <div class="preview-brand">
+        <span class="preview-logo">R</span>
+        <div>
+          <strong>OpenWrt RMM</strong>
+          <small>UX preview · production не изменяется</small>
+        </div>
+      </div>
+      <div class="concept-switcher" role="group" aria-label="Вариант дизайна">
+        <button class="concept-button is-active" data-concept="evolution" type="button">1 · Эволюция</button>
+        <button class="concept-button" data-concept="friendly" type="button">2 · Friendly</button>
+        <button class="concept-button" data-concept="console" type="button">3 · Console</button>
+      </div>
+    </header>
+
+    <main class="preview-main">
+      <section class="concept-intro">
+        <div>
+          <span class="kicker">Вариант <b id="conceptNumber">1</b></span>
+          <h1 id="conceptTitle">Эволюция текущего интерфейса</h1>
+          <p id="conceptDescription">Сохраняет тёмный стиль и знакомую структуру, но переносит навигацию вниз, сокращает шапку и делает состояния понятнее.</p>
+        </div>
+        <div class="concept-facts">
+          <span id="conceptRisk">Минимальный риск миграции</span>
+          <span id="conceptAudience">Для дома и небольших парков</span>
+          <span>Mobile-first · 390 × 844</span>
+        </div>
+      </section>
+
+      <section class="screen-grid" aria-label="Примеры экранов">
+        <article class="screen-example">
+          <div class="screen-caption">
+            <span>01</span>
+            <div><strong>Объекты</strong><small>Главный экран</small></div>
+          </div>
+          <div class="phone-frame">
+            <div class="phone-screen">
+              <header class="mobile-head">
+                <div class="mobile-brand"><span>R</span><strong>RMM</strong></div>
+                <button class="avatar-button" type="button" aria-label="Профиль">Б</button>
+              </header>
+              <section class="mobile-content fleet-screen">
+                <div class="page-greeting">
+                  <div><small>Добрый вечер, benya</small><h2>Мои роутеры</h2></div>
+                  <button class="round-action" type="button" aria-label="Добавить роутер">+</button>
+                </div>
+
+                <div class="fleet-stats">
+                  <div><span class="status-dot good"></span><small>На связи</small><strong>1</strong></div>
+                  <div><span class="status-dot bad"></span><small>Offline</small><strong>0</strong></div>
+                  <div><span class="status-dot warn"></span><small>Внимание</small><strong>0</strong></div>
+                </div>
+
+                <label class="search-field">
+                  <span>⌕</span>
+                  <input type="search" placeholder="Найти роутер">
+                  <button type="button" aria-label="Фильтры">☷</button>
+                </label>
+
+                <div class="section-row"><strong>Все объекты</strong><small>Обновлено сейчас</small></div>
+                <button class="device-card" type="button">
+                  <div class="device-card-top">
+                    <span class="device-icon">R</span>
+                    <div><strong>BenyaWRT</strong><small>ASUS RT-AX53U</small></div>
+                    <span class="online-pill"><i></i>online</span>
+                  </div>
+                  <div class="device-health">
+                    <div><small>WAN</small><strong>77.239.226.37</strong></div>
+                    <div><small>Клиенты</small><strong>15</strong></div>
+                    <div><small>Проблемы</small><strong>Нет</strong></div>
+                  </div>
+                  <div class="device-card-foot"><span>OpenWrt 25.12.4</span><span>Только что ›</span></div>
+                </button>
+
+                <div class="empty-hint"><span>✓</span><p><strong>Всё работает штатно</strong><small>Активных проблем не обнаружено</small></p></div>
+              </section>
+              <nav class="bottom-nav" aria-label="Мобильная навигация">
+                <button class="active" type="button"><span>▦</span><small>Объекты</small></button>
+                <button type="button"><span>!</span><small>Проблемы</small></button>
+                <button type="button"><span>⌁</span><small>Операции</small></button>
+                <button type="button"><span>○</span><small>Профиль</small></button>
+              </nav>
+            </div>
+          </div>
+        </article>
+
+        <article class="screen-example">
+          <div class="screen-caption">
+            <span>02</span>
+            <div><strong>Роутер</strong><small>Быстрый обзор</small></div>
+          </div>
+          <div class="phone-frame">
+            <div class="phone-screen">
+              <header class="mobile-head compact-head">
+                <button class="back-icon" type="button" aria-label="Назад">‹</button>
+                <div><strong>BenyaWRT</strong><small>Обновлено только что</small></div>
+                <button class="more-icon" type="button" aria-label="Еще">•••</button>
+              </header>
+              <section class="mobile-content router-screen">
+                <div class="hero-status">
+                  <span class="router-illustration"><i></i><b>R</b></span>
+                  <div><span class="online-pill"><i></i>На связи</span><h2>ASUS RT-AX53U</h2><small>OpenWrt 25.12.4 · MT7621</small></div>
+                </div>
+
+                <div class="quick-actions">
+                  <button class="primary-action" type="button"><span>↗</span><b>Открыть LuCI</b><small>Временный доступ</small></button>
+                  <button type="button"><span>⌁</span><b>Диагностика</b><small>5 проверок</small></button>
+                </div>
+
+                <div class="section-row"><strong>Состояние</strong><button type="button">Подробнее</button></div>
+                <div class="health-grid">
+                  <div><small>Интернет</small><strong class="good-text">Есть</strong><span>0.88 ms</span></div>
+                  <div><small>Нагрузка</small><strong>0.31</strong><span>Норма</span></div>
+                  <div><small>Память</small><strong>57%</strong><span>138 / 242 MB</span></div>
+                  <div><small>Клиенты</small><strong>15</strong><span>5 по Wi-Fi</span></div>
+                </div>
+
+                <div class="section-row"><strong>Сеть</strong><small>WAN</small></div>
+                <div class="info-card">
+                  <div><small>Адрес</small><strong>77.239.226.37/27</strong></div>
+                  <div><small>Время работы</small><strong>52 дня</strong></div>
+                </div>
+              </section>
+              <nav class="bottom-nav device-nav" aria-label="Разделы роутера">
+                <button class="active" type="button"><span>⌂</span><small>Обзор</small></button>
+                <button type="button"><span>◉</span><small>Клиенты</small></button>
+                <button type="button"><span>⌁</span><small>Сеть</small></button>
+                <button type="button"><span>•••</span><small>Ещё</small></button>
+              </nav>
+            </div>
+          </div>
+        </article>
+
+        <article class="screen-example">
+          <div class="screen-caption">
+            <span>03</span>
+            <div><strong>LuCI</strong><small>Понятные ошибки</small></div>
+          </div>
+          <div class="phone-frame">
+            <div class="phone-screen error-phone">
+              <header class="mobile-head compact-head">
+                <button class="back-icon" type="button" aria-label="Назад">‹</button>
+                <div><strong>Удалённый доступ</strong><small>BenyaWRT</small></div>
+                <span class="secure-mark">⌾</span>
+              </header>
+              <section class="mobile-content luci-error-screen">
+                <div class="error-demo-switcher" role="group" aria-label="Пример ошибки">
+                  <button class="error-demo is-active" data-error="timeout" type="button">Таймаут</button>
+                  <button class="error-demo" data-error="expired" type="button">Истёк</button>
+                  <button class="error-demo" data-error="offline" type="button">Offline</button>
+                  <button class="error-demo" data-error="forbidden" type="button">Доступ</button>
+                  <button class="error-demo" data-error="starting" type="button">Запуск</button>
+                </div>
+
+                <div class="error-visual" aria-hidden="true">
+                  <span class="cloud-shape">☁</span>
+                  <span class="connection-line"></span>
+                  <span class="router-shape">R<i></i><i></i><i></i></span>
+                  <b id="errorSymbol">!</b>
+                </div>
+                <span id="errorCode" class="error-code">504 · GATEWAY TIMEOUT</span>
+                <h2 id="errorTitle">LuCI не отвечает</h2>
+                <p id="errorDescription">Роутер на связи, но веб-интерфейс не ответил за 15 секунд. Настройки роутера не изменялись.</p>
+
+                <div class="error-context">
+                  <div><span>Объект</span><strong>BenyaWRT</strong></div>
+                  <div><span>RMM-агент</span><strong class="good-text">На связи</strong></div>
+                  <div><span>Сессия</span><strong id="errorSession">Ещё 14:32</strong></div>
+                </div>
+
+                <button id="errorPrimaryAction" class="wide-primary" type="button">Повторить подключение</button>
+                <button id="errorSecondaryAction" class="wide-secondary" type="button">Открыть диагностику</button>
+                <a href="#">Вернуться к роутеру</a>
+                <small class="request-id">ID запроса: req_7f2a… · скопировать</small>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="screen-example">
+          <div class="screen-caption">
+            <span>04</span>
+            <div><strong>Профиль</strong><small>Аккаунт и безопасность</small></div>
+          </div>
+          <div class="phone-frame">
+            <div class="phone-screen">
+              <header class="mobile-head compact-head">
+                <button class="back-icon" type="button" aria-label="Назад">‹</button>
+                <div><strong>Личный кабинет</strong><small>Аккаунт пользователя</small></div>
+                <span></span>
+              </header>
+              <section class="mobile-content account-screen">
+                <div class="profile-hero">
+                  <span class="profile-avatar">Б</span>
+                  <div><h2>benya</h2><span class="role-pill">Пользователь</span></div>
+                </div>
+
+                <div class="account-card">
+                  <div class="account-row">
+                    <span class="account-icon">@</span>
+                    <div><small>E-mail</small><strong>E-mail не указан</strong><span>Нужен для уведомлений и восстановления</span></div>
+                    <button type="button">Добавить</button>
+                  </div>
+                  <div class="account-row">
+                    <span class="account-icon">●</span>
+                    <div><small>Пароль</small><strong>Изменён недавно</strong><span>Не менее 12 символов</span></div>
+                    <button type="button">Изменить</button>
+                  </div>
+                </div>
+
+                <div class="section-row"><strong>Безопасность</strong><small>1 сессия</small></div>
+                <div class="security-card">
+                  <div><span class="device-mini-icon">▣</span><p><strong>Текущая сессия</strong><small>Mobile browser · сейчас</small></p><span class="current-pill">Текущая</span></div>
+                  <button type="button">Завершить другие сессии</button>
+                </div>
+
+                <div class="preference-card">
+                  <div><span>Уведомления о проблемах</span><button class="switch" type="button" aria-label="Уведомления включены"><i></i></button></div>
+                  <div><span>Язык интерфейса</span><button type="button">Русский ›</button></div>
+                  <div><span>Часовой пояс</span><button type="button">Москва ›</button></div>
+                </div>
+
+                <button class="logout-wide" type="button">Выйти из аккаунта</button>
+              </section>
+              <nav class="bottom-nav" aria-label="Мобильная навигация">
+                <button type="button"><span>▦</span><small>Объекты</small></button>
+                <button type="button"><span>!</span><small>Проблемы</small></button>
+                <button type="button"><span>⌁</span><small>Операции</small></button>
+                <button class="active" type="button"><span>○</span><small>Профиль</small></button>
+              </nav>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="preview.js"></script>
+  </body>
+</html>
