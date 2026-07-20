@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"net"
+	"net/mail"
 	"net/http"
 	"net/url"
 	"strings"
@@ -127,6 +128,94 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	principal, _ := principalFromContext(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"username": principal.User.Username, "user": principal.User})
+}
+
+func (a *App) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
+	var req updateProfileRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	if len([]rune(req.DisplayName)) > 80 {
+		writeError(w, http.StatusBadRequest, "display_name must not exceed 80 characters")
+		return
+	}
+	if len(req.Email) > 254 {
+		writeError(w, http.StatusBadRequest, "email must not exceed 254 characters")
+		return
+	}
+	if req.Email != "" {
+		address, err := mail.ParseAddress(req.Email)
+		if err != nil || !strings.EqualFold(address.Address, req.Email) {
+			writeError(w, http.StatusBadRequest, "email is invalid")
+			return
+		}
+	}
+	principal, _ := principalFromContext(r.Context())
+	user, found, err := a.store.UpdateUserProfile(r.Context(), principal.User.ID, req.DisplayName, req.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update profile")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), user.Username, "auth.profile_update", "", "", mustJSON(map[string]string{
+		"request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	var req changePasswordRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	_, currentHash, found, err := a.store.GetUserByUsername(r.Context(), principal.User.Username)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify password")
+		return
+	}
+	if !found || !authn.VerifyPassword(currentHash, req.CurrentPassword) {
+		writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+	if req.CurrentPassword == req.NewPassword {
+		writeError(w, http.StatusBadRequest, "new password must be different")
+		return
+	}
+	passwordHash, err := authn.HashPassword(req.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.store.UpdateOwnPassword(r.Context(), principal.User.ID, passwordHash, principal.SessionHash); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to change password")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), principal.User.Username, "auth.password_change", "", "", mustJSON(map[string]string{
+		"request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *App) handleLogoutAll(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	if err := a.store.RevokeUserSessions(r.Context(), principal.User.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to revoke sessions")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: operatorSessionCookie, Value: "", Path: "/", HttpOnly: true,
+		Secure: a.cookieSecure, SameSite: http.SameSiteStrictMode, MaxAge: -1, Expires: time.Unix(0, 0),
+	})
+	_, _ = a.store.AddAuditEvent(r.Context(), principal.User.Username, "auth.logout_all", "", "", mustJSON(map[string]string{
+		"request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (a *App) authenticateOperator(r *http.Request) (authPrincipal, bool) {

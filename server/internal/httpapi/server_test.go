@@ -717,6 +717,70 @@ func TestOperatorCookieAuth(t *testing.T) {
 	authRequestJSON(t, client, http.MethodGet, srv.URL+"/api/devices", nil, http.StatusUnauthorized, nil)
 }
 
+func TestAccountProfilePasswordAndBootstrapPersistence(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	config := httpapi.Config{
+		OperatorUsername: "admin",
+		OperatorPassword: "initial-password-123",
+		SessionSecret:    "test-session-secret-with-enough-entropy",
+	}
+	srv := httptest.NewServer(httpapi.NewHandler(st, config))
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	authRequestJSON(t, client, http.MethodPost, srv.URL+"/api/auth/login", map[string]any{
+		"username": "admin", "password": "initial-password-123",
+	}, http.StatusOK, nil)
+
+	var profile struct {
+		User model.User `json:"user"`
+	}
+	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
+		"display_name": "Network Owner", "email": "owner@example.com",
+	}, http.StatusOK, &profile)
+	if profile.User.DisplayName != "Network Owner" || profile.User.Email != "owner@example.com" {
+		t.Fatalf("unexpected profile: %#v", profile.User)
+	}
+
+	authRequestJSON(t, client, http.MethodPost, srv.URL+"/api/auth/change-password", map[string]any{
+		"current_password": "wrong-password-123", "new_password": "updated-password-123",
+	}, http.StatusUnauthorized, nil)
+	authRequestJSON(t, client, http.MethodPost, srv.URL+"/api/auth/change-password", map[string]any{
+		"current_password": "initial-password-123", "new_password": "updated-password-123",
+	}, http.StatusOK, nil)
+	authRequestJSON(t, client, http.MethodGet, srv.URL+"/api/auth/me", nil, http.StatusOK, nil)
+	srv.Close()
+
+	// Recreating the handler simulates a container restart. The bootstrap
+	// password must not overwrite the password that the user selected.
+	restarted := httptest.NewServer(httpapi.NewHandler(st, config))
+	defer restarted.Close()
+	newClient := &http.Client{}
+	authRequestJSON(t, newClient, http.MethodPost, restarted.URL+"/api/auth/login", map[string]any{
+		"username": "admin", "password": "initial-password-123",
+	}, http.StatusUnauthorized, nil)
+	authRequestJSON(t, newClient, http.MethodPost, restarted.URL+"/api/auth/login", map[string]any{
+		"username": "admin", "password": "updated-password-123",
+	}, http.StatusOK, nil)
+
+	var persisted struct {
+		User model.User `json:"user"`
+	}
+	authRequestJSON(t, client, http.MethodGet, restarted.URL+"/api/auth/me", nil, http.StatusOK, &persisted)
+	if persisted.User.DisplayName != "Network Owner" || persisted.User.Email != "owner@example.com" {
+		t.Fatalf("profile was not persisted: %#v", persisted.User)
+	}
+	authRequestJSON(t, client, http.MethodPost, restarted.URL+"/api/auth/logout-all", nil, http.StatusOK, nil)
+	authRequestJSON(t, client, http.MethodGet, restarted.URL+"/api/auth/me", nil, http.StatusUnauthorized, nil)
+}
+
 func authRequestJSON(t *testing.T, client *http.Client, method, url string, body any, wantStatus int, out any) {
 	t.Helper()
 	var reader io.Reader

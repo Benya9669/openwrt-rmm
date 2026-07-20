@@ -12,7 +12,7 @@ Environment variables:
 
 - `RMM_ADDR` - listen address, default `:8080`
 - `RMM_DB_PATH` - SQLite database path, default `rmm.db`
-- `RMM_OPERATOR_PASSWORD` - required bootstrap administrator password
+- `RMM_OPERATOR_PASSWORD` - required password used only when the bootstrap administrator is first created; rotate it later in the account UI
 - `RMM_OPERATOR_TOKEN` - optional emergency/API bearer token
 - `RMM_OPERATOR_USERNAME` - web UI username, default `admin`
 - `RMM_COOKIE_SECURE` - defaults to `true` outside explicit development mode
@@ -43,7 +43,11 @@ Agent API:
 Operator API:
 
 - `POST /api/auth/login`
+- `POST /api/auth/logout`
 - `GET /api/auth/me`
+- `PATCH /api/auth/profile`
+- `POST /api/auth/change-password`
+- `POST /api/auth/logout-all`
 - `GET|POST /api/users` (administrator only)
 - `POST /api/enrollment-grants`
 
@@ -58,6 +62,10 @@ Operator API:
 The web UI uses revocable, server-side sessions. Each normal user only sees and controls
 devices enrolled with their own one-time grants. The optional bootstrap bearer token is
 administrator-scoped:
+
+Changing a password keeps the current browser session and revokes the user's other sessions.
+The bootstrap environment password does not overwrite a password stored in SQLite after a
+container restart.
 
 ```http
 Authorization: Bearer <RMM_OPERATOR_TOKEN>

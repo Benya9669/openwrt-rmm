@@ -10,35 +10,78 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=13">
+    <link rel="stylesheet" href="/styles.css?v=14">
   </head>
   <body>
-    <main id="loginView" class="login-view">
-      <form id="loginForm" class="login-form">
-        <div class="brand login-brand">
-          <div class="brand-mark">R</div>
-          <div>
-            <h1>OpenWrt RMM</h1>
-            <p>Управление вашими роутерами</p>
+    <main id="loginView" class="landing-view">
+      <header class="landing-header">
+        <a class="landing-brand" href="#top" aria-label="OpenWrt RMM — главная">
+          <img src="/favicon.svg?v=1" alt="" width="42" height="42">
+          <span><strong>OpenWrt RMM</strong><small>Remote network management</small></span>
+        </a>
+        <nav aria-label="Разделы страницы">
+          <a href="#capabilities">Возможности</a>
+          <a href="#security">Безопасность</a>
+          <a class="landing-login-link" href="#login">Войти</a>
+        </nav>
+      </header>
+
+      <section id="top" class="landing-hero">
+        <div class="landing-copy">
+          <span class="landing-kicker"><i></i> Роутеры под контролем из любой точки</span>
+          <h1>Единый центр управления <em>OpenWrt</em></h1>
+          <p>Следите за состоянием сети, клиентами и обновлениями агента. Открывайте LuCI через временный защищённый доступ без публикации панели роутера в интернет.</p>
+          <div class="landing-actions">
+            <a class="landing-primary" href="#login">Открыть кабинет</a>
+            <a class="landing-secondary" href="#capabilities">Как это работает</a>
+          </div>
+          <div class="landing-trust">
+            <span><b>●</b> Heartbeat в реальном времени</span>
+            <span><b>✓</b> Изоляция аккаунтов</span>
+            <span><b>↗</b> Временные LuCI-сессии</span>
           </div>
         </div>
-        <label>
-          Логин
-          <input id="loginUsername" type="text" autocomplete="username" placeholder="Введите логин" required>
-        </label>
-        <label>
-          Пароль
-          <input id="loginPassword" type="password" autocomplete="current-password" required>
-        </label>
-        <button class="primary" type="submit">Войти</button>
-        <p id="loginError" class="login-error"></p>
-      </form>
+
+        <div class="landing-console" aria-label="Пример панели мониторинга">
+          <div class="console-top"><span></span><span></span><span></span><small>fleet / overview</small></div>
+          <div class="console-summary">
+            <div><small>На связи</small><strong>12</strong></div>
+            <div><small>Требуют внимания</small><strong class="warn">2</strong></div>
+            <div><small>Средний uptime</small><strong>18 дн.</strong></div>
+          </div>
+          <div class="console-router online"><i></i><span><strong>Домашняя сеть</strong><small>OpenWrt 25.12 · 8 клиентов</small></span><b>На связи</b></div>
+          <div class="console-router online"><i></i><span><strong>Офис</strong><small>OpenWrt 24.10 · 24 клиента</small></span><b>На связи</b></div>
+          <div class="console-router warning"><i></i><span><strong>Загородный дом</strong><small>Высокая загрузка процессора</small></span><b>Проверить</b></div>
+        </div>
+      </section>
+
+      <section id="capabilities" class="landing-features">
+        <article><span>01</span><h2>Состояние сети</h2><p>WAN, нагрузка, память, интерфейсы и активные клиенты в одном понятном обзоре.</p></article>
+        <article><span>02</span><h2>Безопасный LuCI</h2><p>Доступ создаётся по запросу, ограничен по времени и привязан к конкретному роутеру.</p></article>
+        <article><span>03</span><h2>Свои устройства</h2><p>Каждый пользователь видит только добавленные им роутеры и собственные DNS-имена.</p></article>
+      </section>
+
+      <section id="security" class="landing-security">
+        <div><span class="eyebrow">Безопасность по умолчанию</span><h2>Панель управления не должна становиться новой точкой входа</h2></div>
+        <ul><li>Пароли защищены Argon2id</li><li>Сессии в HttpOnly cookie</li><li>Все важные действия попадают в аудит</li></ul>
+      </section>
+
+      <section id="login" class="landing-login-section">
+        <div><span class="eyebrow">Личный кабинет</span><h2>Продолжить работу</h2><p>Используйте данные своего аккаунта. Администратор может создать отдельный доступ для каждого пользователя.</p></div>
+        <form id="loginForm" class="login-form">
+          <label>Логин<input id="loginUsername" type="text" autocomplete="username" placeholder="Введите логин" required></label>
+          <label>Пароль<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+          <button class="primary" type="submit">Войти в RMM</button>
+          <p id="loginError" class="login-error" role="alert"></p>
+        </form>
+      </section>
+      <footer class="landing-footer"><span>OpenWrt RMM</span><small>Безопасное управление вашей сетью</small></footer>
     </main>
 
     <div id="appShell" class="app-shell is-hidden">
       <aside class="sidebar">
         <div class="brand">
-          <div class="brand-mark">R</div>
+          <img class="brand-mark" src="/favicon.svg?v=1" alt="" width="42" height="42">
           <div>
             <h1>OpenWrt RMM</h1>
             <p id="apiState">Проверка сервера</p>
@@ -169,13 +212,13 @@
             </div>
           </div>
 
-          <nav class="device-tabs" aria-label="Разделы объекта">
-            <button class="device-tab is-active" data-device-tab-target="overview" type="button">Обзор</button>
-            <button class="device-tab" data-device-tab-target="clients" type="button">Клиенты</button>
-            <button class="device-tab" data-device-tab-target="network" type="button">Сеть</button>
-            <button class="device-tab" data-device-tab-target="operations" type="button">Операции</button>
-            <button class="device-tab" data-device-tab-target="information" type="button">Сведения</button>
-            <button class="device-tab" data-device-tab-target="expert" type="button">Эксперт</button>
+          <nav class="device-tabs" aria-label="Разделы объекта" role="tablist">
+            <button class="device-tab is-active" data-device-tab-target="overview" type="button" role="tab" aria-selected="true">Обзор</button>
+            <button class="device-tab" data-device-tab-target="clients" type="button" role="tab" aria-selected="false">Клиенты</button>
+            <button class="device-tab" data-device-tab-target="network" type="button" role="tab" aria-selected="false">Сеть</button>
+            <button class="device-tab" data-device-tab-target="operations" type="button" role="tab" aria-selected="false">Операции</button>
+            <button class="device-tab" data-device-tab-target="information" type="button" role="tab" aria-selected="false">Сведения</button>
+            <button class="device-tab" data-device-tab-target="expert" type="button" role="tab" aria-selected="false">Эксперт</button>
           </nav>
 
           <section class="panel overview-status-panel" data-device-tab="overview">
@@ -740,11 +783,25 @@
             <span id="profileRole">Пользователь</span>
           </div>
         </div>
-        <div class="profile-notice">
-          <strong>Настройки безопасности</strong>
-          <span>E-mail, смена пароля и управление сессиями будут подключены следующим этапом вместе с серверным API.</span>
+        <form id="profileForm" class="profile-form">
+          <div class="profile-section-heading"><strong>Контактные данные</strong><span>Используются только в вашем аккаунте</span></div>
+          <label>Отображаемое имя<input id="profileDisplayName" type="text" maxlength="80" autocomplete="name" placeholder="Как к вам обращаться"></label>
+          <label>E-mail<input id="profileEmail" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com"></label>
+          <button class="primary" type="submit">Сохранить профиль</button>
+          <p id="profileMessage" class="form-message" role="status"></p>
+        </form>
+        <form id="passwordForm" class="profile-form profile-security-form">
+          <div class="profile-section-heading"><strong>Смена пароля</strong><span>Остальные активные сессии будут завершены</span></div>
+          <label>Текущий пароль<input id="currentPassword" type="password" autocomplete="current-password" required></label>
+          <label>Новый пароль<input id="newPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+          <label>Повторите новый пароль<input id="confirmPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+          <button type="submit">Изменить пароль</button>
+          <p id="passwordMessage" class="form-message" role="status"></p>
+        </form>
+        <div class="profile-session-actions">
+          <button id="logoutAllBtn" class="danger" type="button">Завершить все сессии</button>
+          <button id="profileLogoutBtn" type="button">Выйти на этом устройстве</button>
         </div>
-        <button id="profileLogoutBtn" class="danger profile-logout" type="button">Выйти из аккаунта</button>
       </div>
     </dialog>
 
@@ -770,6 +827,6 @@
       </div>
     </dialog>
 
-    <script src="/app.js?v=22" defer></script>
+    <script src="/app.js?v=23" defer></script>
   </body>
 </html>

@@ -185,6 +185,16 @@ const els = {
   profileRole: document.querySelector("#profileRole"),
   profileAvatar: document.querySelector("#profileAvatar"),
   profileLogoutBtn: document.querySelector("#profileLogoutBtn"),
+  profileForm: document.querySelector("#profileForm"),
+  profileDisplayName: document.querySelector("#profileDisplayName"),
+  profileEmail: document.querySelector("#profileEmail"),
+  profileMessage: document.querySelector("#profileMessage"),
+  passwordForm: document.querySelector("#passwordForm"),
+  currentPassword: document.querySelector("#currentPassword"),
+  newPassword: document.querySelector("#newPassword"),
+  confirmPassword: document.querySelector("#confirmPassword"),
+  passwordMessage: document.querySelector("#passwordMessage"),
+  logoutAllBtn: document.querySelector("#logoutAllBtn"),
   luciStateDialog: document.querySelector("#luciStateDialog"),
   luciStateCode: document.querySelector("#luciStateCode"),
   luciStateTitle: document.querySelector("#luciStateTitle"),
@@ -281,24 +291,51 @@ async function api(path, options = {}) {
 
 function showLogin(message = "") {
   els.appShell.classList.add("is-hidden");
+  els.appShell.hidden = true;
+  els.appShell.setAttribute("aria-hidden", "true");
   els.loginView.classList.remove("is-hidden");
+  els.loginView.hidden = false;
+  els.loginView.removeAttribute("aria-hidden");
   els.loginError.textContent = message;
   els.loginPassword.value = "";
+  if (message) document.querySelector("#login")?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function showApp(user) {
   state.user = user || null;
   state.username = user && user.username ? user.username : "operator";
-  els.operatorName.textContent = state.username;
+  const accountName = user && user.display_name ? user.display_name : state.username;
+  els.operatorName.textContent = accountName;
   els.profileUsername.textContent = state.username;
   els.profileRole.textContent = user && user.role === "admin" ? "Администратор" : "Пользователь";
-  const initial = state.username.trim().charAt(0).toUpperCase() || "О";
+  const initial = accountName.trim().charAt(0).toUpperCase() || "О";
   els.profileAvatar.textContent = initial;
   document.querySelector(".operator-avatar").textContent = initial;
   els.addUserBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.loginView.classList.add("is-hidden");
+  els.loginView.hidden = true;
+  els.loginView.setAttribute("aria-hidden", "true");
   els.appShell.classList.remove("is-hidden");
+  els.appShell.hidden = false;
+  els.appShell.removeAttribute("aria-hidden");
   els.loginError.textContent = "";
+}
+
+function formatLoadAverage(value) {
+  const values = String(value || "").trim().split(/\s+/).slice(0, 3).map(Number);
+  if (values.length !== 3 || values.some((item) => !Number.isFinite(item))) return "-";
+  return values.map((item) => item.toFixed(2)).join(" · ");
+}
+
+function formatUptime(value) {
+  const seconds = Number.parseFloat(String(value || "").trim().split(/\s+/)[0]);
+  if (!Number.isFinite(seconds) || seconds < 0) return "-";
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days} дн. ${hours} ч.`;
+  if (hours > 0) return `${hours} ч. ${minutes} мин.`;
+  return `${minutes} мин.`;
 }
 
 async function checkSession() {
@@ -640,6 +677,8 @@ function renderDevices() {
     const item = document.createElement("button");
     item.type = "button";
     item.className = `device-item ${device.id === state.selectedDeviceId ? "is-selected" : ""}`;
+    item.dataset.deviceId = device.id;
+    item.setAttribute("aria-label", `Открыть роутер ${displayName}`);
     item.innerHTML = `
       <span class="fleet-status ${device.online ? "online" : "offline"}">
         <i></i>${device.online ? "На связи" : "Не на связи"}
@@ -675,13 +714,17 @@ function renderDeviceDetail(device) {
   els.appShell.classList.toggle("has-selected-device", Boolean(device));
   if (!device) {
     els.fleetView.classList.remove("is-hidden");
+    els.fleetView.hidden = false;
     els.deviceView.classList.add("is-hidden");
+    els.deviceView.hidden = true;
     els.pageTitle.textContent = "Объекты";
     return;
   }
 
   els.fleetView.classList.add("is-hidden");
+  els.fleetView.hidden = true;
   els.deviceView.classList.remove("is-hidden");
+  els.deviceView.hidden = false;
   renderDeviceTab();
   const displayName = deviceDisplayName(device);
   els.pageTitle.textContent = displayName;
@@ -690,8 +733,8 @@ function renderDeviceDetail(device) {
   els.deviceBadge.textContent = device.online ? "На связи" : "Не на связи";
   els.deviceBadge.className = `badge ${device.online ? "online" : "offline"}`;
   els.lastSeen.textContent = formatDate(device.last_seen_at);
-  els.loadAvg.textContent = device.metrics && device.metrics.loadavg ? device.metrics.loadavg : "-";
-  els.uptime.textContent = device.metrics && device.metrics.uptime ? device.metrics.uptime : "-";
+  els.loadAvg.textContent = formatLoadAverage(device.metrics && device.metrics.loadavg);
+  els.uptime.textContent = formatUptime(device.metrics && device.metrics.uptime);
   els.defaultRoute.textContent = device.inventory && device.inventory.default_route ? device.inventory.default_route : "-";
   els.wanIp.textContent = device.inventory && device.inventory.wan_ip ? device.inventory.wan_ip : "-";
   els.memoryUsage.textContent = formatMemory(device.metrics && device.metrics.memory);
@@ -1048,10 +1091,16 @@ function selectDeviceTab(tab) {
 
 function renderDeviceTab() {
   for (const button of document.querySelectorAll(".device-tab")) {
-    button.classList.toggle("is-active", button.dataset.deviceTabTarget === state.deviceTab);
+    const active = button.dataset.deviceTabTarget === state.deviceTab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
   }
   for (const section of document.querySelectorAll("[data-device-tab]")) {
-    section.classList.toggle("is-hidden", section.dataset.deviceTab !== state.deviceTab);
+    const active = section.dataset.deviceTab === state.deviceTab;
+    section.classList.toggle("is-hidden", !active);
+    section.hidden = !active;
+    section.setAttribute("aria-hidden", String(!active));
   }
 }
 
@@ -1151,12 +1200,58 @@ async function openDeviceArea(tab, selector, route) {
 function showProfile() {
   state.previousMobileRoute = state.mobileRoute === "profile" ? "fleet" : state.mobileRoute;
   setMobileRoute("profile");
+  els.profileDisplayName.value = state.user && state.user.display_name ? state.user.display_name : "";
+  els.profileEmail.value = state.user && state.user.email ? state.user.email : "";
+  setFormMessage(els.profileMessage, "");
+  setFormMessage(els.passwordMessage, "");
+  els.passwordForm.reset();
   if (!els.profileDialog.open) els.profileDialog.showModal();
 }
 
 function closeProfile() {
   if (els.profileDialog.open) els.profileDialog.close();
   setMobileRoute(state.previousMobileRoute || "fleet");
+}
+
+function setFormMessage(element, message, tone = "") {
+  element.textContent = message;
+  element.className = `form-message${tone ? ` is-${tone}` : ""}`;
+}
+
+async function saveProfile() {
+  setFormMessage(els.profileMessage, "Сохраняем…");
+  const response = await api("/api/auth/profile", {
+    method: "PATCH",
+    body: JSON.stringify({
+      display_name: els.profileDisplayName.value.trim(),
+      email: els.profileEmail.value.trim(),
+    }),
+  });
+  showApp(response.user);
+  setFormMessage(els.profileMessage, "Профиль сохранён", "success");
+}
+
+async function changePassword() {
+  setFormMessage(els.passwordMessage, "");
+  if (els.newPassword.value !== els.confirmPassword.value) {
+    setFormMessage(els.passwordMessage, "Новые пароли не совпадают", "error");
+    return;
+  }
+  await api("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: els.currentPassword.value, new_password: els.newPassword.value }),
+  });
+  els.passwordForm.reset();
+  setFormMessage(els.passwordMessage, "Пароль изменён. Остальные сессии завершены.", "success");
+}
+
+async function logoutAll() {
+  if (!window.confirm("Завершить все активные сессии, включая эту?")) return;
+  await api("/api/auth/logout-all", { method: "POST" });
+  closeProfile();
+  state.devices = [];
+  state.user = null;
+  showLogin("Все сессии завершены. Войдите снова.");
 }
 
 async function runLuCIPrimaryAction() {
@@ -1893,6 +1988,15 @@ els.profileLogoutBtn.addEventListener("click", () => {
   closeProfile();
   logout().catch(reportError);
 });
+els.profileForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveProfile().catch((error) => setFormMessage(els.profileMessage, error.message, "error"));
+});
+els.passwordForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  changePassword().catch((error) => setFormMessage(els.passwordMessage, error.message, "error"));
+});
+els.logoutAllBtn.addEventListener("click", () => logoutAll().catch(reportError));
 
 els.closeLuciStateBtn.addEventListener("click", () => els.luciStateDialog.close());
 els.luciStatePrimaryBtn.addEventListener("click", () => runLuCIPrimaryAction().catch(reportError));

@@ -197,6 +197,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_device_created_at ON audit_events(de
 CREATE TABLE IF NOT EXISTS users (
 	id TEXT PRIMARY KEY,
 	username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+	display_name TEXT NOT NULL DEFAULT '',
+	email TEXT NOT NULL DEFAULT '',
 	password_hash TEXT NOT NULL,
 	role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
 	disabled INTEGER NOT NULL DEFAULT 0,
@@ -277,6 +279,8 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`ALTER TABLE remote_sessions ADD COLUMN started_at TEXT`,
 		`ALTER TABLE remote_sessions ADD COLUMN closed_at TEXT`,
 		`ALTER TABLE remote_sessions ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !isDuplicateColumnError(err) {
 			return err

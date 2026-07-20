@@ -636,3 +636,11 @@ Response:
   ]
 }
 ```
+## Account API
+
+Authenticated browser sessions can manage their own account without administrator access:
+
+- `GET /api/auth/me` returns the current user, including `display_name` and `email`.
+- `PATCH /api/auth/profile` accepts `display_name` and `email`.
+- `POST /api/auth/change-password` accepts `current_password` and `new_password`; other sessions are revoked.
+- `POST /api/auth/logout-all` revokes every session for the current user.

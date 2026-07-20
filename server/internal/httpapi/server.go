@@ -37,6 +37,9 @@ type Store interface {
 	CreateOperatorSession(ctx context.Context, tokenHash, userID string, expiresAt time.Time) error
 	AuthorizeOperatorSession(ctx context.Context, tokenHash string) (model.User, bool, error)
 	RevokeOperatorSession(ctx context.Context, tokenHash string) error
+	UpdateUserProfile(ctx context.Context, userID, displayName, email string) (model.User, bool, error)
+	UpdateOwnPassword(ctx context.Context, userID, passwordHash, currentSessionHash string) error
+	RevokeUserSessions(ctx context.Context, userID string) error
 	CreateEnrollmentGrant(ctx context.Context, userID, dnsLabel, tokenHash string, expiresAt time.Time) (model.EnrollmentGrant, error)
 	ListDevicesForUser(ctx context.Context, userID string, admin bool) ([]model.Device, error)
 	DeviceAccessible(ctx context.Context, deviceID, userID string, admin bool) (bool, error)
@@ -185,6 +188,16 @@ type updateUserRequest struct {
 	Password string `json:"password"`
 }
 
+type updateProfileRequest struct {
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
 type enrollmentGrantRequest struct {
 	DNSLabel       string `json:"dns_label"`
 	ExpiresSeconds int    `json:"expires_seconds"`
@@ -241,6 +254,9 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.Handle("POST /api/auth/logout", a.operatorAuth(http.HandlerFunc(a.handleLogout)))
 	mux.Handle("GET /api/auth/me", a.operatorAuth(http.HandlerFunc(a.handleAuthMe)))
+	mux.Handle("PATCH /api/auth/profile", a.operatorAuth(http.HandlerFunc(a.handleUpdateProfile)))
+	mux.Handle("POST /api/auth/change-password", a.operatorAuth(http.HandlerFunc(a.handleChangePassword)))
+	mux.Handle("POST /api/auth/logout-all", a.operatorAuth(http.HandlerFunc(a.handleLogoutAll)))
 	mux.Handle("GET /api/users", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleListUsers))))
 	mux.Handle("POST /api/users", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleCreateUser))))
 	mux.Handle("PATCH /api/users/", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleUpdateUser))))

@@ -27,10 +27,9 @@ func (s *Store) EnsureBootstrapUser(ctx context.Context, username, passwordHash 
 	if user, _, found, err := s.GetUserByUsername(ctx, username); err != nil {
 		return model.User{}, err
 	} else if found {
-		if _, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = ?, role = 'admin', disabled = 0, updated_at = ? WHERE id = ?`, passwordHash, nowText(), user.ID); err != nil {
-			return model.User{}, err
-		}
-		if _, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, user.ID); err != nil {
+		// The environment password is a first-run bootstrap secret. Preserve a
+		// password changed from the account UI on subsequent server restarts.
+		if _, err := s.db.ExecContext(ctx, `UPDATE users SET role = 'admin', disabled = 0, updated_at = ? WHERE id = ?`, nowText(), user.ID); err != nil {
 			return model.User{}, err
 		}
 		if err := s.assignLegacyDevices(ctx, user.ID); err != nil {
@@ -131,7 +130,7 @@ func (s *Store) UpdateUserSecurity(ctx context.Context, userID string, disabled 
 
 func (s *Store) ListUsers(ctx context.Context) ([]model.User, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, username, role, disabled, created_at, updated_at
+SELECT id, username, display_name, email, role, disabled, created_at, updated_at
 FROM users
 ORDER BY username COLLATE NOCASE
 `)
@@ -152,13 +151,13 @@ ORDER BY username COLLATE NOCASE
 
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (model.User, string, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, username, role, disabled, created_at, updated_at, password_hash
+SELECT id, username, display_name, email, role, disabled, created_at, updated_at, password_hash
 FROM users WHERE username = ? COLLATE NOCASE
 `, strings.TrimSpace(username))
 	var user model.User
 	var disabled int
 	var createdAt, updatedAt, passwordHash string
-	if err := row.Scan(&user.ID, &user.Username, &user.Role, &disabled, &createdAt, &updatedAt, &passwordHash); errors.Is(err, sql.ErrNoRows) {
+	if err := row.Scan(&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Role, &disabled, &createdAt, &updatedAt, &passwordHash); errors.Is(err, sql.ErrNoRows) {
 		return model.User{}, "", false, nil
 	} else if err != nil {
 		return model.User{}, "", false, err
@@ -171,7 +170,7 @@ FROM users WHERE username = ? COLLATE NOCASE
 
 func (s *Store) GetUserByID(ctx context.Context, id string) (model.User, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, username, role, disabled, created_at, updated_at FROM users WHERE id = ?
+SELECT id, username, display_name, email, role, disabled, created_at, updated_at FROM users WHERE id = ?
 `, id)
 	user, err := scanUser(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -190,7 +189,7 @@ VALUES (?, ?, ?, ?)
 
 func (s *Store) AuthorizeOperatorSession(ctx context.Context, tokenHash string) (model.User, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT u.id, u.username, u.role, u.disabled, u.created_at, u.updated_at
+SELECT u.id, u.username, u.display_name, u.email, u.role, u.disabled, u.created_at, u.updated_at
 FROM operator_sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = ? AND julianday(s.expires_at) > julianday(?) AND u.disabled = 0
@@ -204,6 +203,45 @@ WHERE s.token_hash = ? AND julianday(s.expires_at) > julianday(?) AND u.disabled
 
 func (s *Store) RevokeOperatorSession(ctx context.Context, tokenHash string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE token_hash = ?`, tokenHash)
+	return err
+}
+
+func (s *Store) UpdateUserProfile(ctx context.Context, userID, displayName, email string) (model.User, bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+UPDATE users SET display_name = ?, email = ?, updated_at = ? WHERE id = ?
+`, strings.TrimSpace(displayName), strings.ToLower(strings.TrimSpace(email)), nowText(), userID)
+	if err != nil {
+		return model.User{}, false, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil || changed == 0 {
+		return model.User{}, false, err
+	}
+	return s.GetUserByID(ctx, userID)
+}
+
+func (s *Store) UpdateOwnPassword(ctx context.Context, userID, passwordHash, currentSessionHash string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`, passwordHash, nowText(), userID); err != nil {
+		return err
+	}
+	if currentSessionHash == "" {
+		_, err = tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID)
+	} else {
+		_, err = tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ? AND token_hash != ?`, userID, currentSessionHash)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) RevokeUserSessions(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID)
 	return err
 }
 
@@ -482,7 +520,7 @@ func scanUser(row scanner) (model.User, error) {
 	var user model.User
 	var disabled int
 	var createdAt, updatedAt string
-	err := row.Scan(&user.ID, &user.Username, &user.Role, &disabled, &createdAt, &updatedAt)
+	err := row.Scan(&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Role, &disabled, &createdAt, &updatedAt)
 	user.Disabled = disabled != 0
 	user.CreatedAt = parseTime(createdAt)
 	user.UpdatedAt = parseTime(updatedAt)
