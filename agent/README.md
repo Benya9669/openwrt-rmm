@@ -1,6 +1,6 @@
 # OpenWrt RMM Agent
 
-Production MVP shell agent for OpenWrt, plus an experimental Go agent preview.
+Production Go agent for OpenWrt, with the shell implementation retained as a fallback runtime.
 
 The agent uses outbound HTTP polling:
 
@@ -40,7 +40,7 @@ DEVICE_TOKEN="..."
 sh ./agent/openwrt/rmm-agent.sh
 ```
 
-## Go Agent Preview
+## Go Agent
 
 The Go agent lives at:
 
@@ -50,7 +50,7 @@ agent/go/cmd/rmm-agent
 
 It is protocol-compatible with the server for enrollment, heartbeat, inventory, metrics, command polling, command result reporting, lock handling, backoff, graceful shutdown, and result spooling. Its inventory payload includes system metadata, interfaces, routes, WAN IP, DHCP leases, Wi-Fi clients, memory, disk, interface counters, package manager metadata, and connectivity checks.
 
-The Go agent is not packaged as the production OpenWrt agent yet, but it supports the migrated command allowlist:
+The Go agent is available as the production OpenWrt package and supports the migrated command allowlist:
 
 - `ping`
 - `traceroute`
@@ -88,7 +88,7 @@ Run once against an existing config:
 ./tmp/rmm-agent-go -config /etc/rmm-agent.conf -once
 ```
 
-For side-by-side testing, use a separate config and hostname suffix so the Go preview enrolls as a separate device:
+For side-by-side testing, use a separate config and hostname suffix so the Go agent enrolls as a separate device:
 
 ```sh
 cp /etc/rmm-agent.conf /etc/rmm-agent-go.conf
@@ -129,12 +129,23 @@ chmod +x /usr/bin/rmm-agent
 cp ./agent/openwrt/rmm-agent-go-production.init /etc/init.d/rmm-agent
 chmod +x /etc/init.d/rmm-agent
 sed -i '/^HOSTNAME_SUFFIX=/d;/^HOSTNAME_OVERRIDE=/d;/^LOCK_FILE=/d;/^SPOOL_DIR=/d;/^BACKUP_DIR=/d;/^TUNNEL_STATE_DIR=/d' /etc/rmm-agent.conf
-rm -rf /tmp/rmm-agent.lock
+rmdir /tmp/rmm-agent.lock 2>/dev/null || true
 /etc/init.d/rmm-agent enable
 /etc/init.d/rmm-agent start
 ```
 
 This keeps the existing `/etc/rmm-agent.conf`, including `DEVICE_ID` and `DEVICE_TOKEN`, so the router continues as the same RMM object instead of enrolling as a duplicate `-go` device. Keep the shell script backup until the Go service has been stable for at least one maintenance window.
+
+The procd service removes the configured `LOCK_FILE` only after the agent process has
+stopped. To verify the lifecycle during a maintenance window:
+
+```sh
+/etc/init.d/rmm-agent stop
+test ! -e /tmp/rmm-agent.lock && echo "lock removed"
+/etc/init.d/rmm-agent start
+```
+
+If `LOCK_FILE` is overridden in `/etc/rmm-agent.conf`, check that path instead.
 
 ## OpenWrt Package
 

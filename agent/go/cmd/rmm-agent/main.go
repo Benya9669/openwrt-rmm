@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.5.0-go-preview"
+const agentVersion = "0.5.0"
 
 type config struct {
 	ServerURL        string
@@ -249,7 +249,7 @@ func acquireLock(path string) (func(), error) {
 	if err := os.Mkdir(path, 0o700); err != nil {
 		return nil, fmt.Errorf("another rmm-agent instance is running")
 	}
-	return func() { _ = os.RemoveAll(path) }, nil
+	return func() { _ = os.Remove(path) }, nil
 }
 
 func enroll(ctx context.Context, client *http.Client, cfg *config) error {
@@ -485,7 +485,7 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 	case "remote_ssh_close":
 		return remoteSSHCloseOutput(cfg, args)
 	default:
-		return fmt.Sprintf("go agent preview does not implement command %q yet; shell agent remains the production command runner\n", cmd.Type), 2
+		return fmt.Sprintf("rmm-agent does not implement command %q\n", cmd.Type), 2
 	}
 }
 

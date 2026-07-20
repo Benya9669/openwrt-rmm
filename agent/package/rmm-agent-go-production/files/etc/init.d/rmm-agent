@@ -6,6 +6,29 @@ USE_PROCD=1
 
 PROG=/usr/bin/rmm-agent
 CONFIG_FILE=/etc/rmm-agent.conf
+DEFAULT_LOCK_FILE=/tmp/rmm-agent.lock
+
+configured_lock_file() {
+	local lock_file
+	lock_file="$(sed -n 's/^LOCK_FILE="\([^" ]*\)"$/\1/p' "$CONFIG_FILE" 2>/dev/null | tail -n 1)"
+	printf '%s\n' "${lock_file:-$DEFAULT_LOCK_FILE}"
+}
+
+remove_lock_file() {
+	local lock_file
+	lock_file="$(configured_lock_file)"
+	case "$lock_file" in
+		/*) ;;
+		*) logger -t rmm-agent "refusing to remove non-absolute lock path"; return 0 ;;
+	esac
+	case "$lock_file" in
+		/|/tmp|/run|/var|/var/run|/var/lock)
+			logger -t rmm-agent "refusing to remove unsafe lock path"
+			return 0
+			;;
+	esac
+	rmdir "$lock_file" 2>/dev/null || true
+}
 
 start_service() {
 	[ -x /usr/libexec/rmm-agent-uci-sync ] && /usr/libexec/rmm-agent-uci-sync
@@ -30,7 +53,6 @@ service_triggers() {
 	procd_add_reload_trigger "rmm-agent"
 }
 
-stop_service() {
-	service_stop "$PROG"
-	rm -rf /tmp/rmm-agent.lock
+service_stopped() {
+	remove_lock_file
 }

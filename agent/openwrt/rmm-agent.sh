@@ -28,7 +28,7 @@ cleanup() {
 	if [ -n "${SLEEP_PID:-}" ]; then
 		kill "$SLEEP_PID" 2>/dev/null || true
 	fi
-	rm -rf "$LOCK_FILE"
+	rmdir "$LOCK_FILE" 2>/dev/null || true
 }
 
 stop_agent() {

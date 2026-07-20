@@ -25,7 +25,7 @@ const state = {
   presetReview: null,
 };
 
-const EXPECTED_AGENT_VERSION = "0.4.0";
+const EXPECTED_AGENT_VERSION = "0.5.0";
 
 const els = {
   loginView: document.querySelector("#loginView"),

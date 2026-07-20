@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent-go-production
 PKG_VERSION:=0.5.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_MAINTAINER:=RMM OpenWrt
 PKG_LICENSE:=MIT
@@ -14,6 +14,8 @@ define Package/rmm-agent-go-production
   CATEGORY:=Administration
   TITLE:=OpenWrt RMM Go agent (production replacement)
   DEPENDS:=+ca-bundle +ip-tiny +iwinfo +openssh-client +openssh-keygen
+  PROVIDES:=rmm-agent-runtime
+  CONFLICTS:=rmm-agent
 endef
 
 define Package/rmm-agent-go-production/description

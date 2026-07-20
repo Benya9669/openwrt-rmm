@@ -1,6 +1,36 @@
 package main
 
-import "testing"
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestAgentVersionIsStable(t *testing.T) {
+	if agentVersion != "0.5.0" {
+		t.Fatalf("unexpected agent version %q", agentVersion)
+	}
+}
+
+func TestAcquireLockRemovesDirectoryOnUnlock(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "rmm-agent.lock")
+	unlock, err := acquireLock(lockPath)
+	if err != nil {
+		t.Fatalf("acquireLock() error: %v", err)
+	}
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("lock directory was not created: %v", err)
+	}
+	if _, err := acquireLock(lockPath); err == nil {
+		t.Fatal("second acquireLock() unexpectedly succeeded")
+	}
+
+	unlock()
+	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("lock directory still exists after unlock: %v", err)
+	}
+}
 
 func TestParseIwinfoAssocList(t *testing.T) {
 	output := `AA:BB:CC:DD:EE:FF  -49 dBm / -95 dBm (SNR 46)  210 ms ago
