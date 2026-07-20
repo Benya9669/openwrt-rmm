@@ -78,6 +78,26 @@ func TestLooksLikeMAC(t *testing.T) {
 	}
 }
 
+func TestParseIPNeighbors(t *testing.T) {
+	output := `10.10.10.2 dev br-lan lladdr 10:ff:e0:21:bc:b9 REACHABLE
+10.10.10.190 dev br-lan FAILED
+fe80::1234 dev br-lan lladdr aa:bb:cc:dd:ee:ff router STALE`
+
+	neighbors := parseIPNeighbors(output)
+	if len(neighbors) != 3 {
+		t.Fatalf("expected 3 neighbors, got %d", len(neighbors))
+	}
+	if neighbors[0]["mac"] != "10:FF:E0:21:BC:B9" || neighbors[0]["state"] != "REACHABLE" {
+		t.Fatalf("unexpected reachable neighbor: %#v", neighbors[0])
+	}
+	if neighbors[1]["ip"] != "10.10.10.190" || neighbors[1]["state"] != "FAILED" {
+		t.Fatalf("unexpected failed neighbor: %#v", neighbors[1])
+	}
+	if neighbors[2]["interface"] != "br-lan" || neighbors[2]["state"] != "STALE" {
+		t.Fatalf("unexpected stale neighbor: %#v", neighbors[2])
+	}
+}
+
 func TestParsePacketLossBusyBox(t *testing.T) {
 	output := `PING 10.10.10.10 (10.10.10.10): 56 data bytes
 64 bytes from 10.10.10.10: seq=0 ttl=64 time=1.157 ms

@@ -23,6 +23,9 @@ const state = {
   remoteSessions: [],
   selectedCommand: null,
   presetReview: null,
+  luciAction: "setup",
+  mobileRoute: "fleet",
+  previousMobileRoute: "fleet",
 };
 
 const EXPECTED_AGENT_VERSION = "0.5.0";
@@ -35,6 +38,10 @@ const els = {
   loginError: document.querySelector("#loginError"),
   appShell: document.querySelector("#appShell"),
   operatorName: document.querySelector("#operatorName"),
+  fleetNavBtn: document.querySelector("#fleetNavBtn"),
+  problemsNavBtn: document.querySelector("#problemsNavBtn"),
+  operationsNavBtn: document.querySelector("#operationsNavBtn"),
+  profileBtn: document.querySelector("#profileBtn"),
   logoutBtn: document.querySelector("#logoutBtn"),
   apiState: document.querySelector("#apiState"),
   refreshBtn: document.querySelector("#refreshBtn"),
@@ -103,6 +110,8 @@ const els = {
   fleetSearch: document.querySelector("#fleetSearch"),
   fleetGroupFilter: document.querySelector("#fleetGroupFilter"),
   fleetTagFilter: document.querySelector("#fleetTagFilter"),
+  fleetFilterToggle: document.querySelector("#fleetFilterToggle"),
+  fleetAdvancedFilters: document.querySelector("#fleetAdvancedFilters"),
   bulkCommandType: document.querySelector("#bulkCommandType"),
   bulkCommandTarget: document.querySelector("#bulkCommandTarget"),
   sendBulkCommandBtn: document.querySelector("#sendBulkCommandBtn"),
@@ -170,6 +179,21 @@ const els = {
   clearAuditBtn: document.querySelector("#clearAuditBtn"),
   deleteDeviceBtn: document.querySelector("#deleteDeviceBtn"),
   toastRegion: document.querySelector("#toastRegion"),
+  profileDialog: document.querySelector("#profileDialog"),
+  closeProfileBtn: document.querySelector("#closeProfileBtn"),
+  profileUsername: document.querySelector("#profileUsername"),
+  profileRole: document.querySelector("#profileRole"),
+  profileAvatar: document.querySelector("#profileAvatar"),
+  profileLogoutBtn: document.querySelector("#profileLogoutBtn"),
+  luciStateDialog: document.querySelector("#luciStateDialog"),
+  luciStateCode: document.querySelector("#luciStateCode"),
+  luciStateTitle: document.querySelector("#luciStateTitle"),
+  luciStateDescription: document.querySelector("#luciStateDescription"),
+  luciStateContext: document.querySelector("#luciStateContext"),
+  luciStatePrimaryBtn: document.querySelector("#luciStatePrimaryBtn"),
+  luciStateDiagnosticBtn: document.querySelector("#luciStateDiagnosticBtn"),
+  closeLuciStateBtn: document.querySelector("#closeLuciStateBtn"),
+  luciStateRequestId: document.querySelector("#luciStateRequestId"),
 };
 
 if (els.remoteServerHost) {
@@ -247,7 +271,10 @@ async function api(path, options = {}) {
     }
     const message = data && data.error ? data.error : `HTTP ${response.status}`;
     const suffix = requestId ? ` (${requestId})` : "";
-    throw new Error(`${message}${suffix}`);
+    const error = new Error(`${message}${suffix}`);
+    error.status = response.status;
+    error.requestId = requestId || "";
+    throw error;
   }
   return data;
 }
@@ -263,6 +290,11 @@ function showApp(user) {
   state.user = user || null;
   state.username = user && user.username ? user.username : "operator";
   els.operatorName.textContent = state.username;
+  els.profileUsername.textContent = state.username;
+  els.profileRole.textContent = user && user.role === "admin" ? "Администратор" : "Пользователь";
+  const initial = state.username.trim().charAt(0).toUpperCase() || "О";
+  els.profileAvatar.textContent = initial;
+  document.querySelector(".operator-avatar").textContent = initial;
   els.addUserBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.loginView.classList.add("is-hidden");
   els.appShell.classList.remove("is-hidden");
@@ -625,7 +657,7 @@ function renderDevices() {
         <span class="wan-state ${wan.className}">${escapeHtml(wan.label)}</span>
       </div>
       <div class="device-field">
-        <span class="device-field-label">Клиенты</span>
+        <span class="device-field-label">Известно клиентов</span>
         <span class="client-count">${clients.total}</span>
       </div>
       <span class="${device.active_alerts ? "problem-count has-problems" : "problem-count"}">
@@ -640,6 +672,7 @@ function renderDevices() {
 }
 
 function renderDeviceDetail(device) {
+  els.appShell.classList.toggle("has-selected-device", Boolean(device));
   if (!device) {
     els.fleetView.classList.remove("is-hidden");
     els.deviceView.classList.add("is-hidden");
@@ -654,7 +687,7 @@ function renderDeviceDetail(device) {
   els.pageTitle.textContent = displayName;
   els.deviceName.textContent = displayName;
   els.deviceMeta.textContent = `${device.id} - ${device.openwrt_version || "unknown"}${device.domain_name ? ` - ${device.domain_name}` : ""}`;
-  els.deviceBadge.textContent = device.online ? "online" : "offline";
+  els.deviceBadge.textContent = device.online ? "На связи" : "Не на связи";
   els.deviceBadge.className = `badge ${device.online ? "online" : "offline"}`;
   els.lastSeen.textContent = formatDate(device.last_seen_at);
   els.loadAvg.textContent = device.metrics && device.metrics.loadavg ? device.metrics.loadavg : "-";
@@ -665,7 +698,7 @@ function renderDeviceDetail(device) {
   els.diskUsage.textContent = formatDisk(device.metrics && device.metrics.disk);
   const leaseCount = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases.length : 0;
   const wifiCount = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients.length : 0;
-  els.clientCounts.textContent = `${leaseCount} DHCP / ${wifiCount} Wi-Fi`;
+  els.clientCounts.textContent = `${leaseCount} DHCP-аренды / ${wifiCount} Wi-Fi онлайн`;
   els.connectivityStatus.textContent = formatConnectivity(device.metrics && device.metrics.connectivity_checks);
   els.fleetGroup.value = device.group || "";
   els.fleetTags.value = Array.isArray(device.tags) ? device.tags.join(", ") : "";
@@ -764,17 +797,25 @@ function formatBytes(value) {
 function normalizedClients(device) {
   const leases = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases : [];
   const wifi = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients : [];
+  const neighbors = Array.isArray(device.inventory && device.inventory.neighbors) ? device.inventory.neighbors : [];
+  const neighborsByMAC = new Map(neighbors.filter((neighbor) => neighbor.mac).map((neighbor) => [String(neighbor.mac).toLowerCase(), neighbor]));
+  const neighborsByIP = new Map(neighbors.filter((neighbor) => neighbor.ip).map((neighbor) => [String(neighbor.ip), neighbor]));
+  const activeNeighborStates = new Set(["REACHABLE", "DELAY", "PROBE", "PERMANENT", "NOARP"]);
   const byMac = new Map();
   for (const lease of leases) {
     const mac = String(lease.mac || "").toLowerCase();
     const key = mac || `ip:${lease.ip || Math.random()}`;
+    const neighbor = neighborsByMAC.get(mac) || neighborsByIP.get(String(lease.ip || ""));
+    const neighborState = String(neighbor && neighbor.state || "").toUpperCase();
+    const presence = activeNeighborStates.has(neighborState) ? "online" : (neighborState === "STALE" ? "recent" : "reserved");
     byMac.set(key, {
       name: lease.hostname && lease.hostname !== "*" ? lease.hostname : "",
       ip: lease.ip || "-",
       mac: lease.mac || "-",
       connection: "Проводное / DHCP",
       type: "wired",
-      online: true,
+      online: presence === "online",
+      presence,
     });
   }
   for (const station of wifi) {
@@ -790,6 +831,7 @@ function normalizedClients(device) {
       rate: [station.rx_rate ? `RX ${station.rx_rate}` : "", station.tx_rate ? `TX ${station.tx_rate}` : ""].filter(Boolean).join(" / "),
       type: "wifi",
       online: true,
+      presence: "online",
     });
   }
   return [...byMac.values()];
@@ -810,6 +852,8 @@ function renderClients(device) {
     return;
   }
   for (const client of filtered) {
+    const presence = client.presence || (client.online ? "online" : "reserved");
+    const presenceLabel = presence === "online" ? "В сети" : (presence === "recent" ? "Недавно" : "DHCP-аренда");
     const row = document.createElement("div");
     row.className = "client-row";
     row.innerHTML = `
@@ -818,7 +862,7 @@ function renderClients(device) {
       <code>${escapeHtml(client.mac)}</code>
       <span>${escapeHtml(client.connection)}</span>
       <span>${escapeHtml([client.signal, client.rate].filter(Boolean).join(" · ") || "-")}</span>
-      <span class="client-online"><i></i>В сети</span>
+      <span class="client-online ${presence}"><i></i>${presenceLabel}</span>
     `;
     els.clientList.appendChild(row);
   }
@@ -977,6 +1021,8 @@ async function selectDevice(id) {
   state.auditEvents = [];
   renderDevices();
   renderDeviceDetail(currentDevice());
+  setMobileRoute("fleet");
+  window.scrollTo({ top: 0, behavior: "auto" });
   await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
 }
 
@@ -990,11 +1036,14 @@ function showFleet() {
   state.auditEvents = [];
   renderDevices();
   renderDeviceDetail(null);
+  setMobileRoute("fleet");
+  window.scrollTo({ top: 0, behavior: "auto" });
 }
 
 function selectDeviceTab(tab) {
   state.deviceTab = tab;
   renderDeviceTab();
+  if (tab === "operations") setMobileRoute("operations");
 }
 
 function renderDeviceTab() {
@@ -1020,20 +1069,117 @@ async function openLuCIAccess(session) {
     }
   } catch (error) {
     if (popup) popup.close();
-    throw error;
+    showLuCIState(error, "retry");
   }
 }
 
 function openLuciOrRemoteAccess() {
   const activeSession = state.remoteSessions.find((session) => session.status === "active" && session.luci_port);
   if (activeSession) {
-    openLuCIAccess(activeSession).catch(reportError);
+    openLuCIAccess(activeSession);
     return;
   }
-  selectDeviceTab("operations");
-  els.remoteAccessPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-  setStatus("Создайте удаленную сессию, затем откройте LuCI");
+  showLuCIState({ status: 409 }, "setup");
 }
+
+function luciStateCopy(status, mode) {
+  if (mode === "setup") {
+    return {
+      code: "409 · SESSION REQUIRED",
+      title: "Удалённый доступ не запущен",
+      description: "Создайте временную сессию, чтобы безопасно открыть LuCI этого роутера.",
+      action: "Настроить доступ",
+    };
+  }
+  return {
+    401: { code: "401 · SESSION EXPIRED", title: "Срок доступа истёк", description: "Временная ссылка больше не действует. Создайте новый безопасный доступ из RMM.", action: "Создать новый доступ" },
+    403: { code: "403 · ACCESS DENIED", title: "Доступ отклонён", description: "У вашей учётной записи нет разрешения на эту сессию LuCI.", action: "Вернуться к настройке" },
+    404: { code: "404 · SESSION NOT FOUND", title: "Сессия больше не активна", description: "Удалённая сессия закрыта или роутер ещё не подтвердил её запуск.", action: "Настроить доступ" },
+    409: { code: "409 · SESSION STARTING", title: "Туннель ещё запускается", description: "Роутер получил команду, но защищённый канал пока не готов. Обычно это занимает несколько секунд.", action: "Повторить подключение" },
+    429: { code: "429 · TOO MANY ATTEMPTS", title: "Слишком много запросов", description: "Лимит временных ссылок достигнут. Подождите минуту и повторите попытку.", action: "Повторить позже" },
+    502: { code: "502 · LUCI UNREACHABLE", title: "LuCI недоступен", description: "Туннель работает, но веб-интерфейс роутера не отвечает. Настройки роутера не изменялись.", action: "Повторить подключение" },
+    504: { code: "504 · GATEWAY TIMEOUT", title: "LuCI не отвечает", description: "Роутер на связи, но веб-интерфейс не ответил вовремя. Настройки роутера не изменялись.", action: "Повторить подключение" },
+  }[status] || { code: `${status || 500} · CONNECTION ERROR`, title: "Не удалось открыть LuCI", description: "Проверьте состояние роутера и удалённой сессии, затем повторите попытку.", action: "Повторить подключение" };
+}
+
+function showLuCIState(error = {}, mode = "retry") {
+  const status = Number(error.status || 0);
+  const copy = luciStateCopy(status, mode);
+  const device = currentDevice();
+  const activeSession = state.remoteSessions.find((session) => session.status === "active" && session.luci_port);
+  state.luciAction = mode;
+  els.luciStateCode.textContent = copy.code;
+  els.luciStateTitle.textContent = copy.title;
+  els.luciStateDescription.textContent = copy.description;
+  els.luciStatePrimaryBtn.textContent = copy.action;
+  els.luciStateContext.innerHTML = `
+    <div><span>Объект</span><strong>${escapeHtml(deviceDisplayName(device))}</strong></div>
+    <div><span>RMM-агент</span><strong>${device && device.online ? "На связи" : "Не на связи"}</strong></div>
+    <div><span>Сессия</span><strong>${activeSession ? escapeHtml(statusLabel(activeSession.status)) : "Не запущена"}</strong></div>
+  `;
+  els.luciStateRequestId.textContent = error.requestId ? `ID запроса: ${error.requestId}` : "";
+  if (!els.luciStateDialog.open) els.luciStateDialog.showModal();
+}
+
+function setMobileRoute(route) {
+  state.mobileRoute = route;
+  for (const button of document.querySelectorAll(".mobile-nav-item")) {
+    button.classList.toggle("is-active", button.dataset.mobileRoute === route);
+  }
+  els.fleetNavBtn.classList.toggle("is-active", route === "fleet");
+  els.problemsNavBtn.classList.toggle("is-active", route === "problems");
+  els.operationsNavBtn.classList.toggle("is-active", route === "operations");
+}
+
+async function openDeviceArea(tab, selector, route) {
+  let device = currentDevice();
+  if (!device) {
+    device = route === "problems"
+      ? state.devices.find((item) => Number(item.active_alerts || 0) > 0) || state.devices[0]
+      : state.devices[0];
+  }
+  if (!device) {
+    notify("Сначала добавьте роутер", "info");
+    return;
+  }
+  if (device.id !== state.selectedDeviceId) await selectDevice(device.id);
+  selectDeviceTab(tab);
+  setMobileRoute(route);
+  window.requestAnimationFrame(() => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+
+function showProfile() {
+  state.previousMobileRoute = state.mobileRoute === "profile" ? "fleet" : state.mobileRoute;
+  setMobileRoute("profile");
+  if (!els.profileDialog.open) els.profileDialog.showModal();
+}
+
+function closeProfile() {
+  if (els.profileDialog.open) els.profileDialog.close();
+  setMobileRoute(state.previousMobileRoute || "fleet");
+}
+
+async function runLuCIPrimaryAction() {
+  const activeSession = state.remoteSessions.find((session) => session.status === "active" && session.luci_port);
+  if (els.luciStateDialog.open) els.luciStateDialog.close();
+  if (state.luciAction === "retry" && activeSession) {
+    await openLuCIAccess(activeSession);
+    return;
+  }
+  await openDeviceArea("operations", "#remoteAccessPanel", "operations");
+}
+
+async function refreshDevicesIfIdle() {
+  if (refreshDevicesIfIdle.inFlight) return;
+  refreshDevicesIfIdle.inFlight = true;
+  try {
+    await loadDevices();
+  } finally {
+    refreshDevicesIfIdle.inFlight = false;
+  }
+}
+
+refreshDevicesIfIdle.inFlight = false;
 
 async function loadCommands(options = {}) {
   if (!state.selectedDeviceId) return;
@@ -1723,6 +1869,47 @@ els.loginForm.addEventListener("submit", (event) => {
   login().catch((error) => showLogin(error.message));
 });
 els.logoutBtn.addEventListener("click", () => logout().catch(reportError));
+els.fleetNavBtn.addEventListener("click", showFleet);
+els.problemsNavBtn.addEventListener("click", () => openDeviceArea("overview", "#alertList", "problems").catch(reportError));
+els.operationsNavBtn.addEventListener("click", () => openDeviceArea("operations", "#remoteAccessPanel", "operations").catch(reportError));
+els.profileBtn.addEventListener("click", showProfile);
+
+for (const button of document.querySelectorAll(".mobile-nav-item")) {
+  button.addEventListener("click", () => {
+    const route = button.dataset.mobileRoute;
+    if (route === "fleet") showFleet();
+    if (route === "problems") openDeviceArea("overview", "#alertList", "problems").catch(reportError);
+    if (route === "operations") openDeviceArea("operations", "#remoteAccessPanel", "operations").catch(reportError);
+    if (route === "profile") showProfile();
+  });
+}
+
+els.closeProfileBtn.addEventListener("click", closeProfile);
+els.profileDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeProfile();
+});
+els.profileLogoutBtn.addEventListener("click", () => {
+  closeProfile();
+  logout().catch(reportError);
+});
+
+els.closeLuciStateBtn.addEventListener("click", () => els.luciStateDialog.close());
+els.luciStatePrimaryBtn.addEventListener("click", () => runLuCIPrimaryAction().catch(reportError));
+els.luciStateDiagnosticBtn.addEventListener("click", () => {
+  els.luciStateDialog.close();
+  openDeviceArea("operations", "#diagnosticStatus", "operations").catch(reportError);
+});
+els.luciStateDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  els.luciStateDialog.close();
+});
+
+els.fleetFilterToggle.addEventListener("click", () => {
+  const isOpen = els.fleetAdvancedFilters.classList.toggle("is-open");
+  els.fleetFilterToggle.setAttribute("aria-expanded", String(isOpen));
+  els.fleetFilterToggle.textContent = isOpen ? "Скрыть" : "Фильтры";
+});
 
 els.refreshBtn.addEventListener("click", () => loadDevices().catch(reportError));
 els.addRouterBtn.addEventListener("click", () => createEnrollmentGrant().catch(reportError));
@@ -1859,6 +2046,13 @@ checkSession();
 setInterval(() => {
   checkHealth();
   if (!els.appShell.classList.contains("is-hidden")) {
-    loadDevices().catch(reportError);
+    refreshDevicesIfIdle().catch(reportError);
   }
 }, 30000);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !els.appShell.classList.contains("is-hidden")) {
+    checkHealth();
+    refreshDevicesIfIdle().catch(reportError);
+  }
+});

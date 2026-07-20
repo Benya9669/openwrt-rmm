@@ -48,7 +48,7 @@ The Go agent lives at:
 agent/go/cmd/rmm-agent
 ```
 
-It is protocol-compatible with the server for enrollment, heartbeat, inventory, metrics, command polling, command result reporting, lock handling, backoff, graceful shutdown, and result spooling. Its inventory payload includes system metadata, interfaces, routes, WAN IP, DHCP leases, Wi-Fi clients, memory, disk, interface counters, package manager metadata, and connectivity checks.
+It is protocol-compatible with the server for enrollment, heartbeat, inventory, metrics, command polling, command result reporting, lock handling, backoff, graceful shutdown, and result spooling. Its inventory payload includes system metadata, interfaces, routes, WAN IP, DHCP leases, kernel neighbor state, Wi-Fi clients, memory, disk, interface counters, package manager metadata, and connectivity checks. The UI uses live Wi-Fi and neighbor state to distinguish connected clients from static or infinite DHCP leases.
 
 The Go agent is available as the production OpenWrt package and supports the migrated command allowlist:
 

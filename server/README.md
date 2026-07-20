@@ -64,4 +64,6 @@ Authorization: Bearer <RMM_OPERATOR_TOKEN>
 ```
 
 See [KeenDNS-like cloud mode](../docs/keendns.md) for wildcard DNS, wildcard TLS, and the
-isolated LuCI access flow.
+isolated LuCI access flow. Browser requests to an unavailable LuCI route receive a safe HTML
+status page while API clients continue to receive JSON. The reverse proxy waits up to 15 seconds
+for LuCI response headers before returning `504 Gateway Timeout`.

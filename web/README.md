@@ -27,7 +27,11 @@ Current MVP features:
 - UCI backup, preview, staged set, commit, confirmed commit, revert, and restore;
 - UCI presets for LAN IP, hostname, Wi-Fi SSID/password, and LAN DHCP toggle.
 - isolated LuCI access through one-time device-domain links;
-- per-user router enrollment and administrator-created accounts.
+- per-user router enrollment and administrator-created accounts;
+- responsive desktop/mobile navigation and account panel;
+- automatic device refresh every 30 seconds and when the browser tab becomes visible;
+- friendly LuCI access states for expired, unavailable, and timed-out sessions;
+- separate online, recently seen, and DHCP-only client presence states.
 
 ## Check
 

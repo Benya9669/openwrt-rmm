@@ -1351,11 +1351,11 @@ func (a *App) proxyLuCI(w http.ResponseWriter, r *http.Request, deviceID, sessio
 func (a *App) proxyLuCIWithPrefix(w http.ResponseWriter, r *http.Request, deviceID, sessionID, upstreamPath, prefix string) {
 	session, found, err := a.store.GetRemoteSession(r.Context(), deviceID, sessionID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load LuCI session")
+		a.writeLuCIError(w, r, http.StatusInternalServerError, "failed to load LuCI session")
 		return
 	}
 	if !found || session.Status != "active" || session.LuCIPort <= 0 {
-		writeError(w, http.StatusNotFound, "LuCI session is not active")
+		a.writeLuCIError(w, r, http.StatusNotFound, "LuCI session is not active")
 		return
 	}
 
@@ -1365,11 +1365,12 @@ func (a *App) proxyLuCIWithPrefix(w http.ResponseWriter, r *http.Request, device
 	}
 	upstream, _ := url.Parse(scheme + "://" + a.tunnelHTTPHost + ":" + strconv.Itoa(session.LuCIPort))
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 15 * time.Second
 	if scheme == "https" {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // LuCI commonly uses a router-local self-signed certificate.
-		proxy.Transport = transport
 	}
+	proxy.Transport = transport
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
@@ -1407,7 +1408,7 @@ func (a *App) proxyLuCIWithPrefix(w http.ResponseWriter, r *http.Request, device
 		rewriteLuCIHeaders(resp.Header, prefix, a.cookieSecure)
 		return nil
 	}
-	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+	proxy.ErrorHandler = func(w http.ResponseWriter, proxyRequest *http.Request, err error) {
 		logStructured(map[string]any{
 			"event":      "luci.proxy_failed",
 			"request_id": requestID(r.Context()),
@@ -1415,7 +1416,11 @@ func (a *App) proxyLuCIWithPrefix(w http.ResponseWriter, r *http.Request, device
 			"session_id": sessionID,
 			"error":      err.Error(),
 		})
-		writeError(w, http.StatusBadGateway, "LuCI is unreachable through this session")
+		status := http.StatusBadGateway
+		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+			status = http.StatusGatewayTimeout
+		}
+		a.writeLuCIError(w, proxyRequest, status, "LuCI is unreachable through this session")
 	}
 	proxy.ServeHTTP(w, r)
 }

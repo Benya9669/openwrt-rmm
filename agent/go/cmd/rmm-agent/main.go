@@ -301,6 +301,7 @@ func buildInventory(cfg config) map[string]any {
 		"default_route":   firstLine(commandOutput("ip", "route", "show", "default")),
 		"wan_ip":          wanIP(),
 		"dhcp_leases":     dhcpLeases(),
+		"neighbors":       neighbors(),
 		"wifi_clients":    wifiClients(),
 	}
 }
@@ -1355,6 +1356,37 @@ func dhcpLeases() []map[string]string {
 		return []map[string]string{}
 	}
 	return leases
+}
+
+func neighbors() []map[string]string {
+	return parseIPNeighbors(commandOutput("ip", "neigh", "show"))
+}
+
+func parseIPNeighbors(output string) []map[string]string {
+	result := make([]map[string]string, 0)
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		neighbor := map[string]string{
+			"ip":    fields[0],
+			"state": strings.ToUpper(fields[len(fields)-1]),
+		}
+		for index := 1; index+1 < len(fields); index++ {
+			switch fields[index] {
+			case "dev":
+				neighbor["interface"] = fields[index+1]
+			case "lladdr":
+				neighbor["mac"] = strings.ToUpper(fields[index+1])
+			}
+		}
+		if neighbor["interface"] == "" {
+			continue
+		}
+		result = append(result, neighbor)
+	}
+	return result
 }
 
 func wifiClients() []map[string]string {

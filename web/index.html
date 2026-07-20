@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OpenWrt RMM</title>
-    <link rel="stylesheet" href="/styles.css?v=10">
+    <link rel="stylesheet" href="/styles.css?v=13">
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -13,18 +13,18 @@
           <div class="brand-mark">R</div>
           <div>
             <h1>OpenWrt RMM</h1>
-            <p>Operator access</p>
+            <p>Управление вашими роутерами</p>
           </div>
         </div>
         <label>
-          Username
-          <input id="loginUsername" type="text" autocomplete="username" value="admin" required>
+          Логин
+          <input id="loginUsername" type="text" autocomplete="username" placeholder="Введите логин" required>
         </label>
         <label>
-          Password
+          Пароль
           <input id="loginPassword" type="password" autocomplete="current-password" required>
         </label>
-        <button class="primary" type="submit">Sign in</button>
+        <button class="primary" type="submit">Войти</button>
         <p id="loginError" class="login-error"></p>
       </form>
     </main>
@@ -40,16 +40,16 @@
         </div>
 
         <nav class="main-nav" aria-label="Основная навигация">
-          <button class="nav-item is-active" type="button">
+          <button id="fleetNavBtn" class="nav-item is-active" type="button">
             <span class="nav-icon">◫</span>
             Объекты
           </button>
-          <button class="nav-item" type="button" disabled>
+          <button id="problemsNavBtn" class="nav-item" type="button">
             <span class="nav-icon">!</span>
             Проблемы
             <span id="navAlertCount" class="nav-count">0</span>
           </button>
-          <button class="nav-item" type="button" disabled>
+          <button id="operationsNavBtn" class="nav-item" type="button">
             <span class="nav-icon">⌁</span>
             Операции
           </button>
@@ -58,11 +58,13 @@
         <div class="sidebar-spacer"></div>
 
         <div class="operator-row">
-          <div class="operator-avatar">О</div>
-          <div class="operator-copy">
-            <small>Оператор</small>
-            <strong id="operatorName">operator</strong>
-          </div>
+          <button id="profileBtn" class="operator-profile" type="button" aria-label="Открыть личный кабинет">
+            <span class="operator-avatar">О</span>
+            <span class="operator-copy">
+              <small>Личный кабинет</small>
+              <strong id="operatorName">operator</strong>
+            </span>
+          </button>
           <button id="logoutBtn" class="icon-button" type="button" title="Выйти" aria-label="Выйти">↪</button>
         </div>
 
@@ -113,14 +115,17 @@
 
           <div class="fleet-toolbar">
             <input id="fleetSearch" type="search" placeholder="Поиск по имени, модели, ID или тегу">
+            <button id="fleetFilterToggle" class="filter-toggle" type="button" aria-expanded="false">Фильтры</button>
             <div class="filters">
               <button class="filter is-active" data-filter="all" type="button">Все</button>
               <button class="filter" data-filter="online" type="button">На связи</button>
               <button class="filter" data-filter="offline" type="button">Не на связи</button>
               <button class="filter" data-filter="alerts" type="button">Проблемы</button>
             </div>
-            <input id="fleetGroupFilter" type="text" placeholder="Группа">
-            <input id="fleetTagFilter" type="text" placeholder="Тег">
+            <div id="fleetAdvancedFilters" class="fleet-advanced-filters">
+              <input id="fleetGroupFilter" type="text" placeholder="Группа">
+              <input id="fleetTagFilter" type="text" placeholder="Тег">
+            </div>
           </div>
 
           <div class="fleet-table-shell">
@@ -129,7 +134,7 @@
               <span>Объект</span>
               <span>Модель и группа</span>
               <span>WAN / интернет</span>
-              <span>Клиенты</span>
+              <span>Известно клиентов</span>
               <span>Проблемы</span>
               <span>Последний контакт</span>
               <span></span>
@@ -369,8 +374,8 @@
           <section class="panel" data-device-tab="clients">
             <div class="section-title">
               <div>
-                <h2>Подключенные устройства</h2>
-                <p class="section-subtitle">Клиенты DHCP и Wi-Fi объединены по MAC-адресу</p>
+                <h2>Клиенты сети</h2>
+                <p class="section-subtitle">Онлайн подтверждается Wi-Fi или таблицей соседей; DHCP-аренда сама по себе не означает подключение</p>
               </div>
               <span id="clientSummary" class="summary-pill">0 клиентов</span>
             </div>
@@ -671,6 +676,13 @@
           </section>
         </section>
       </main>
+
+      <nav class="mobile-nav" aria-label="Мобильная навигация">
+        <button class="mobile-nav-item is-active" data-mobile-route="fleet" type="button"><span>◫</span>Объекты</button>
+        <button class="mobile-nav-item" data-mobile-route="problems" type="button"><span>!</span>Проблемы</button>
+        <button class="mobile-nav-item" data-mobile-route="operations" type="button"><span>⌁</span>Операции</button>
+        <button class="mobile-nav-item" data-mobile-route="profile" type="button"><span>○</span>Профиль</button>
+      </nav>
     </div>
 
     <dialog id="enrollmentGrantDialog">
@@ -706,6 +718,52 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=19" defer></script>
+    <dialog id="profileDialog" class="profile-dialog">
+      <div class="profile-sheet">
+        <div class="dialog-heading">
+          <div>
+            <span class="eyebrow">Аккаунт пользователя</span>
+            <h2>Личный кабинет</h2>
+          </div>
+          <button id="closeProfileBtn" class="icon-button" type="button" aria-label="Закрыть">×</button>
+        </div>
+        <div class="profile-identity">
+          <span id="profileAvatar" class="profile-avatar">О</span>
+          <div>
+            <strong id="profileUsername">operator</strong>
+            <span id="profileRole">Пользователь</span>
+          </div>
+        </div>
+        <div class="profile-notice">
+          <strong>Настройки безопасности</strong>
+          <span>E-mail, смена пароля и управление сессиями будут подключены следующим этапом вместе с серверным API.</span>
+        </div>
+        <button id="profileLogoutBtn" class="danger profile-logout" type="button">Выйти из аккаунта</button>
+      </div>
+    </dialog>
+
+    <dialog id="luciStateDialog" class="luci-state-dialog">
+      <div class="luci-state-sheet">
+        <div class="luci-state-route" aria-hidden="true">
+          <span class="luci-cloud">☁</span>
+          <i></i>
+          <span class="luci-warning">!</span>
+          <i></i>
+          <span class="luci-router">R</span>
+        </div>
+        <span id="luciStateCode" class="luci-state-code">409 · SESSION REQUIRED</span>
+        <h2 id="luciStateTitle">Удалённый доступ не запущен</h2>
+        <p id="luciStateDescription">Создайте временную сессию, чтобы безопасно открыть LuCI этого роутера.</p>
+        <div id="luciStateContext" class="luci-state-context"></div>
+        <div class="luci-state-actions">
+          <button id="luciStatePrimaryBtn" class="primary" type="button">Настроить доступ</button>
+          <button id="luciStateDiagnosticBtn" type="button">Открыть диагностику</button>
+          <button id="closeLuciStateBtn" class="text-button" type="button">Вернуться к роутеру</button>
+        </div>
+        <small id="luciStateRequestId" class="luci-request-id"></small>
+      </div>
+    </dialog>
+
+    <script src="/app.js?v=21" defer></script>
   </body>
 </html>
