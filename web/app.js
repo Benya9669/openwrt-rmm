@@ -28,7 +28,7 @@ const state = {
   previousMobileRoute: "fleet",
 };
 
-const EXPECTED_AGENT_VERSION = "0.5.0";
+const EXPECTED_AGENT_VERSION = "0.5.1";
 
 const els = {
   loginView: document.querySelector("#loginView"),

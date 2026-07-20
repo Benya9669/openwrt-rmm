@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="OpenWrt RMM">
+  <defs>
+    <linearGradient id="tile" x1="10" y1="8" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27b6e6"/>
+      <stop offset="1" stop-color="#3687f5"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="15" fill="url(#tile)"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 18l8 8M50 48l-7-7" stroke-width="2.5" opacity=".78"/>
+    <circle cx="14" cy="18" r="2.5" stroke-width="2"/>
+    <circle cx="50" cy="48" r="2.5" stroke-width="2"/>
+    <path d="M25 47V18h11c6.4 0 10 3.1 10 8.5S42.4 35 36 35H25m10.5 0L47 47" stroke-width="5.5"/>
+  </g>
+</svg>
