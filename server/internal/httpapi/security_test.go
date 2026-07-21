@@ -147,7 +147,7 @@ func TestPasswordResetIsOneTimeAndRevokesSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message.recipient != "owner@example.test" || !strings.HasPrefix(parsed.Fragment, "password-reset=") {
+	if message.recipient != "owner@example.test" || parsed.Path != "/login" || !strings.HasPrefix(parsed.Fragment, "password-reset=") {
 		t.Fatalf("unexpected password reset message: %#v", message)
 	}
 	token, err := url.QueryUnescape(strings.TrimPrefix(parsed.Fragment, "password-reset="))

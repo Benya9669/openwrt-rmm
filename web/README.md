@@ -11,7 +11,9 @@ go run ./server/cmd/rmm-server
 Then open:
 
 ```text
-http://127.0.0.1:8080/
+http://127.0.0.1:8080/       public landing page
+http://127.0.0.1:8080/login  sign in and password recovery
+http://127.0.0.1:8080/app    authenticated RMM cabinet
 ```
 
 The UI uses a revocable HttpOnly server-side session. It does not store operator tokens in
@@ -29,7 +31,7 @@ Current MVP features:
 - isolated LuCI access through one-time device-domain links;
 - per-user router enrollment and administrator-created accounts;
 - responsive desktop/mobile navigation and account panel;
-- automatic device refresh every 30 seconds and when the browser tab becomes visible;
+- live device refresh over authenticated Server-Sent Events (SSE), with 30-second polling fallback and refresh when the tab becomes visible;
 - friendly LuCI access states for expired, unavailable, and timed-out sessions;
 - separate online, recently seen, and DHCP-only client presence states.
 

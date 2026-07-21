@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#071019">
+    <meta name="description" content="OpenWrt RMM — безопасное удалённое управление роутерами, мониторинг сети и временный доступ к LuCI.">
+    <meta property="og:title" content="OpenWrt RMM — управление сетью из одной панели">
+    <meta property="og:description" content="Контролируйте состояние OpenWrt, клиентов и удалённый доступ к LuCI без публикации панели роутера в интернете.">
+    <meta property="og:type" content="website">
+    <title>OpenWrt RMM — удалённое управление роутерами</title>
+    <link rel="canonical" href="/">
+    <link rel="icon" href="/favicon.svg?v=1" type="image/svg+xml">
+    <link rel="icon" href="/favicon-32x32.png?v=1" sizes="32x32" type="image/png">
+    <link rel="shortcut icon" href="/favicon.ico?v=1">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="stylesheet" href="/styles.css?v=22">
+  </head>
+  <body>
+    <main class="landing-view">
+      <header class="landing-header">
+        <a class="landing-brand" href="/" aria-label="OpenWrt RMM — главная">
+          <img src="/favicon.svg?v=1" alt="" width="42" height="42">
+          <span><strong>OpenWrt RMM</strong><small>Remote network management</small></span>
+        </a>
+        <nav aria-label="Разделы страницы">
+          <a href="#capabilities">Возможности</a>
+          <a href="#security">Безопасность</a>
+          <a class="landing-login-link" href="/login">Войти</a>
+        </nav>
+      </header>
+
+      <section id="top" class="landing-hero">
+        <div class="landing-copy">
+          <span class="landing-kicker"><i></i> Роутеры под контролем из любой точки</span>
+          <h1>Единый центр управления <em>OpenWrt</em></h1>
+          <p>Следите за состоянием сети, клиентами и обновлениями агента. Открывайте LuCI через временный защищённый доступ без публикации панели роутера в интернете.</p>
+          <div class="landing-actions">
+            <a class="landing-primary" href="/login">Открыть кабинет</a>
+            <a class="landing-secondary" href="#capabilities">Как это работает</a>
+          </div>
+          <div class="landing-trust">
+            <span><b>●</b> Живые данные</span>
+            <span><b>✓</b> Изоляция аккаунтов</span>
+            <span><b>↗</b> Временные LuCI-сессии</span>
+          </div>
+        </div>
+
+        <div class="landing-console" aria-label="Пример панели мониторинга">
+          <div class="console-top"><span></span><span></span><span></span><small>fleet / overview</small></div>
+          <div class="console-summary">
+            <div><small>На связи</small><strong>12</strong></div>
+            <div><small>Требуют внимания</small><strong class="warn">2</strong></div>
+            <div><small>Средний uptime</small><strong>18 дн.</strong></div>
+          </div>
+          <div class="console-router online"><i></i><span><strong>Домашняя сеть</strong><small>OpenWrt 25.12 · 8 клиентов</small></span><b>На связи</b></div>
+          <div class="console-router online"><i></i><span><strong>Офис</strong><small>OpenWrt 24.10 · 24 клиента</small></span><b>На связи</b></div>
+          <div class="console-router warning"><i></i><span><strong>Загородный дом</strong><small>Высокая загрузка процессора</small></span><b>Проверить</b></div>
+        </div>
+      </section>
+
+      <section id="capabilities" class="landing-features">
+        <article><span>01</span><h2>Состояние сети</h2><p>WAN, нагрузка, память, интерфейсы и действительно активные клиенты в одном понятном обзоре.</p></article>
+        <article><span>02</span><h2>Безопасный LuCI</h2><p>Доступ создаётся по запросу, ограничен по времени и привязан к конкретному роутеру.</p></article>
+        <article><span>03</span><h2>Свои устройства</h2><p>Каждый пользователь видит только добавленные ему роутеры и управляет собственным парком.</p></article>
+      </section>
+
+      <section id="security" class="landing-security">
+        <div><span class="eyebrow">Безопасность по умолчанию</span><h2>Панель управления не должна становиться новой точкой входа</h2></div>
+        <ul><li>Пароли защищены Argon2id</li><li>Сессии хранятся в HttpOnly cookie</li><li>Важные действия попадают в аудит</li></ul>
+      </section>
+
+      <section class="landing-login-section landing-cta">
+        <div><span class="eyebrow">Личный кабинет</span><h2>Ваша сеть уже рядом</h2><p>Войдите, чтобы увидеть свои роутеры, состояние соединения и безопасно открыть удалённый доступ.</p></div>
+        <div class="landing-actions"><a class="landing-primary" href="/login">Перейти ко входу</a></div>
+      </section>
+      <footer class="landing-footer"><span>OpenWrt RMM</span><small>Безопасное управление вашей сетью</small></footer>
+    </main>
+  </body>
+</html>

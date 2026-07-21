@@ -206,6 +206,7 @@ func (a *App) handleTransferDevice(w http.ResponseWriter, r *http.Request) {
 		"target_user_id": target.ID,
 		"request_id":     requestID(r.Context()),
 	}))
+	a.events.publish("devices")
 	writeJSON(w, http.StatusOK, device)
 }
 

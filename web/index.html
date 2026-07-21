@@ -4,24 +4,25 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#071019">
-    <title>OpenWrt RMM</title>
+    <meta name="robots" content="noindex,nofollow">
+    <title>Вход — OpenWrt RMM</title>
     <link rel="icon" href="/favicon.svg?v=1" type="image/svg+xml">
     <link rel="icon" href="/favicon-32x32.png?v=1" sizes="32x32" type="image/png">
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=21">
+    <link rel="stylesheet" href="/styles.css?v=22">
   </head>
-  <body>
+  <body class="account-page">
     <main id="loginView" class="landing-view">
       <header class="landing-header">
-        <a class="landing-brand" href="#top" aria-label="OpenWrt RMM — главная">
+        <a class="landing-brand" href="/" aria-label="OpenWrt RMM — главная">
           <img src="/favicon.svg?v=1" alt="" width="42" height="42">
           <span><strong>OpenWrt RMM</strong><small>Remote network management</small></span>
         </a>
         <nav aria-label="Разделы страницы">
-          <a href="#capabilities">Возможности</a>
-          <a href="#security">Безопасность</a>
+          <a href="/#capabilities">Возможности</a>
+          <a href="/#security">Безопасность</a>
           <a class="landing-login-link" href="#login">Войти</a>
         </nav>
       </header>
@@ -136,6 +137,7 @@
             <h2 id="pageTitle">Объекты</h2>
           </div>
           <div class="topbar-actions">
+            <span id="liveState" class="live-state is-connecting" title="Состояние автоматического обновления"><i></i><span>Подключение</span></span>
             <span id="statusLine" class="status-line">Готово</span>
             <button id="addRouterBtn" class="primary" type="button">Добавить роутер</button>
             <button id="addUserBtn" class="is-hidden" type="button">Новый пользователь</button>
@@ -882,6 +884,6 @@
       </div>
     </dialog>
 
-    <script src="/app.js?v=25" defer></script>
+    <script src="/app.js?v=26" defer></script>
   </body>
 </html>

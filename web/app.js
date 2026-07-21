@@ -28,7 +28,12 @@ const state = {
   luciAction: "setup",
   mobileRoute: "fleet",
   previousMobileRoute: "fleet",
+  liveConnected: false,
+  lastUpdatedAt: null,
 };
+
+let eventSource = null;
+let liveRefreshTimer = null;
 
 const EXPECTED_AGENT_VERSION = "0.5.2";
 
@@ -79,6 +84,7 @@ const els = {
   fleetAlertCount: document.querySelector("#fleetAlertCount"),
   navAlertCount: document.querySelector("#navAlertCount"),
   statusLine: document.querySelector("#statusLine"),
+  liveState: document.querySelector("#liveState"),
   pageTitle: document.querySelector("#pageTitle"),
   emptyState: document.querySelector("#emptyState"),
   emptyStateTitle: document.querySelector("#emptyState h2"),
@@ -274,6 +280,63 @@ function reportError(error) {
   showToast(message, "error");
 }
 
+function setLiveState(mode, label) {
+  state.liveConnected = mode === "live";
+  els.liveState.className = `live-state is-${mode}`;
+  els.liveState.querySelector("span").textContent = label;
+}
+
+function lastUpdatedLabel() {
+  if (!state.lastUpdatedAt) return state.liveConnected ? "Живые данные" : "Ожидание данных";
+  const elapsed = Math.max(0, Math.floor((Date.now() - state.lastUpdatedAt.getTime()) / 1000));
+  if (elapsed < 10) return state.liveConnected ? "Живые данные · сейчас" : "Polling · сейчас";
+  if (elapsed < 60) return `${state.liveConnected ? "Живые данные" : "Polling"} · ${elapsed} сек.`;
+  return `${state.liveConnected ? "Живые данные" : "Polling"} · ${Math.floor(elapsed / 60)} мин.`;
+}
+
+function updateLiveStateLabel() {
+  if (els.appShell.classList.contains("is-hidden")) return;
+  setLiveState(state.liveConnected ? "live" : "polling", lastUpdatedLabel());
+}
+
+function disconnectLiveUpdates() {
+  if (eventSource) eventSource.close();
+  if (liveRefreshTimer) window.clearTimeout(liveRefreshTimer);
+  eventSource = null;
+  liveRefreshTimer = null;
+  state.liveConnected = false;
+}
+
+function scheduleLiveRefresh() {
+  if (liveRefreshTimer) window.clearTimeout(liveRefreshTimer);
+  liveRefreshTimer = window.setTimeout(() => {
+    liveRefreshTimer = null;
+    refreshDevicesIfIdle().catch(() => setLiveState("polling", "Polling · 30 сек."));
+  }, 750);
+}
+
+function connectLiveUpdates() {
+  disconnectLiveUpdates();
+  if (!("EventSource" in window) || els.appShell.classList.contains("is-hidden")) {
+    setLiveState("polling", "Polling · 30 сек.");
+    return;
+  }
+  setLiveState("connecting", "Подключение");
+  eventSource = new EventSource("/api/events");
+  eventSource.addEventListener("ready", () => {
+    state.liveConnected = true;
+    setLiveState("live", lastUpdatedLabel());
+  });
+  eventSource.addEventListener("devices", () => {
+    if (document.visibilityState !== "visible") return;
+    scheduleLiveRefresh();
+  });
+  eventSource.onerror = () => {
+    state.liveConnected = false;
+    setLiveState("polling", "Polling · 30 сек.");
+  };
+}
+
 function inlineStateMarkup(title, description = "", tone = "neutral") {
   return `
     <div class="inline-state ${tone}">
@@ -314,6 +377,8 @@ async function api(path, options = {}) {
 }
 
 function showLogin(message = "") {
+  disconnectLiveUpdates();
+  document.title = "Вход — OpenWrt RMM";
   els.appShell.classList.add("is-hidden");
   els.appShell.hidden = true;
   els.appShell.setAttribute("aria-hidden", "true");
@@ -322,10 +387,12 @@ function showLogin(message = "") {
   els.loginView.removeAttribute("aria-hidden");
   els.loginError.textContent = message;
   els.loginPassword.value = "";
+  if (location.pathname === "/app") history.replaceState(null, "", `/login${location.hash}`);
   if (message) document.querySelector("#login")?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function showApp(user) {
+  document.title = "Кабинет — OpenWrt RMM";
   state.user = user || null;
   state.username = user && user.username ? user.username : "operator";
   const accountName = user && user.display_name ? user.display_name : state.username;
@@ -344,6 +411,8 @@ function showApp(user) {
   els.appShell.hidden = false;
   els.appShell.removeAttribute("aria-hidden");
   els.loginError.textContent = "";
+  if (location.pathname !== "/app") history.replaceState(null, "", `/app${location.hash}`);
+  connectLiveUpdates();
 }
 
 function formatLoadAverage(value) {
@@ -1224,7 +1293,9 @@ async function loadDevices() {
   if (state.selectedDeviceId) {
     await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
   }
-  setStatus(`Обновлено ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+  state.lastUpdatedAt = new Date();
+  updateLiveStateLabel();
+  setStatus(`Обновлено ${state.lastUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
 }
 
 async function selectDevice(id) {
@@ -2448,14 +2519,17 @@ checkHealth();
 checkSession();
 setInterval(() => {
   checkHealth();
-  if (!els.appShell.classList.contains("is-hidden")) {
+  if (!els.appShell.classList.contains("is-hidden") && !state.liveConnected) {
     refreshDevicesIfIdle().catch(reportError);
   }
 }, 30000);
+
+setInterval(updateLiveStateLabel, 10000);
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !els.appShell.classList.contains("is-hidden")) {
     checkHealth();
     refreshDevicesIfIdle().catch(reportError);
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) connectLiveUpdates();
   }
 });

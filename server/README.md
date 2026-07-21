@@ -60,6 +60,7 @@ Operator API:
 - `POST /api/enrollment-grants`
 
 - `GET /api/devices`
+- `GET /api/events` (authenticated SSE stream; the client reloads user-scoped data on change)
 - `GET /api/devices/{id}`
 - `POST /api/devices/{id}/transfer`
 - `POST /api/devices/{id}/commands`

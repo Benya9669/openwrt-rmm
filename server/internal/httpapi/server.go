@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -114,6 +115,7 @@ type App struct {
 	loginLimiter          *loginRateLimiter
 	passwordResetLimiter  *loginRateLimiter
 	loginSlots            chan struct{}
+	events                *eventHub
 }
 
 type contextKey string
@@ -273,6 +275,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		loginLimiter:          newLoginRateLimiter(5, 5*time.Minute),
 		passwordResetLimiter:  newLoginRateLimiter(3, time.Hour),
 		loginSlots:            make(chan struct{}, 4),
+		events:                newEventHub(),
 	}
 	if a.tunnelHTTPHost == "" {
 		a.tunnelHTTPHost = "tunnel-ssh"
@@ -303,6 +306,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.HandleFunc("POST /api/agent/commands/next", a.handleNextCommand)
 	mux.HandleFunc("POST /api/agent/commands/", a.handleCommandResult)
 	mux.Handle("GET /api/devices", a.operatorAuth(http.HandlerFunc(a.handleListDevices)))
+	mux.Handle("GET /api/events", a.operatorAuth(http.HandlerFunc(a.handleEvents)))
 	mux.Handle("POST /api/devices/bulk-commands", a.operatorAuth(http.HandlerFunc(a.handleCreateBulkCommand)))
 	mux.Handle("GET /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("POST /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
@@ -377,6 +381,7 @@ func (a *App) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if _, _, err := a.refreshDeviceAlerts(r.Context(), req.DeviceID); err != nil {
 		log.Printf("refresh alerts for %s: %v", req.DeviceID, err)
 	}
+	a.events.publish("devices")
 
 	writeJSON(w, http.StatusOK, heartbeatResponse{Commands: commands})
 }
@@ -451,6 +456,7 @@ func (a *App) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 		"status":     status,
 		"request_id": requestID(r.Context()),
 	}))
+	a.events.publish("devices")
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -516,6 +522,7 @@ func (a *App) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "device.delete", id, "", mustJSON(map[string]string{
 		"request_id": requestID(r.Context()),
 	}))
+	a.events.publish("devices")
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
@@ -640,6 +647,7 @@ func (a *App) handleUpdateDeviceFleet(w http.ResponseWriter, r *http.Request) {
 		"request_id": requestID(r.Context()),
 	}))
 	a.decorateDevice(&d)
+	a.events.publish("devices")
 	writeJSON(w, http.StatusOK, d)
 }
 
@@ -719,6 +727,7 @@ func (a *App) handleAcknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		"type":       alert.Type,
 		"request_id": requestID(r.Context()),
 	}))
+	a.events.publish("devices")
 	writeJSON(w, http.StatusOK, alert)
 }
 
@@ -745,6 +754,7 @@ func (a *App) handlePurgeDeviceAlerts(w http.ResponseWriter, r *http.Request) {
 		"deleted":    deleted,
 		"request_id": requestID(r.Context()),
 	}))
+	a.events.publish("devices")
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
@@ -1037,6 +1047,7 @@ func (a *App) handleCreateCommand(w http.ResponseWriter, r *http.Request) {
 		"type":       req.Type,
 		"request_id": requestID(r.Context()),
 	}))
+	a.events.publish("devices")
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -1090,6 +1101,7 @@ func (a *App) handleCreateBulkCommand(w http.ResponseWriter, r *http.Request) {
 			"request_id": requestID(r.Context()),
 		}))
 	}
+	a.events.publish("devices")
 	writeJSON(w, http.StatusCreated, map[string]any{"commands": commands})
 }
 
@@ -1155,6 +1167,7 @@ func (a *App) handleCancelCommand(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "command.cancel", deviceID, commandID, mustJSON(map[string]string{
 		"request_id": requestID(r.Context()),
 	}))
+	a.events.publish("devices")
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -1181,6 +1194,7 @@ func (a *App) handlePurgeDeviceCommands(w http.ResponseWriter, r *http.Request) 
 		"deleted":    deleted,
 		"request_id": requestID(r.Context()),
 	}))
+	a.events.publish("devices")
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
@@ -1918,6 +1932,10 @@ type statusRecorder struct {
 	status int
 }
 
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
@@ -1986,20 +2004,24 @@ func logStructured(fields map[string]any) {
 func staticHandler(dir string) http.Handler {
 	fs := http.FileServer(http.Dir(dir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
-		if path == "." {
-			path = "index.html"
+		requestPath := path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
+		assetPath := strings.TrimPrefix(requestPath, "/")
+		switch requestPath {
+		case "/":
+			assetPath = "landing.html"
+		case "/login", "/app":
+			assetPath = "index.html"
 		}
-		fullPath := filepath.Join(dir, path)
+		fullPath := filepath.Join(dir, filepath.FromSlash(assetPath))
 		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
-			fs.ServeHTTP(w, r)
+			if strings.HasSuffix(assetPath, ".html") {
+				w.Header().Set("Cache-Control", "no-cache")
+				http.ServeFile(w, r, fullPath)
+			} else {
+				fs.ServeHTTP(w, r)
+			}
 			return
 		}
-		indexPath := filepath.Join(dir, "index.html")
-		if _, err := os.Stat(indexPath); err != nil {
-			writeError(w, http.StatusNotFound, "not found")
-			return
-		}
-		http.ServeFile(w, r, indexPath)
+		writeError(w, http.StatusNotFound, "not found")
 	})
 }

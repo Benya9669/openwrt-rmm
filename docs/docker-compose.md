@@ -122,6 +122,11 @@ temporary password from the profile dialog. Every user receives routers through 
 own one-time enrollment grants. A router can be transferred from its Expert tab after
 the current user confirms their password; active LuCI access is closed during transfer.
 
+The public landing page is served at `/`, sign-in and password recovery at `/login`, and
+the authenticated cabinet at `/app`. Live updates use authenticated Server-Sent Events
+at `/api/events`. The server disables proxy buffering and sends keep-alives every 20
+seconds; if a proxy interrupts the stream, the browser falls back to a 30-second poll.
+
 View logs:
 
 ```powershell

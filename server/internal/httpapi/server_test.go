@@ -642,7 +642,10 @@ func TestLuCIProxyRequiresActiveSessionAndRewritesPaths(t *testing.T) {
 
 func TestServesStaticWebUI(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><title>RMM UI</title>"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><title>RMM App</title>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "landing.html"), []byte("<!doctype html><title>RMM Landing</title>"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -669,8 +672,77 @@ func TestServesStaticWebUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(data), "RMM UI") {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(data), "RMM Landing") {
 		t.Fatalf("unexpected static response %d: %s", resp.StatusCode, data)
+	}
+
+	for _, path := range []string{"/login", "/app"} {
+		appResp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appData, readErr := io.ReadAll(appResp.Body)
+		_ = appResp.Body.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if appResp.StatusCode != http.StatusOK || !strings.Contains(string(appData), "RMM App") {
+			t.Fatalf("unexpected app response for %s: %d %s", path, appResp.StatusCode, appData)
+		}
+	}
+
+	missingResp, err := http.Get(srv.URL + "/missing-page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = missingResp.Body.Close()
+	if missingResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unexpected missing page response: %d", missingResp.StatusCode)
+	}
+}
+
+func TestLiveEventsRequireAuthenticationAndStream(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		OperatorToken: "operator-test",
+	}))
+	defer srv.Close()
+
+	unauthorized, err := http.Get(srv.URL + "/api/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = unauthorized.Body.Close()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unexpected unauthorized status: %d", unauthorized.StatusCode)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer operator-test")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		_ = resp.Body.Close()
+		cancel()
+		t.Fatalf("unexpected event stream response: %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	buffer := make([]byte, 64)
+	n, readErr := resp.Body.Read(buffer)
+	cancel()
+	_ = resp.Body.Close()
+	if readErr != nil || !strings.Contains(string(buffer[:n]), "event: ready") {
+		t.Fatalf("unexpected initial event: %q (%v)", buffer[:n], readErr)
 	}
 }
 

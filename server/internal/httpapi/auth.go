@@ -214,7 +214,7 @@ func (a *App) handlePasswordResetRequest(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusInternalServerError, "failed to start password recovery")
 			return
 		}
-		resetURL := a.publicURL + "/#password-reset=" + url.QueryEscape(token)
+		resetURL := a.publicURL + "/login#password-reset=" + url.QueryEscape(token)
 		go func(userID, recipient, targetURL string) {
 			if err := a.passwordResetSender.SendPasswordReset(context.Background(), recipient, targetURL); err != nil {
 				log.Printf("password reset email delivery failed for user %s: %v", userID, err)
