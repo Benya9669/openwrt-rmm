@@ -1,7 +1,8 @@
 # OpenWrt RMM Agent
 
-Current stable Go agent: `0.5.2`. It reports runtime health, pending command results,
-and the last heartbeat transport error after connectivity is restored.
+Current stable Go agent: `0.6.0`. It reports runtime health, pending command results,
+the last heartbeat transport error after connectivity is restored, and optionally keeps
+the router's direct DNS addresses current.
 
 Production Go agent for OpenWrt, with the shell implementation retained as a fallback runtime.
 
@@ -28,6 +29,10 @@ SERVER_URL="https://rmm.example.com"
 ENROLLMENT_TOKEN="paste-a-one-time-grant-from-your-account"
 INTERVAL_SECONDS="30"
 TUNNEL_IDENTITY_FILE="/etc/rmm-agent/tunnel_key"
+DIRECT_DNS_ENABLED="false"
+DNS_UPDATE_INTERVAL_SECONDS="300"
+PUBLIC_IPV4_URL="https://api.ipify.org"
+PUBLIC_IPV6_URL="https://api6.ipify.org"
 ```
 
 After enrollment the agent writes:
@@ -78,6 +83,19 @@ The Go agent is available as the production OpenWrt package and supports the mig
 - `remote_ssh_close`
 
 Other queued commands are reported as failed with a clear message.
+
+### Direct DNS updates
+
+Direct DNS reporting is opt-in. When enabled, the agent queries the configured HTTPS
+endpoints in parallel, validates that their responses are public IPv4/IPv6 addresses, and
+sends the complete address state through `/api/agent/dns/update` using its existing device
+token. A successful update is refreshed every five minutes by default; failures retry after
+one minute and do not make the main heartbeat unhealthy.
+
+The default discovery endpoints are operated by ipify. Clear the IPv6 URL on routers without
+public IPv6, or replace either endpoint with trusted HTTPS services under your control. The
+agent refuses HTTP URLs, embedded URL credentials, redirects, oversized responses, and
+private or reserved addresses.
 
 Build locally:
 

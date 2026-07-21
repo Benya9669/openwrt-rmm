@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.5.2"
+const agentVersion = "0.6.0"
 
 type agentRuntimeHealth struct {
 	StartedAt            time.Time
@@ -31,6 +31,9 @@ type agentRuntimeHealth struct {
 	LastHeartbeatError   string
 	LastHeartbeatErrorAt time.Time
 	LastHeartbeatSuccess time.Time
+	LastDNSUpdateError   string
+	LastDNSUpdateErrorAt time.Time
+	LastDNSUpdateSuccess time.Time
 }
 
 func (h *agentRuntimeHealth) recordFailure(err error) {
@@ -47,6 +50,20 @@ func (h *agentRuntimeHealth) recordSuccess() {
 	h.LastHeartbeatSuccess = time.Now().UTC()
 }
 
+func (h *agentRuntimeHealth) recordDirectDNSUpdate(err error) {
+	if err == nil {
+		h.LastDNSUpdateSuccess = time.Now().UTC()
+		h.LastDNSUpdateError = ""
+		h.LastDNSUpdateErrorAt = time.Time{}
+		return
+	}
+	h.LastDNSUpdateError = strings.TrimSpace(err.Error())
+	if len(h.LastDNSUpdateError) > 512 {
+		h.LastDNSUpdateError = h.LastDNSUpdateError[:512]
+	}
+	h.LastDNSUpdateErrorAt = time.Now().UTC()
+}
+
 func (h *agentRuntimeHealth) snapshot(spoolDir string) map[string]any {
 	result := map[string]any{
 		"started_at":           h.StartedAt.UTC().Format(time.RFC3339),
@@ -59,6 +76,13 @@ func (h *agentRuntimeHealth) snapshot(spoolDir string) map[string]any {
 	if h.LastHeartbeatError != "" {
 		result["last_heartbeat_error"] = h.LastHeartbeatError
 		result["last_heartbeat_error_at"] = h.LastHeartbeatErrorAt.UTC().Format(time.RFC3339)
+	}
+	if !h.LastDNSUpdateSuccess.IsZero() {
+		result["last_dns_update_success_at"] = h.LastDNSUpdateSuccess.UTC().Format(time.RFC3339)
+	}
+	if h.LastDNSUpdateError != "" {
+		result["last_dns_update_error"] = h.LastDNSUpdateError
+		result["last_dns_update_error_at"] = h.LastDNSUpdateErrorAt.UTC().Format(time.RFC3339)
 	}
 	return result
 }
@@ -77,6 +101,10 @@ type config struct {
 	CheckTargets     []string
 	HostnameOverride string
 	HostnameSuffix   string
+	DirectDNSEnabled bool
+	DNSUpdateSeconds int
+	PublicIPv4URL    string
+	PublicIPv6URL    string
 	ConfigFile       string
 }
 
@@ -138,6 +166,7 @@ func main() {
 
 	backoff := time.Duration(cfg.IntervalSeconds) * time.Second
 	health := &agentRuntimeHealth{StartedAt: time.Now().UTC()}
+	dnsState := directDNSUpdateState{}
 	for {
 		if err := heartbeatOnce(ctx, client, cfg, health.snapshot(cfg.SpoolDir)); err != nil {
 			health.recordFailure(err)
@@ -149,6 +178,14 @@ func main() {
 		} else {
 			health.recordSuccess()
 			backoff = time.Duration(cfg.IntervalSeconds) * time.Second
+			if cfg.DirectDNSEnabled && dnsState.due(time.Now()) {
+				err := updateDirectDNS(ctx, client, cfg)
+				health.recordDirectDNSUpdate(err)
+				dnsState.schedule(time.Now(), time.Duration(cfg.DNSUpdateSeconds)*time.Second, err)
+				if err != nil {
+					logf("direct DNS update warning: %v", err)
+				}
+			}
 		}
 		if *once {
 			return
@@ -176,6 +213,10 @@ func loadConfig(path string) (config, error) {
 		CheckTargets:     splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
 		HostnameOverride: os.Getenv("HOSTNAME_OVERRIDE"),
 		HostnameSuffix:   os.Getenv("HOSTNAME_SUFFIX"),
+		DirectDNSEnabled: boolDefault(os.Getenv("DIRECT_DNS_ENABLED"), false),
+		DNSUpdateSeconds: intDefault(os.Getenv("DNS_UPDATE_INTERVAL_SECONDS"), 300),
+		PublicIPv4URL:    envDefault("PUBLIC_IPV4_URL", "https://api.ipify.org"),
+		PublicIPv6URL:    envDefault("PUBLIC_IPV6_URL", "https://api6.ipify.org"),
 		ConfigFile:       path,
 	}
 	data, err := os.ReadFile(path)
@@ -225,9 +266,27 @@ func loadConfig(path string) (config, error) {
 	if value := values["HOSTNAME_SUFFIX"]; value != "" {
 		cfg.HostnameSuffix = value
 	}
+	if value, ok := values["DIRECT_DNS_ENABLED"]; ok {
+		cfg.DirectDNSEnabled = boolDefault(value, cfg.DirectDNSEnabled)
+	}
+	if value := values["DNS_UPDATE_INTERVAL_SECONDS"]; value != "" {
+		cfg.DNSUpdateSeconds = intDefault(value, cfg.DNSUpdateSeconds)
+	}
+	if value, ok := values["PUBLIC_IPV4_URL"]; ok {
+		cfg.PublicIPv4URL = strings.TrimSpace(value)
+	}
+	if value, ok := values["PUBLIC_IPV6_URL"]; ok {
+		cfg.PublicIPv6URL = strings.TrimSpace(value)
+	}
 	cfg.ServerURL = strings.TrimRight(cfg.ServerURL, "/")
 	if cfg.IntervalSeconds <= 0 {
 		cfg.IntervalSeconds = 30
+	}
+	if cfg.DNSUpdateSeconds < 60 || cfg.DNSUpdateSeconds > 86400 {
+		cfg.DNSUpdateSeconds = 300
+	}
+	if cfg.DirectDNSEnabled && cfg.PublicIPv4URL == "" && cfg.PublicIPv6URL == "" {
+		return cfg, errors.New("direct DNS requires at least one public IP discovery URL")
 	}
 	return cfg, nil
 }
@@ -259,6 +318,10 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "BACKUP_DIR", cfg.BackupDir)
 	writeConfigLine(&b, "TUNNEL_IDENTITY_FILE", cfg.TunnelIdentity)
 	writeConfigLine(&b, "TUNNEL_STATE_DIR", cfg.TunnelStateDir)
+	writeConfigLine(&b, "DIRECT_DNS_ENABLED", strconv.FormatBool(cfg.DirectDNSEnabled))
+	writeConfigLine(&b, "DNS_UPDATE_INTERVAL_SECONDS", strconv.Itoa(cfg.DNSUpdateSeconds))
+	writeConfigLine(&b, "PUBLIC_IPV4_URL", cfg.PublicIPv4URL)
+	writeConfigLine(&b, "PUBLIC_IPV6_URL", cfg.PublicIPv6URL)
 	if cfg.HostnameOverride != "" {
 		writeConfigLine(&b, "HOSTNAME_OVERRIDE", cfg.HostnameOverride)
 	}
@@ -1736,6 +1799,17 @@ func intDefault(value string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func boolDefault(value string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func splitWords(value string) []string {

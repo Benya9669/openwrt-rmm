@@ -78,7 +78,11 @@ When the variable is unset, this endpoint responds with `404`. Its response has
 `Cache-Control: no-store` and contains only enabled records that have at least one public
 address.
 
-This implements the data and security foundation only. Publishing records to an
-authoritative DNS provider, public-address discovery in the Go agent, reachability checks,
-router-side certificate issuance, firewall policy, and the user interface remain separate
-follow-up stages. Cloud-mode LuCI names continue to work unchanged.
+Go agent `0.6.0` adds opt-in public-address discovery and periodic authenticated updates.
+It can be configured from LuCI and uses separate HTTPS endpoints for IPv4 and IPv6. Direct
+DNS is disabled by default and does not affect heartbeat health when a discovery service is
+temporarily unavailable.
+
+Publishing records to an authoritative DNS provider, reachability checks, router-side
+certificate issuance, firewall policy, and the RMM web interface remain separate follow-up
+stages. Cloud-mode LuCI names continue to work unchanged.
