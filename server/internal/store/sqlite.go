@@ -332,12 +332,6 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 			return err
 		}
 	}
-	if _, err := s.db.ExecContext(ctx, `
-INSERT OR IGNORE INTO device_dns_records (device_id, created_at, updated_at)
-SELECT id, created_at, created_at FROM devices
-`); err != nil {
-		return err
-	}
 	return s.migrateDeviceTokens(ctx)
 }
 
@@ -379,9 +373,6 @@ INSERT INTO devices (id, token, token_hash, owner_user_id, dns_label, hostname, 
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `, id, "redacted:"+id, TokenHash(token), ownerUserID, dnsLabel, hostname, openwrtVersion, now)
 	if err != nil {
-		return EnrolledDevice{}, err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO device_dns_records (device_id, created_at, updated_at) VALUES (?, ?, ?)`, id, now, now); err != nil {
 		return EnrolledDevice{}, err
 	}
 	if err := tx.Commit(); err != nil {

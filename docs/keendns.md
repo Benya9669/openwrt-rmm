@@ -60,41 +60,9 @@ remain available only under the expert settings.
 Do not enable `RMM_ALLOW_LEGACY_LUCI_PROXY` in production. It exists only for migration
 from the old same-origin `/luci/...` route.
 
-## Direct DNS mode backend
+## Cloud-only addressing
 
-The server now keeps a separate direct-DNS record for every enrolled router: unique DNS
-label, public IPv4/IPv6 addresses, TTL, enabled state, last agent update, and the latest
-100 address changes. Existing devices receive a record automatically during database
-migration. A transfer to another account clears the addresses and history and disables
-publishing, so the previous owner's WAN data is not exposed.
-
-Only the router's own device token can update its addresses. Private, loopback,
-link-local, documentation, benchmark, CGNAT, multicast, and otherwise non-public
-addresses are rejected. Updates are limited to 30 authenticated attempts per router per
-minute. Browser APIs retain the normal per-user device isolation and record all settings
-changes in the audit log.
-
-An authoritative DNS synchronizer can read enabled records through a separate bearer
-credential. Generate a random secret of at least 32 characters and keep it outside Git:
-
-```text
-RMM_DNS_SYNC_TOKEN=<random-secret>
-```
-
-```http
-GET /api/internal/dns/records
-Authorization: Bearer <RMM_DNS_SYNC_TOKEN>
-```
-
-When the variable is unset, this endpoint responds with `404`. Its response has
-`Cache-Control: no-store` and contains only enabled records that have at least one public
-address.
-
-Go agent `0.6.0` adds opt-in public-address discovery and periodic authenticated updates.
-It can be configured from LuCI and uses separate HTTPS endpoints for IPv4 and IPv6. Direct
-DNS is disabled by default and does not affect heartbeat health when a discovery service is
-temporarily unavailable.
-
-Publishing records to an authoritative DNS provider, reachability checks, router-side
-certificate issuance, firewall policy, and the RMM web interface remain separate follow-up
-stages. Cloud-mode LuCI names continue to work unchanged.
+Device names always resolve to the RMM reverse proxy. The agent never discovers or
+publishes the router's public WAN addresses, and users do not need inbound firewall rules.
+Legacy direct-DNS database tables are retained only for non-destructive upgrades and are
+not exposed through the API or populated for new devices.

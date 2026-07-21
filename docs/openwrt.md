@@ -20,10 +20,6 @@ ENROLLMENT_TOKEN="paste-a-one-time-grant-from-your-account"
 INTERVAL_SECONDS="30"
 CHECK_TARGETS="1.1.1.1 8.8.8.8"
 TUNNEL_IDENTITY_FILE="/etc/rmm-agent/tunnel_key"
-DIRECT_DNS_ENABLED="false"
-DNS_UPDATE_INTERVAL_SECONDS="300"
-PUBLIC_IPV4_URL="https://api.ipify.org"
-PUBLIC_IPV6_URL="https://api6.ipify.org"
 EOF
 chmod 600 /etc/rmm-agent.conf
 ```
@@ -122,11 +118,6 @@ curl -i http://10.10.10.2:18080/healthz
 ```
 
 Do not use `127.0.0.1` from the router for the RMM server unless the server is running on the router itself.
-
-The production Go agent can update the direct DNS backend. Enable it in LuCI under
-**Services -> RMM agent -> Direct DNS**, or set `DIRECT_DNS_ENABLED="true"` manually.
-The feature uses HTTPS-only address discovery and is disabled by default because enabling
-it sends the router's public IP address to the configured discovery services and RMM.
 
 The shell agent redacts sensitive command output keys before sending command results to the server. This is a defense-in-depth measure; the server also redacts before storing results.
 

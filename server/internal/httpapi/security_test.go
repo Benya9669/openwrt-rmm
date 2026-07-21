@@ -169,8 +169,8 @@ func TestPasswordResetIsOneTimeAndRevokesSessions(t *testing.T) {
 	}, http.StatusOK, nil)
 }
 
-func TestDNSRecordsAreIsolatedAndUpdatedByOwningAgent(t *testing.T) {
-	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "dns-security.db"))
+func TestDirectDNSRoutesAreRemoved(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "cloud-only.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,94 +179,11 @@ func TestDNSRecordsAreIsolatedAndUpdatedByOwningAgent(t *testing.T) {
 	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
 		OperatorUsername: "admin",
 		OperatorPassword: "correct-horse-battery-staple",
-		DeviceDomain:     "routers.example.test",
-		DNSSyncToken:     "dns-sync-secret",
 	}))
 	defer srv.Close()
-	admin := authenticatedClient(t, srv.URL, "admin", "correct-horse-battery-staple")
-	for username, password := range map[string]string{"alice": "alice-password-long", "bob": "bob-password-long"} {
-		authRequestJSON(t, admin, http.MethodPost, srv.URL+"/api/users", map[string]any{
-			"username": username, "password": password, "role": "user",
-		}, http.StatusCreated, nil)
-	}
-	alice := authenticatedClient(t, srv.URL, "alice", "alice-password-long")
-	bob := authenticatedClient(t, srv.URL, "bob", "bob-password-long")
-	aliceDevice := enrollForClient(t, srv.URL, alice, "alice-router", "alice-edge")
-	bobDevice := enrollForClient(t, srv.URL, bob, "bob-router", "bob-edge")
 
-	var aliceRecords struct {
-		Records []model.DNSRecord `json:"records"`
-	}
-	authRequestJSON(t, alice, http.MethodGet, srv.URL+"/api/dns/records", nil, http.StatusOK, &aliceRecords)
-	if len(aliceRecords.Records) != 1 || aliceRecords.Records[0].DeviceID != aliceDevice.DeviceID {
-		t.Fatalf("alice received DNS records outside her account: %#v", aliceRecords.Records)
-	}
-	authRequestJSON(t, bob, http.MethodGet, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/dns", nil, http.StatusNotFound, nil)
-	authRequestJSON(t, alice, http.MethodPatch, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/dns", map[string]any{
-		"dns_label": "bob-edge",
-	}, http.StatusConflict, nil)
-	var settings model.DNSRecord
-	authRequestJSON(t, alice, http.MethodPatch, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/dns", map[string]any{
-		"ttl": 120, "enabled": true,
-	}, http.StatusOK, &settings)
-	if settings.TTL != 120 || !settings.Enabled {
-		t.Fatalf("unexpected DNS settings: %#v", settings)
-	}
-
-	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/dns/update", aliceDevice.DeviceToken, map[string]any{
-		"device_id": aliceDevice.DeviceID, "ipv4": "192.168.1.2",
-	}, http.StatusBadRequest, nil)
-	var update struct {
-		Record  model.DNSRecord `json:"record"`
-		Changed bool            `json:"changed"`
-	}
-	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/dns/update", aliceDevice.DeviceToken, map[string]any{
-		"device_id": aliceDevice.DeviceID, "ipv4": "8.8.8.8", "ipv6": "2606:4700:4700::1111",
-	}, http.StatusOK, &update)
-	if !update.Changed || update.Record.DomainName != "alice-edge.routers.example.test" || update.Record.IPv4 != "8.8.8.8" {
-		t.Fatalf("unexpected DNS update: %#v", update)
-	}
-	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/dns/update", bobDevice.DeviceToken, map[string]any{
-		"device_id": aliceDevice.DeviceID, "ipv4": "1.1.1.1",
-	}, http.StatusUnauthorized, nil)
-
-	var history struct {
-		History []model.DNSAddressHistory `json:"history"`
-	}
-	authRequestJSON(t, alice, http.MethodGet, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/dns/history", nil, http.StatusOK, &history)
-	if len(history.History) != 1 || history.History[0].Source != "agent" {
-		t.Fatalf("unexpected DNS history: %#v", history.History)
-	}
-	var published struct {
-		Records []model.DNSRecord `json:"records"`
-	}
-	requestJSON(t, http.MethodGet, srv.URL+"/api/internal/dns/records", "wrong-token", nil, http.StatusUnauthorized, nil)
-	requestJSON(t, http.MethodGet, srv.URL+"/api/internal/dns/records", "dns-sync-secret", nil, http.StatusOK, &published)
-	if len(published.Records) != 1 || published.Records[0].DeviceID != aliceDevice.DeviceID {
-		t.Fatalf("unexpected publishable records: %#v", published.Records)
-	}
-	for range 28 {
-		requestJSON(t, http.MethodPost, srv.URL+"/api/agent/dns/update", aliceDevice.DeviceToken, map[string]any{
-			"device_id": aliceDevice.DeviceID, "ipv4": "8.8.8.8", "ipv6": "2606:4700:4700::1111",
-		}, http.StatusOK, nil)
-	}
-	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/dns/update", aliceDevice.DeviceToken, map[string]any{
-		"device_id": aliceDevice.DeviceID, "ipv4": "8.8.8.8",
-	}, http.StatusTooManyRequests, nil)
-
-	authRequestJSON(t, alice, http.MethodPost, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/transfer", map[string]any{
-		"target_username": "bob", "current_password": "alice-password-long",
-	}, http.StatusOK, nil)
-	authRequestJSON(t, alice, http.MethodGet, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/dns", nil, http.StatusNotFound, nil)
-	var transferred model.DNSRecord
-	authRequestJSON(t, bob, http.MethodGet, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/dns", nil, http.StatusOK, &transferred)
-	if transferred.Enabled || transferred.IPv4 != "" || transferred.IPv6 != "" || transferred.LastAgentUpdateAt != nil {
-		t.Fatalf("transferred DNS state was not reset: %#v", transferred)
-	}
-	authRequestJSON(t, bob, http.MethodGet, srv.URL+"/api/devices/"+aliceDevice.DeviceID+"/dns/history", nil, http.StatusOK, &history)
-	if len(history.History) != 0 {
-		t.Fatalf("transferred DNS history was not cleared: %#v", history.History)
-	}
+	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/dns/update", "unused", map[string]any{}, http.StatusNotFound, nil)
+	requestJSON(t, http.MethodGet, srv.URL+"/api/internal/dns/records", "unused", nil, http.StatusNotFound, nil)
 }
 
 func TestDeviceDomainUsesOneTimeLuCIAccessGrant(t *testing.T) {

@@ -42,28 +42,6 @@ type EnrollmentGrant struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-type DNSRecord struct {
-	DeviceID          string     `json:"device_id"`
-	DNSLabel          string     `json:"dns_label"`
-	DomainName        string     `json:"domain_name,omitempty"`
-	IPv4              string     `json:"ipv4,omitempty"`
-	IPv6              string     `json:"ipv6,omitempty"`
-	TTL               int        `json:"ttl"`
-	Enabled           bool       `json:"enabled"`
-	LastAgentUpdateAt *time.Time `json:"last_agent_update_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
-}
-
-type DNSAddressHistory struct {
-	ID        string    `json:"id"`
-	DeviceID  string    `json:"device_id"`
-	IPv4      string    `json:"ipv4,omitempty"`
-	IPv6      string    `json:"ipv6,omitempty"`
-	Source    string    `json:"source"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 type Command struct {
 	ID           string          `json:"id"`
 	DeviceID     string          `json:"device_id"`

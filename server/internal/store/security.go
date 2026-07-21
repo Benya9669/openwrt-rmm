@@ -465,9 +465,6 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	if err != nil {
 		return EnrolledDevice{}, false, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO device_dns_records (device_id, created_at, updated_at) VALUES (?, ?, ?)`, id, now, now); err != nil {
-		return EnrolledDevice{}, false, err
-	}
 	if err := tx.Commit(); err != nil {
 		return EnrolledDevice{}, false, err
 	}

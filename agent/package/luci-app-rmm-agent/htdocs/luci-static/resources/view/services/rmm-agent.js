@@ -18,12 +18,6 @@ var callRcInit = rpc.declare({
 	params: [ 'name', 'action' ]
 });
 
-function validateDiscoveryURL(sectionId, value) {
-	if (!value || /^https:\/\/[A-Za-z0-9.-]+(?::[0-9]+)?(?:\/.*)?$/.test(value))
-		return true;
-	return _('Public IP discovery must use an HTTPS URL without embedded credentials.');
-}
-
 return view.extend({
 	load: function() {
 		return Promise.all([ uci.load('rmm-agent'), callServiceList('rmm-agent') ]);
@@ -75,36 +69,6 @@ return view.extend({
 		option = section.option(form.Value, 'check_targets', _('Connectivity check targets'));
 		option.placeholder = '1.1.1.1 8.8.8.8';
 		option.rmempty = false;
-
-		section = map.section(form.NamedSection, 'main', 'agent', _('Direct DNS'));
-		section.anonymous = true;
-		section.addremove = false;
-
-		option = section.option(form.Flag, 'direct_dns_enabled', _('Update public DNS addresses'));
-		option.default = '0';
-		option.rmempty = false;
-		option.description = _('Opt-in feature for Go agent 0.6.0 or newer. The router periodically reports its public addresses to RMM.');
-
-		option = section.option(form.Value, 'dns_update_interval_seconds', _('Update interval'));
-		option.datatype = 'range(60,86400)';
-		option.default = '300';
-		option.rmempty = false;
-		option.depends('direct_dns_enabled', '1');
-
-		option = section.option(form.Value, 'public_ipv4_url', _('Public IPv4 discovery URL'));
-		option.placeholder = 'https://api.ipify.org';
-		option.default = 'https://api.ipify.org';
-		option.rmempty = false;
-		option.depends('direct_dns_enabled', '1');
-		option.validate = validateDiscoveryURL;
-
-		option = section.option(form.Value, 'public_ipv6_url', _('Public IPv6 discovery URL'));
-		option.placeholder = 'https://api6.ipify.org';
-		option.default = 'https://api6.ipify.org';
-		option.rmempty = true;
-		option.description = _('Clear this field on routers without public IPv6.');
-		option.depends('direct_dns_enabled', '1');
-		option.validate = validateDiscoveryURL;
 
 		section = map.section(form.NamedSection, 'main', 'agent', _('Advanced settings'));
 		section.anonymous = true;

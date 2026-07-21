@@ -34,5 +34,5 @@ opkg install /tmp/rmm-agent-go-production_*.ipk
 
 This package is intended for the final shell-to-Go migration when the router should keep the same RMM object identity.
 
-Version `0.6.0` supports opt-in direct DNS updates through the UCI/LuCI settings supplied
-by `luci-app-rmm-agent` `0.2.0`.
+Version `0.6.1` uses the cloud tunnel exclusively and no longer discovers or publishes the
+router's public WAN addresses.
