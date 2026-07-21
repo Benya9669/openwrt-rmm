@@ -48,9 +48,37 @@ docker compose -f compose.yaml -f compose.proxy.yaml -f compose.keendns.yaml up 
 Do not enable `RMM_ALLOW_LEGACY_LUCI_PROXY` in production. It exists only for migration
 from the old same-origin `/luci/...` route.
 
-## Future direct mode
+## Direct DNS mode backend
 
-A direct mode can later publish a router's verified public WAN address and update it when
-the agent reports a change. That mode needs authoritative DNS-provider integration,
-reachability checks, certificate issuance on the router, and explicit firewall policy;
-it is intentionally not mixed into the cloud-mode security boundary.
+The server now keeps a separate direct-DNS record for every enrolled router: unique DNS
+label, public IPv4/IPv6 addresses, TTL, enabled state, last agent update, and the latest
+100 address changes. Existing devices receive a record automatically during database
+migration. A transfer to another account clears the addresses and history and disables
+publishing, so the previous owner's WAN data is not exposed.
+
+Only the router's own device token can update its addresses. Private, loopback,
+link-local, documentation, benchmark, CGNAT, multicast, and otherwise non-public
+addresses are rejected. Updates are limited to 30 authenticated attempts per router per
+minute. Browser APIs retain the normal per-user device isolation and record all settings
+changes in the audit log.
+
+An authoritative DNS synchronizer can read enabled records through a separate bearer
+credential. Generate a random secret of at least 32 characters and keep it outside Git:
+
+```text
+RMM_DNS_SYNC_TOKEN=<random-secret>
+```
+
+```http
+GET /api/internal/dns/records
+Authorization: Bearer <RMM_DNS_SYNC_TOKEN>
+```
+
+When the variable is unset, this endpoint responds with `404`. Its response has
+`Cache-Control: no-store` and contains only enabled records that have at least one public
+address.
+
+This implements the data and security foundation only. Publishing records to an
+authoritative DNS provider, public-address discovery in the Go agent, reachability checks,
+router-side certificate issuance, firewall policy, and the user interface remain separate
+follow-up stages. Cloud-mode LuCI names continue to work unchanged.

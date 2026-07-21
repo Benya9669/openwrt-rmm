@@ -260,43 +260,6 @@ func (a *App) handleCreateEnrollmentGrant(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (a *App) handleUpdateDeviceDNS(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) != 4 {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	var req dnsLabelRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	label := strings.ToLower(strings.TrimSpace(req.DNSLabel))
-	if !dnsLabelPattern.MatchString(label) {
-		writeError(w, http.StatusBadRequest, "dns_label must be a valid single DNS label")
-		return
-	}
-	device, found, err := a.store.UpdateDeviceDNSLabel(r.Context(), parts[2], label)
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") || strings.Contains(strings.ToLower(err.Error()), "reserved") {
-			writeError(w, http.StatusConflict, "dns label is already in use")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to update dns label")
-		return
-	}
-	if !found {
-		writeError(w, http.StatusNotFound, "device not found")
-		return
-	}
-	a.decorateDevice(&device)
-	principal, _ := principalFromContext(r.Context())
-	_, _ = a.store.AddAuditEvent(r.Context(), principal.User.Username, "device.dns_update", device.ID, "", mustJSON(map[string]string{
-		"dns_label":  label,
-		"request_id": requestID(r.Context()),
-	}))
-	writeJSON(w, http.StatusOK, device)
-}
-
 func (a *App) decorateDevices(devices []model.Device) {
 	for index := range devices {
 		a.decorateDevice(&devices[index])

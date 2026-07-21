@@ -22,6 +22,7 @@ Environment variables:
 - `RMM_SMTP_SERVER_NAME` - optional TLS server name override
 - `RMM_COOKIE_SECURE` - defaults to `true` outside explicit development mode
 - `RMM_DEVICE_DOMAIN` - wildcard device domain, for example `routers.example.com`
+- `RMM_DNS_SYNC_TOKEN` - optional random bearer secret (at least 32 characters in production) for an authoritative DNS synchronizer
 - `RMM_ALLOW_LEGACY_ENROLLMENT` - opt-in shared enrollment compatibility mode
 - `RMM_METRIC_RETENTION_DAYS` - metric history retention, default `30`
 - `RMM_WEB_DIR` - static web UI directory, default `web`
@@ -42,6 +43,7 @@ Agent API:
 
 - `POST /api/agent/enroll`
 - `POST /api/agent/heartbeat`
+- `POST /api/agent/dns/update`
 - `POST /api/agent/commands/next`
 - `POST /api/agent/commands/{id}/result`
 
@@ -60,6 +62,9 @@ Operator API:
 - `POST /api/enrollment-grants`
 
 - `GET /api/devices`
+- `GET /api/dns/records`
+- `GET|PATCH /api/devices/{id}/dns`
+- `GET /api/devices/{id}/dns/history`
 - `GET /api/events` (authenticated SSE stream; the client reloads user-scoped data on change)
 - `GET /api/devices/{id}`
 - `POST /api/devices/{id}/transfer`

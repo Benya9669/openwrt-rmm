@@ -32,6 +32,13 @@ func main() {
 	if operatorToken != "" && !insecureDevMode && insecurePlaceholder(operatorToken) {
 		log.Fatal("RMM_OPERATOR_TOKEN still contains an insecure example value")
 	}
+	dnsSyncToken := strings.TrimSpace(os.Getenv("RMM_DNS_SYNC_TOKEN"))
+	if dnsSyncToken != "" && !insecureDevMode && insecurePlaceholder(dnsSyncToken) {
+		log.Fatal("RMM_DNS_SYNC_TOKEN still contains an insecure example value")
+	}
+	if dnsSyncToken != "" && !insecureDevMode && len(dnsSyncToken) < 32 {
+		log.Fatal("RMM_DNS_SYNC_TOKEN must be at least 32 characters")
+	}
 	allowLegacyEnrollment := envBool("RMM_ALLOW_LEGACY_ENROLLMENT", false)
 	enrollmentToken := ""
 	if allowLegacyEnrollment {
@@ -95,6 +102,7 @@ func main() {
 		PublicScheme:          env("RMM_PUBLIC_SCHEME", "https"),
 		PublicURL:             publicURL,
 		PasswordResetSender:   passwordResetSender,
+		DNSSyncToken:          dnsSyncToken,
 		StaticDir:             env("RMM_WEB_DIR", "web"),
 	})
 

@@ -233,6 +233,28 @@ CREATE TABLE IF NOT EXISTS enrollment_grants (
 	FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS device_dns_records (
+	device_id TEXT PRIMARY KEY,
+	ipv4 TEXT NOT NULL DEFAULT '',
+	ipv6 TEXT NOT NULL DEFAULT '',
+	ttl INTEGER NOT NULL DEFAULT 60 CHECK(ttl BETWEEN 30 AND 86400),
+	enabled INTEGER NOT NULL DEFAULT 1,
+	last_agent_update_at TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dns_address_history (
+	id TEXT PRIMARY KEY,
+	device_id TEXT NOT NULL,
+	ipv4 TEXT NOT NULL DEFAULT '',
+	ipv6 TEXT NOT NULL DEFAULT '',
+	source TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS device_access_grants (
 	token_hash TEXT PRIMARY KEY,
 	user_id TEXT NOT NULL,
@@ -301,6 +323,7 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`CREATE INDEX IF NOT EXISTS idx_operator_sessions_user_expires ON operator_sessions(user_id, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_expires ON password_reset_tokens(user_id, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_enrollment_grants_user_created ON enrollment_grants(user_id, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_dns_address_history_device_created ON dns_address_history(device_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_device_access_sessions_device_expires ON device_access_sessions(device_id, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_device_created_at ON remote_sessions(device_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_status_expires_at ON remote_sessions(status, expires_at)`,
@@ -308,6 +331,12 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
+	}
+	if _, err := s.db.ExecContext(ctx, `
+INSERT OR IGNORE INTO device_dns_records (device_id, created_at, updated_at)
+SELECT id, created_at, created_at FROM devices
+`); err != nil {
+		return err
 	}
 	return s.migrateDeviceTokens(ctx)
 }
@@ -339,11 +368,23 @@ func (s *Store) EnrollDevice(ctx context.Context, hostname, openwrtVersion strin
 		dnsLabel = generatedDNSLabel(hostname, id)
 	}
 
-	_, err = s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return EnrolledDevice{}, err
+	}
+	defer tx.Rollback()
+	now := nowText()
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO devices (id, token, token_hash, owner_user_id, dns_label, hostname, openwrt_version, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-`, id, "redacted:"+id, TokenHash(token), ownerUserID, dnsLabel, hostname, openwrtVersion, nowText())
+`, id, "redacted:"+id, TokenHash(token), ownerUserID, dnsLabel, hostname, openwrtVersion, now)
 	if err != nil {
+		return EnrolledDevice{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO device_dns_records (device_id, created_at, updated_at) VALUES (?, ?, ?)`, id, now, now); err != nil {
+		return EnrolledDevice{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return EnrolledDevice{}, err
 	}
 
@@ -605,6 +646,8 @@ func (s *Store) DeleteDevice(ctx context.Context, deviceID string) (bool, error)
 	}
 	defer tx.Rollback()
 	for _, stmt := range []string{
+		`DELETE FROM dns_address_history WHERE device_id = ?`,
+		`DELETE FROM device_dns_records WHERE device_id = ?`,
 		`DELETE FROM device_access_sessions WHERE device_id = ?`,
 		`DELETE FROM device_access_grants WHERE device_id = ?`,
 		`DELETE FROM remote_sessions WHERE device_id = ?`,

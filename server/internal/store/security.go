@@ -465,6 +465,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	if err != nil {
 		return EnrolledDevice{}, false, err
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO device_dns_records (device_id, created_at, updated_at) VALUES (?, ?, ?)`, id, now, now); err != nil {
+		return EnrolledDevice{}, false, err
+	}
 	if err := tx.Commit(); err != nil {
 		return EnrolledDevice{}, false, err
 	}
@@ -515,24 +518,6 @@ func (s *Store) GetDeviceByDNSLabel(ctx context.Context, dnsLabel string) (model
 	return device, err == nil, err
 }
 
-func (s *Store) UpdateDeviceDNSLabel(ctx context.Context, deviceID, dnsLabel string) (model.Device, bool, error) {
-	var reserved bool
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM enrollment_grants WHERE dns_label = ? AND used_at IS NULL AND julianday(expires_at) > julianday(?))`, dnsLabel, nowText()).Scan(&reserved); err != nil {
-		return model.Device{}, false, err
-	}
-	if reserved {
-		return model.Device{}, false, errors.New("dns label is reserved by an active enrollment grant")
-	}
-	result, err := s.db.ExecContext(ctx, `UPDATE devices SET dns_label = ? WHERE id = ?`, dnsLabel, deviceID)
-	if err != nil {
-		return model.Device{}, false, err
-	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return model.Device{}, false, nil
-	}
-	return s.GetDevice(ctx, deviceID)
-}
-
 func (s *Store) TransferDevice(ctx context.Context, deviceID, targetUserID, requesterUserID string, admin bool) (model.Device, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -576,7 +561,17 @@ WHERE device_id = ? AND status IN ('queued', 'claimed')
 	if _, err := tx.ExecContext(ctx, `
 UPDATE remote_sessions SET status = 'closed', closed_at = ?, updated_at = ?
 WHERE device_id = ? AND status IN ('requested', 'queued', 'active')
-`, now, now, deviceID); err != nil {
+	`, now, now, deviceID); err != nil {
+		return model.Device{}, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM dns_address_history WHERE device_id = ?`, deviceID); err != nil {
+		return model.Device{}, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE device_dns_records
+SET ipv4 = '', ipv6 = '', enabled = 0, last_agent_update_at = NULL, updated_at = ?
+WHERE device_id = ?
+`, now, deviceID); err != nil {
 		return model.Device{}, false, err
 	}
 	if err := tx.Commit(); err != nil {

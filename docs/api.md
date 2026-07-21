@@ -155,6 +155,60 @@ Response:
 }
 ```
 
+## Agent Direct DNS Update
+
+The agent may update only the device identified by its own bearer token. At least one
+public address is required; private and reserved ranges are rejected. The endpoint allows
+30 authenticated attempts per device per minute.
+
+```http
+POST /api/agent/dns/update
+Authorization: Bearer tok_...
+Content-Type: application/json
+
+{
+  "device_id": "dev_...",
+  "ipv4": "8.8.8.8",
+  "ipv6": "2606:4700:4700::1111"
+}
+```
+
+The update is the complete desired address state: omitting one address family clears its
+previous value. Use the router's actual public addresses in a real request.
+
+## Device DNS Records
+
+Authenticated users can access records only for routers in their account; administrators
+can access all records:
+
+```http
+GET /api/dns/records
+GET /api/devices/{device_id}/dns
+GET /api/devices/{device_id}/dns/history?limit=25
+PATCH /api/devices/{device_id}/dns
+```
+
+The settings request accepts any combination of these fields:
+
+```json
+{
+  "dns_label": "office-1",
+  "ttl": 60,
+  "enabled": true
+}
+```
+
+`dns_label` is globally unique and `ttl` must be between 30 and 86400 seconds. Transferring
+a router clears its address history and disables direct DNS until the new owner enables it.
+
+An external authoritative DNS synchronizer can fetch publishable records when
+`RMM_DNS_SYNC_TOKEN` is configured:
+
+```http
+GET /api/internal/dns/records
+Authorization: Bearer <RMM_DNS_SYNC_TOKEN>
+```
+
 ## Agent Next Command
 
 This endpoint is optimized for the MVP shell agent and returns at most one queued command as plain text.

@@ -48,7 +48,12 @@ type Store interface {
 	ListDevicesForUser(ctx context.Context, userID string, admin bool) ([]model.Device, error)
 	DeviceAccessible(ctx context.Context, deviceID, userID string, admin bool) (bool, error)
 	GetDeviceByDNSLabel(ctx context.Context, dnsLabel string) (model.Device, bool, error)
-	UpdateDeviceDNSLabel(ctx context.Context, deviceID, dnsLabel string) (model.Device, bool, error)
+	ListDNSRecordsForUser(ctx context.Context, userID string, admin bool) ([]model.DNSRecord, error)
+	ListPublishableDNSRecords(ctx context.Context) ([]model.DNSRecord, error)
+	GetDNSRecord(ctx context.Context, deviceID string) (model.DNSRecord, bool, error)
+	UpdateDNSRecordSettings(ctx context.Context, deviceID string, dnsLabel *string, ttl *int, enabled *bool) (model.DNSRecord, bool, error)
+	UpdateDNSAddresses(ctx context.Context, deviceID, ipv4, ipv6, source string) (model.DNSRecord, bool, bool, error)
+	ListDNSAddressHistory(ctx context.Context, deviceID string, limit int) ([]model.DNSAddressHistory, bool, error)
 	TransferDevice(ctx context.Context, deviceID, targetUserID, requesterUserID string, admin bool) (model.Device, bool, error)
 	CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, deviceID, remoteSessionID string, expiresAt time.Time) error
 	ConsumeDeviceAccessGrant(ctx context.Context, grantHash, sessionHash, dnsLabel string, sessionExpiresAt time.Time) (store.AccessRoute, bool, error)
@@ -96,6 +101,7 @@ type Config struct {
 	PublicScheme          string
 	PublicURL             string
 	PasswordResetSender   PasswordResetSender
+	DNSSyncToken          string
 	StaticDir             string
 }
 
@@ -114,8 +120,10 @@ type App struct {
 	passwordResetSender   PasswordResetSender
 	loginLimiter          *loginRateLimiter
 	passwordResetLimiter  *loginRateLimiter
+	dnsUpdateLimiter      *loginRateLimiter
 	loginSlots            chan struct{}
 	events                *eventHub
+	dnsSyncToken          string
 }
 
 type contextKey string
@@ -231,10 +239,6 @@ type enrollmentGrantRequest struct {
 	ExpiresSeconds int    `json:"expires_seconds"`
 }
 
-type dnsLabelRequest struct {
-	DNSLabel string `json:"dns_label"`
-}
-
 func NewHandler(s Store, cfg Config) http.Handler {
 	if strings.TrimSpace(cfg.OperatorUsername) == "" {
 		cfg.OperatorUsername = "admin"
@@ -274,8 +278,10 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		passwordResetSender:   cfg.PasswordResetSender,
 		loginLimiter:          newLoginRateLimiter(5, 5*time.Minute),
 		passwordResetLimiter:  newLoginRateLimiter(3, time.Hour),
+		dnsUpdateLimiter:      newLoginRateLimiter(30, time.Minute),
 		loginSlots:            make(chan struct{}, 4),
 		events:                newEventHub(),
+		dnsSyncToken:          strings.TrimSpace(cfg.DNSSyncToken),
 	}
 	if a.tunnelHTTPHost == "" {
 		a.tunnelHTTPHost = "tunnel-ssh"
@@ -303,10 +309,13 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("POST /api/enrollment-grants", a.operatorAuth(http.HandlerFunc(a.handleCreateEnrollmentGrant)))
 	mux.HandleFunc("POST /api/agent/enroll", a.handleEnroll)
 	mux.HandleFunc("POST /api/agent/heartbeat", a.handleHeartbeat)
+	mux.HandleFunc("POST /api/agent/dns/update", a.handleAgentDNSUpdate)
 	mux.HandleFunc("POST /api/agent/commands/next", a.handleNextCommand)
 	mux.HandleFunc("POST /api/agent/commands/", a.handleCommandResult)
 	mux.Handle("GET /api/devices", a.operatorAuth(http.HandlerFunc(a.handleListDevices)))
 	mux.Handle("GET /api/events", a.operatorAuth(http.HandlerFunc(a.handleEvents)))
+	mux.Handle("GET /api/dns/records", a.operatorAuth(http.HandlerFunc(a.handleListDNSRecords)))
+	mux.HandleFunc("GET /api/internal/dns/records", a.handleInternalDNSRecords)
 	mux.Handle("POST /api/devices/bulk-commands", a.operatorAuth(http.HandlerFunc(a.handleCreateBulkCommand)))
 	mux.Handle("GET /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("POST /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
@@ -560,6 +569,14 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 4 && parts[3] == "dns" && r.Method == http.MethodPatch {
 		a.handleUpdateDeviceDNS(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "dns" && r.Method == http.MethodGet {
+		a.handleGetDeviceDNS(w, r)
+		return
+	}
+	if len(parts) == 5 && parts[3] == "dns" && parts[4] == "history" && r.Method == http.MethodGet {
+		a.handleListDeviceDNSHistory(w, r)
 		return
 	}
 	if len(parts) == 4 && parts[3] == "transfer" && r.Method == http.MethodPost {
