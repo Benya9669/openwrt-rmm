@@ -32,6 +32,7 @@
 .landing-header,
 .landing-hero,
 .landing-features,
+.landing-partners,
 .landing-security,
 .landing-login-section,
 .landing-footer {
@@ -201,6 +202,37 @@
 .landing-security ul { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
 .landing-security li::before { content: "✓"; color: var(--good); margin-right: 10px; }
 .landing-login-section { display: grid; grid-template-columns: 1fr 420px; gap: 70px; align-items: center; padding-block: 100px; }
+.landing-partners {
+  display: grid;
+  grid-template-columns: minmax(220px, .7fr) minmax(0, 1.3fr);
+  gap: clamp(36px, 7vw, 90px);
+  align-items: center;
+  border-top: 1px solid rgb(83 105 126 / 34%);
+  padding-block: 64px;
+}
+.landing-partners-copy h2 { margin: 8px 0 10px; font-size: clamp(28px, 4vw, 42px); letter-spacing: -.035em; }
+.landing-partners-copy p { max-width: 420px; margin: 0; color: var(--muted); line-height: 1.6; }
+.partner-logos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(12px, 3vw, 28px); align-items: center; }
+.partner-logo {
+  display: grid;
+  min-height: 132px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 18px;
+  opacity: .46;
+  transition: opacity 220ms ease, transform 220ms ease, border-color 220ms ease;
+}
+.partner-logo img {
+  width: 100%;
+  max-width: 128px;
+  height: 82px;
+  object-fit: contain;
+  filter: grayscale(1) saturate(0) brightness(1.45) contrast(.78);
+}
+@media (hover: hover) and (pointer: fine) {
+  .partner-logo:hover { border-color: rgb(83 105 126 / 24%); opacity: .72; transform: translateY(-2px); }
+}
 .landing-login-section h2 { margin: 9px 0; font-size: 38px; }
 .landing-login-section > div p { max-width: 500px; color: var(--muted); line-height: 1.6; }
 .landing-login-section .login-form { width: 100%; }
@@ -214,6 +246,7 @@
 
 .account-page .landing-hero,
 .account-page .landing-features,
+.account-page .landing-partners,
 .account-page .landing-security {
   display: none;
 }
@@ -245,7 +278,8 @@
   .landing-console { max-width: 620px; transform: none; }
   .landing-features { grid-template-columns: 1fr; padding-bottom: 70px; }
   .landing-security,
-  .landing-login-section { grid-template-columns: 1fr; gap: 36px; }
+  .landing-login-section,
+  .landing-partners { grid-template-columns: 1fr; gap: 36px; }
   .landing-login-section { padding-block: 70px; }
   .landing-login-section .login-form { max-width: 520px; }
 }
@@ -256,6 +290,7 @@
   .landing-features,
   .landing-security,
   .landing-login-section,
+  .landing-partners,
   .landing-footer { width: min(100% - 28px, 1160px); }
   .landing-header { min-height: 68px; }
   .landing-brand small { display: none; }
@@ -271,6 +306,10 @@
   .console-router { grid-template-columns: 9px 1fr; }
   .console-router b { display: none; }
   .landing-features { padding-top: 25px; }
+  .landing-partners { gap: 28px; padding-block: 48px; }
+  .partner-logos { gap: 6px; }
+  .partner-logo { min-height: 94px; padding: 10px; }
+  .partner-logo img { max-width: 90px; height: 62px; }
   .landing-security { padding-block: 55px; }
   .landing-login-section h2 { font-size: 31px; }
   .landing-login-section .login-form { padding: 20px; }
@@ -836,6 +875,46 @@ select {
   align-items: end;
 }
 
+.cloud-access-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid rgb(33 168 216 / 40%);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgb(33 168 216 / 14%), rgb(30 37 45 / 92%));
+  padding: 16px;
+}
+
+.cloud-access-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 13px;
+  color: #bcecff;
+  background: rgb(33 168 216 / 18%);
+  font-size: 22px;
+}
+
+.cloud-access-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.cloud-access-copy span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cloud-access-card[data-state="ready"] { border-color: rgb(115 200 62 / 55%); }
+.cloud-access-card[data-state="ready"] .cloud-access-icon { color: var(--good); background: rgb(115 200 62 / 14%); }
+.cloud-access-card[data-state="unavailable"],
+.cloud-access-card[data-state="offline"] { border-color: rgb(240 82 82 / 45%); }
+.cloud-access-card[data-state="unavailable"] .cloud-access-icon,
+.cloud-access-card[data-state="offline"] .cloud-access-icon { color: #ff9a9a; background: rgb(240 82 82 / 12%); }
+
 .remote-quick-form label {
   display: grid;
   gap: 6px;
@@ -857,6 +936,29 @@ select {
 
 .advanced-settings .remote-form {
   margin-top: 12px;
+}
+
+.advanced-settings .remote-quick-form {
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  #backToFleetBtn {
+    min-height: 42px;
+  }
+
+  .cloud-access-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .cloud-access-card > button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .remote-quick-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .remote-session-list {
@@ -3593,6 +3695,131 @@ select:focus-visible,
   .user-row-identity,
   .user-row-actions {
     grid-column: 1 / -1;
+  }
+}
+
+/* Final responsive guards: keep operational controls inside the workspace at 4:3. */
+@media (min-width: 721px) and (max-width: 1100px) {
+  .topbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding-block: 12px;
+  }
+
+  .topbar-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: auto minmax(90px, 1fr) auto auto auto;
+  }
+
+  .remote-session-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .remote-session-row code {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+  }
+}
+
+/* Motion system: short, functional transitions with an accessibility fallback. */
+@keyframes ui-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ui-dialog-in {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ui-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ui-cloud-working {
+  0%, 100% { transform: translateY(0); filter: drop-shadow(0 0 0 rgb(33 168 216 / 0%)); }
+  50% { transform: translateY(-3px); filter: drop-shadow(0 5px 8px rgb(33 168 216 / 35%)); }
+}
+
+@keyframes ui-live-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgb(115 200 62 / 8%); }
+  50% { box-shadow: 0 0 0 6px rgb(115 200 62 / 16%); }
+}
+
+button,
+.device-item,
+.panel,
+.cloud-access-card,
+.inline-state,
+.nav-item,
+.mobile-nav-item {
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 180ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px) scale(.99);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .device-item:hover,
+  .cloud-access-card:hover {
+    border-color: rgb(39 182 230 / 58%);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgb(0 0 0 / 18%);
+  }
+
+  button:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
+}
+
+.fleet-view:not(.is-hidden),
+.device-view:not(.is-hidden),
+[data-device-tab]:not(.is-hidden) {
+  animation: ui-fade-up 220ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+.cloud-access-card[data-state="starting"] .cloud-access-icon {
+  animation: ui-cloud-working 1.35s ease-in-out infinite;
+}
+
+.live-state.is-live i {
+  animation: ui-live-pulse 2.4s ease-in-out infinite;
+}
+
+dialog[open] > * {
+  animation: ui-dialog-in 200ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+dialog[open]::backdrop {
+  animation: ui-backdrop-in 180ms ease-out both;
+}
+
+.inline-state,
+.remote-session-row,
+.alert-row,
+.command-row {
+  animation: ui-fade-up 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
   }
 }
 

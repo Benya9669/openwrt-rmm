@@ -43,6 +43,37 @@ The RMM login page remains the authentication boundary for operators. Agents con
 
 Because NPMplus shares the Linux host network namespace, `127.0.0.1:18080` points to the RMM port published on the host.
 
+## Wildcard host for cloud LuCI
+
+Cloud access needs a second NPMplus Proxy Host. It always points to the RMM server; it
+never points to a router WAN address.
+
+| Field | Value |
+|---|---|
+| Domain Names | `*.routers.example.com` |
+| Scheme | `http` |
+| Forward Hostname / IP | `127.0.0.1` |
+| Forward Port | `18080` |
+| Certificate | wildcard `*.routers.example.com` certificate |
+| Force SSL | enabled |
+| Access List | public / none |
+
+Create a DNS wildcard `*.routers.example.com` pointing to the cloud server. A public
+wildcard certificate normally requires DNS-01 validation in NPMplus. Preserve the
+original `Host` header so RMM can select the correct router subdomain.
+
+Configure RMM with:
+
+```env
+RMM_PUBLIC_URL=https://rmm.example.com
+RMM_DEVICE_DOMAIN=routers.example.com
+RMM_TUNNEL_PUBLIC_HOST=rmm.example.com
+RMM_TUNNEL_PUBLIC_PORT=2222
+```
+
+The last two values are used by the router's outbound SSH connection. Port 2222 is not
+HTTP and must remain directly reachable or be published through an NPMplus TCP Stream.
+
 ## SSH Reverse Tunnel Ports
 
 HTTP Proxy Hosts do not handle SSH. The current tunnel service publishes:

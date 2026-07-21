@@ -160,6 +160,9 @@ const els = {
   remoteLuCIScheme: document.querySelector("#remoteLuCIScheme"),
   remoteDuration: document.querySelector("#remoteDuration"),
   createRemoteSessionBtn: document.querySelector("#createRemoteSessionBtn"),
+  openCloudAccessBtn: document.querySelector("#openCloudAccessBtn"),
+  cloudAccessCard: document.querySelector("#cloudAccessCard"),
+  cloudAccessStatus: document.querySelector("#cloudAccessStatus"),
   remoteSummary: document.querySelector("#remoteSummary"),
   remoteSessionList: document.querySelector("#remoteSessionList"),
   uciConfig: document.querySelector("#uciConfig"),
@@ -366,14 +369,39 @@ async function api(path, options = {}) {
     if (response.status === 401 && !path.startsWith("/api/auth/")) {
       showLogin();
     }
-    const message = data && data.error ? data.error : `HTTP ${response.status}`;
+    const rawMessage = data && data.error ? data.error : `HTTP ${response.status}`;
+    const message = friendlyAPIError(response.status, data && data.code, rawMessage);
     const suffix = requestId ? ` (${requestId})` : "";
     const error = new Error(`${message}${suffix}`);
     error.status = response.status;
     error.requestId = requestId || "";
+    error.code = data && data.code ? data.code : "";
     throw error;
   }
   return data;
+}
+
+function friendlyAPIError(status, code, rawMessage) {
+  const byCode = {
+    device_offline: "Роутер не на связи",
+    not_configured: "Облачный доступ ещё не настроен",
+    grant_limit: "Создано слишком много временных ссылок. Подождите минуту",
+    restart_failed: "Не удалось перезапустить защищённый туннель",
+    create_failed: "Не удалось создать защищённый туннель",
+  };
+  if (code && byCode[code]) return byCode[code];
+  const known = {
+    "invalid username or password": "Неверный логин или пароль",
+    "invalid current password": "Текущий пароль указан неверно",
+    "device not found": "Роутер не найден или у вас нет к нему доступа",
+    "invalid or expired enrollment grant": "Код подключения недействителен или уже использован",
+    "active LuCI access grant limit reached": "Создано слишком много временных ссылок. Подождите минуту",
+  };
+  if (known[rawMessage]) return known[rawMessage];
+  if (String(rawMessage).startsWith("failed to ")) {
+    return status >= 500 ? "Сервер временно не смог выполнить запрос" : "Не удалось выполнить запрос";
+  }
+  return rawMessage;
 }
 
 function showLogin(message = "") {
@@ -1367,15 +1395,10 @@ async function openLuCIAccess(session) {
 }
 
 function openLuciOrRemoteAccess() {
-  const activeSession = state.remoteSessions.find((session) => session.status === "active" && session.luci_port);
-  if (activeSession) {
-    openLuCIAccess(activeSession);
-    return;
-  }
-  showLuCIState({ status: 409 }, "setup");
+  openCloudAccess().catch(reportError);
 }
 
-function luciStateCopy(status, mode) {
+function luciStateCopy(status, mode, error = {}) {
   if (mode === "setup") {
     return {
       code: "409 · SESSION REQUIRED",
@@ -1384,6 +1407,12 @@ function luciStateCopy(status, mode) {
       action: "Настроить доступ",
     };
   }
+  if (error.code === "not_configured") {
+    return { code: "409 · CLOUD NOT CONFIGURED", title: "Облачный доступ не настроен", description: "Администратору нужно указать домен роутеров и публичный адрес tunnel-сервиса.", action: "Открыть настройки" };
+  }
+  if (error.code === "restart_failed" || error.code === "create_failed") {
+    return { code: "500 · TUNNEL START FAILED", title: "Не удалось запустить туннель", description: "Сервер не смог создать новый защищённый канал. Повторите попытку или откройте диагностику.", action: "Повторить подключение" };
+  }
   return {
     401: { code: "401 · SESSION EXPIRED", title: "Срок доступа истёк", description: "Временная ссылка больше не действует. Создайте новый безопасный доступ из RMM.", action: "Создать новый доступ" },
     403: { code: "403 · ACCESS DENIED", title: "Доступ отклонён", description: "У вашей учётной записи нет разрешения на эту сессию LuCI.", action: "Вернуться к настройке" },
@@ -1391,14 +1420,18 @@ function luciStateCopy(status, mode) {
     409: { code: "409 · SESSION STARTING", title: "Туннель ещё запускается", description: "Роутер получил команду, но защищённый канал пока не готов. Обычно это занимает несколько секунд.", action: "Повторить подключение" },
     429: { code: "429 · TOO MANY ATTEMPTS", title: "Слишком много запросов", description: "Лимит временных ссылок достигнут. Подождите минуту и повторите попытку.", action: "Повторить позже" },
     502: { code: "502 · LUCI UNREACHABLE", title: "LuCI недоступен", description: "Туннель работает, но веб-интерфейс роутера не отвечает. Настройки роутера не изменялись.", action: "Повторить подключение" },
+    503: error.code === "device_offline"
+      ? { code: "503 · ROUTER OFFLINE", title: "Роутер не на связи", description: "Агент не отправляет данные. Облачный доступ станет доступен после восстановления связи.", action: "Проверить снова" }
+      : { code: "503 · TUNNEL UNAVAILABLE", title: "Облачный канал недоступен", description: "Роутер на связи, но туннель до LuCI не открылся. Проверьте tunnel-сервис и журнал агента.", action: "Повторить подключение" },
     504: { code: "504 · GATEWAY TIMEOUT", title: "LuCI не отвечает", description: "Роутер на связи, но веб-интерфейс не ответил вовремя. Настройки роутера не изменялись.", action: "Повторить подключение" },
   }[status] || { code: `${status || 500} · CONNECTION ERROR`, title: "Не удалось открыть LuCI", description: "Проверьте состояние роутера и удалённой сессии, затем повторите попытку.", action: "Повторить подключение" };
 }
 
 function showLuCIState(error = {}, mode = "retry") {
   const status = Number(error.status || 0);
-  const copy = luciStateCopy(status, mode);
+  const copy = luciStateCopy(status, mode, error);
   const device = currentDevice();
+  const agentOnline = error.code === "device_offline" ? false : Boolean(device && device.online);
   const activeSession = state.remoteSessions.find((session) => session.status === "active" && session.luci_port);
   state.luciAction = mode;
   els.luciStateCode.textContent = copy.code;
@@ -1407,7 +1440,7 @@ function showLuCIState(error = {}, mode = "retry") {
   els.luciStatePrimaryBtn.textContent = copy.action;
   els.luciStateContext.innerHTML = `
     <div><span>Объект</span><strong>${escapeHtml(deviceDisplayName(device))}</strong></div>
-    <div><span>RMM-агент</span><strong>${device && device.online ? "На связи" : "Не на связи"}</strong></div>
+    <div><span>RMM-агент</span><strong>${agentOnline ? "На связи" : "Не на связи"}</strong></div>
     <div><span>Сессия</span><strong>${activeSession ? escapeHtml(statusLabel(activeSession.status)) : "Не запущена"}</strong></div>
   `;
   els.luciStateRequestId.textContent = error.requestId ? `ID запроса: ${error.requestId}` : "";
@@ -1588,10 +1621,9 @@ function openPasswordResetFromURL() {
 }
 
 async function runLuCIPrimaryAction() {
-  const activeSession = state.remoteSessions.find((session) => session.status === "active" && session.luci_port);
   if (els.luciStateDialog.open) els.luciStateDialog.close();
-  if (state.luciAction === "retry" && activeSession) {
-    await openLuCIAccess(activeSession);
+  if (state.luciAction === "retry") {
+    await openCloudAccess();
     return;
   }
   await openDeviceArea("operations", "#remoteAccessPanel", "operations");
@@ -1762,6 +1794,7 @@ function renderRemoteSessions(sessions) {
   els.remoteSessionList.innerHTML = "";
   const active = sessions.filter((session) => ["requested", "queued", "active"].includes(session.status)).length;
   els.remoteSummary.textContent = active ? `${active} активн.` : "Нет активных сессий";
+  renderCloudAccessState(sessions);
   if (sessions.length === 0) {
     els.remoteSessionList.innerHTML = inlineStateMarkup("Удаленный доступ еще не открывался", "Создайте временную сессию, чтобы подключиться к роутеру по SSH или открыть LuCI.");
     return;
@@ -1797,6 +1830,60 @@ function renderRemoteSessions(sessions) {
     });
     row.querySelector('[data-action="close"]').addEventListener("click", () => closeRemoteSession(session.id));
     els.remoteSessionList.appendChild(row);
+  }
+}
+
+function renderCloudAccessState(sessions) {
+  const device = currentDevice();
+  const session = sessions.find((item) => ["requested", "queued", "active"].includes(item.status));
+  let accessState = session && session.access_state ? session.access_state : "closed";
+  if (!device || !device.online) accessState = "offline";
+  const copy = {
+    ready: ["Защищённый канал готов", "Открыть LuCI"],
+    starting: ["Создаём защищённый канал…", "Проверить"],
+    unavailable: ["Канал не открылся — нужна диагностика", "Повторить"],
+    offline: ["Роутер не на связи", "Проверить"],
+    closed: ["Соединение создаётся только по вашему запросу", "Открыть LuCI"],
+  }[accessState] || ["Состояние соединения неизвестно", "Проверить"];
+  els.cloudAccessCard.dataset.state = accessState;
+  els.cloudAccessStatus.textContent = copy[0];
+  els.openCloudAccessBtn.textContent = copy[1];
+}
+
+async function openCloudAccess() {
+  if (!state.selectedDeviceId || els.openCloudAccessBtn.disabled) return;
+  const popup = window.open("", "_blank");
+  els.openCloudAccessBtn.disabled = true;
+  els.cloudAccessCard.dataset.state = "starting";
+  els.cloudAccessStatus.textContent = "Связываемся с агентом и проверяем LuCI…";
+  try {
+    let response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/cloud-access`, { method: "POST" });
+    for (let attempt = 0; response.status === "starting" && attempt < 10; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/cloud-access`);
+    }
+    if (response.status !== "ready") {
+      const error = new Error("cloud tunnel is not ready");
+      error.status = response.status === "unavailable" ? 503 : 409;
+      error.code = response.status;
+      throw error;
+    }
+    if (!response.url) {
+      response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/cloud-access`, { method: "POST" });
+    }
+    if (popup) {
+      popup.opener = null;
+      popup.location = response.url;
+    } else {
+      window.location.assign(response.url);
+    }
+    await loadRemoteSessions();
+  } catch (error) {
+    if (popup) popup.close();
+    showLuCIState(error, "retry");
+    await loadRemoteSessions().catch(() => {});
+  } finally {
+    els.openCloudAccessBtn.disabled = false;
   }
 }
 
@@ -2415,6 +2502,7 @@ els.deviceTransferForm.addEventListener("submit", (event) => {
 });
 els.sendPackageCommandBtn.addEventListener("click", () => sendPackageCommand().catch(reportError));
 els.createRemoteSessionBtn.addEventListener("click", () => createRemoteSession().catch(reportError));
+els.openCloudAccessBtn.addEventListener("click", () => openCloudAccess().catch(reportError));
 els.uciBackupBtn.addEventListener("click", () => sendUciCommand("uci_backup").catch(reportError));
 els.uciPreviewBtn.addEventListener("click", () => sendUciCommand("uci_preview").catch(reportError));
 els.uciShowBtn.addEventListener("click", () => sendUciCommand("uci_show").catch(reportError));

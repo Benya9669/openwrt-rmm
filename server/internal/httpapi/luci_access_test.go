@@ -2,14 +2,19 @@ package httpapi
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"rmm-openwrt/server/internal/model"
 )
 
 func TestWriteLuCIErrorRendersSafeBrowserPage(t *testing.T) {
-	app := &App{deviceDomain: "rmm.example", publicScheme: "https"}
+	app := &App{deviceDomain: "routers.example", publicScheme: "https", publicURL: "https://rmm.example"}
 	req := httptest.NewRequest(http.MethodGet, "https://router.rmm.example/cgi-bin/luci/?token=must-not-leak", nil)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	req = req.WithContext(context.WithValue(req.Context(), requestIDContextKey, "req-test-123"))
@@ -36,6 +41,31 @@ func TestWriteLuCIErrorRendersSafeBrowserPage(t *testing.T) {
 	}
 }
 
+func TestRemoteSessionAccessStateChecksTunnelPort(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	_, portText, _ := net.SplitHostPort(listener.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	now := time.Now().UTC()
+	app := &App{tunnelHTTPHost: "127.0.0.1"}
+	session := model.RemoteSession{Status: "active", LuCIPort: port, StartedAt: &now, ExpiresAt: now.Add(time.Minute)}
+	if got := app.remoteSessionAccessState(session); got != "ready" {
+		t.Fatalf("access state = %q, want ready", got)
+	}
+	_ = listener.Close()
+	if got := app.remoteSessionAccessState(session); got != "starting" {
+		t.Fatalf("fresh failed tunnel state = %q, want starting", got)
+	}
+	old := now.Add(-time.Minute)
+	session.StartedAt = &old
+	if got := app.remoteSessionAccessState(session); got != "unavailable" {
+		t.Fatalf("stale failed tunnel state = %q, want unavailable", got)
+	}
+}
+
 func TestWriteLuCIErrorKeepsJSONForAPIClients(t *testing.T) {
 	app := &App{deviceDomain: "rmm.example", publicScheme: "https"}
 	req := httptest.NewRequest(http.MethodPost, "/api/devices/device-1/access", nil)
@@ -52,5 +82,25 @@ func TestWriteLuCIErrorKeepsJSONForAPIClients(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"error":"LuCI session is not active"`) {
 		t.Fatalf("unexpected JSON response: %s", recorder.Body.String())
+	}
+}
+
+func TestLuCIErrorCopyCoversUserFacingFailures(t *testing.T) {
+	for _, status := range []int{
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusConflict,
+		http.StatusTooManyRequests,
+		http.StatusBadGateway,
+		http.StatusGatewayTimeout,
+		http.StatusInternalServerError,
+	} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			title, description, action := luciErrorCopy(status)
+			if title == "" || description == "" || action == "" {
+				t.Fatalf("status %d has incomplete UI copy", status)
+			}
+		})
 	}
 }

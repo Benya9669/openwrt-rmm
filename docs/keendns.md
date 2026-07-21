@@ -34,6 +34,8 @@ DNS module. Store the resulting certificate and key outside Git, set:
 
 ```text
 RMM_DEVICE_DOMAIN=routers.example.com
+RMM_TUNNEL_PUBLIC_HOST=rmm.example.com
+RMM_TUNNEL_PUBLIC_PORT=2222
 RMM_WILDCARD_CERT_PATH=./secrets/routers-wildcard.crt
 RMM_WILDCARD_KEY_PATH=./secrets/routers-wildcard.key
 ```
@@ -44,6 +46,16 @@ Then validate and start the overlays:
 docker compose -f compose.yaml -f compose.proxy.yaml -f compose.keendns.yaml config
 docker compose -f compose.yaml -f compose.proxy.yaml -f compose.keendns.yaml up -d --build
 ```
+
+`RMM_TUNNEL_PUBLIC_HOST` is the public address reached by the router's outbound SSH
+connection. It defaults to the hostname from `RMM_PUBLIC_URL`; set it explicitly when
+the tunnel uses another hostname. `RMM_TUNNEL_PUBLIC_PORT` must match the public port
+published for `tunnel-ssh` (2222 by default).
+
+The operator UI uses `/api/devices/{id}/cloud-access` as a single cloud-access flow. It
+reuses an existing healthy tunnel, waits while a new tunnel starts, and distinguishes an
+offline router from a tunnel that never became reachable. Host, ports, and LuCI scheme
+remain available only under the expert settings.
 
 Do not enable `RMM_ALLOW_LEGACY_LUCI_PROXY` in production. It exists only for migration
 from the old same-origin `/luci/...` route.

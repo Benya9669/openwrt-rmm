@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
 	"time"
 
+	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
 )
 
@@ -96,8 +98,8 @@ func (a *App) writeLuCIError(w http.ResponseWriter, r *http.Request, status int,
 	}
 	title, description, actionLabel := luciErrorCopy(status)
 	controlURL := "/"
-	if a.deviceDomain != "" {
-		controlURL = a.publicScheme + "://" + a.deviceDomain + "/"
+	if a.publicURL != "" {
+		controlURL = a.publicURL + "/"
 	}
 	actionURL := controlURL
 	if status == http.StatusBadGateway || status == http.StatusGatewayTimeout || status == http.StatusConflict {
@@ -156,14 +158,9 @@ func (a *App) handleCreateDeviceAccess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "LuCI remote session is not active")
 		return
 	}
-	rawToken, err := randomToken(32)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create LuCI access grant")
-		return
-	}
 	principal, _ := principalFromContext(r.Context())
-	expiresAt := time.Now().UTC().Add(deviceAccessGrantTTL)
-	if err := a.store.CreateDeviceAccessGrant(r.Context(), store.TokenHash(rawToken), principal.User.ID, deviceID, remoteSessionID, expiresAt); err != nil {
+	accessURL, expiresAt, err := a.createDeviceAccessGrant(r.Context(), principal.User.ID, principal.User.Username, device, session)
+	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "limit") {
 			writeError(w, http.StatusTooManyRequests, "active LuCI access grant limit reached")
 			return
@@ -171,14 +168,26 @@ func (a *App) handleCreateDeviceAccess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create LuCI access grant")
 		return
 	}
+	writeJSON(w, http.StatusCreated, map[string]any{"url": accessURL, "expires_at": expiresAt})
+}
+
+func (a *App) createDeviceAccessGrant(ctx context.Context, userID, username string, device model.Device, session model.RemoteSession) (string, time.Time, error) {
+	rawToken, err := randomToken(32)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	expiresAt := time.Now().UTC().Add(deviceAccessGrantTTL)
+	if err := a.store.CreateDeviceAccessGrant(ctx, store.TokenHash(rawToken), userID, device.ID, session.ID, expiresAt); err != nil {
+		return "", time.Time{}, err
+	}
 	domainName := device.DNSLabel + "." + a.deviceDomain
 	accessURL := a.publicScheme + "://" + domainName + "/_rmm/access?token=" + rawToken
-	_, _ = a.store.AddAuditEvent(r.Context(), principal.User.Username, "luci.access_grant", deviceID, "", mustJSON(map[string]any{
-		"remote_session_id": remoteSessionID,
+	_, _ = a.store.AddAuditEvent(ctx, username, "luci.access_grant", device.ID, "", mustJSON(map[string]any{
+		"remote_session_id": session.ID,
 		"expires_at":        expiresAt,
-		"request_id":        requestID(r.Context()),
+		"request_id":        requestID(ctx),
 	}))
-	writeJSON(w, http.StatusCreated, map[string]any{"url": accessURL, "expires_at": expiresAt})
+	return accessURL, expiresAt, nil
 }
 
 func (a *App) routeByHost(control http.Handler) http.Handler {

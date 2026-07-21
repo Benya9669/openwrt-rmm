@@ -98,6 +98,8 @@ func main() {
 		OperatorPassword:      operatorPassword,
 		CookieSecure:          envBool("RMM_COOKIE_SECURE", !insecureDevMode),
 		TunnelHTTPHost:        env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
+		TunnelPublicHost:      strings.TrimSpace(os.Getenv("RMM_TUNNEL_PUBLIC_HOST")),
+		TunnelPublicPort:      envInt("RMM_TUNNEL_PUBLIC_PORT", 2222, 1, 65535),
 		DeviceDomain:          strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
 		PublicScheme:          env("RMM_PUBLIC_SCHEME", "https"),
 		PublicURL:             publicURL,

@@ -11,7 +11,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=22">
+    <link rel="stylesheet" href="/styles.css?v=23">
   </head>
   <body class="account-page">
     <main id="loginView" class="landing-view">
@@ -60,6 +60,19 @@
         <article><span>01</span><h2>Состояние сети</h2><p>WAN, нагрузка, память, интерфейсы и активные клиенты в одном понятном обзоре.</p></article>
         <article><span>02</span><h2>Безопасный LuCI</h2><p>Доступ создаётся по запросу, ограничен по времени и привязан к конкретному роутеру.</p></article>
         <article><span>03</span><h2>Свои устройства</h2><p>Каждый пользователь видит только добавленные им роутеры и собственные DNS-имена.</p></article>
+      </section>
+
+      <section class="landing-partners" aria-labelledby="partnersTitle">
+        <div class="landing-partners-copy">
+          <span class="eyebrow">Экосистема</span>
+          <h2 id="partnersTitle">Наши партнёры</h2>
+          <p>Компании, с которыми мы развиваем инфраструктуру и сетевые сервисы.</p>
+        </div>
+        <div class="partner-logos" aria-label="Компании-партнёры">
+          <div class="partner-logo"><img src="/assets/partners/ks.png" alt="KS" width="512" height="512" loading="lazy"></div>
+          <div class="partner-logo"><img src="/assets/partners/vz.png" alt="VZ" width="512" height="512" loading="lazy"></div>
+          <div class="partner-logo"><img src="/assets/partners/partner-blue.png" alt="Партнёр OpenWrt RMM" width="240" height="240" loading="lazy"></div>
+        </div>
       </section>
 
       <section id="security" class="landing-security">
@@ -585,20 +598,28 @@
                 <span id="remoteSummary" class="summary-pill">Нет активных сессий</span>
               </div>
             </div>
-            <div class="remote-quick-form">
-              <label>
-                Длительность доступа
-                <select id="remoteDuration">
-                  <option value="900">15 min</option>
-                  <option value="1800">30 min</option>
-                  <option value="3600">1 hour</option>
-                  <option value="7200">2 hours</option>
-                </select>
-              </label>
-              <button id="createRemoteSessionBtn" class="primary" type="button">Открыть удаленный доступ</button>
+            <div id="cloudAccessCard" class="cloud-access-card" data-state="closed">
+              <div class="cloud-access-icon" aria-hidden="true">☁</div>
+              <div class="cloud-access-copy">
+                <strong>Доступ через облако RMM</strong>
+                <span id="cloudAccessStatus">Соединение создаётся только по вашему запросу</span>
+              </div>
+              <button id="openCloudAccessBtn" class="primary" type="button">Открыть LuCI</button>
             </div>
             <details class="advanced-settings">
-              <summary>Дополнительные настройки подключения</summary>
+              <summary>Экспертный режим: SSH и параметры туннеля</summary>
+              <div class="remote-quick-form">
+                <label>
+                  Длительность доступа
+                  <select id="remoteDuration">
+                    <option value="900">15 минут</option>
+                    <option value="1800">30 минут</option>
+                    <option value="3600">1 час</option>
+                    <option value="7200">2 часа</option>
+                  </select>
+                </label>
+                <button id="createRemoteSessionBtn" type="button">Создать ручную сессию</button>
+              </div>
               <div class="remote-form">
                 <label>
                   Сервер туннеля

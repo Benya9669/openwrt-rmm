@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -97,6 +98,8 @@ type Config struct {
 	SessionSecret         string
 	CookieSecure          bool
 	TunnelHTTPHost        string
+	TunnelPublicHost      string
+	TunnelPublicPort      int
 	DeviceDomain          string
 	PublicScheme          string
 	PublicURL             string
@@ -114,6 +117,8 @@ type App struct {
 	dummyPasswordHash     string
 	cookieSecure          bool
 	tunnelHTTPHost        string
+	tunnelPublicHost      string
+	tunnelPublicPort      int
 	deviceDomain          string
 	publicScheme          string
 	publicURL             string
@@ -167,6 +172,13 @@ type remoteSessionRequest struct {
 	LocalPort       int    `json:"local_port"`
 	LuCIScheme      string `json:"luci_scheme"`
 }
+
+type remoteSessionCreateError struct {
+	Status  int
+	Message string
+}
+
+func (e *remoteSessionCreateError) Error() string { return e.Message }
 
 type fleetRequest struct {
 	Group string   `json:"group"`
@@ -272,6 +284,8 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		dummyPasswordHash:     dummyPasswordHash,
 		cookieSecure:          cfg.CookieSecure,
 		tunnelHTTPHost:        strings.TrimSpace(cfg.TunnelHTTPHost),
+		tunnelPublicHost:      strings.TrimSpace(cfg.TunnelPublicHost),
+		tunnelPublicPort:      cfg.TunnelPublicPort,
 		deviceDomain:          strings.Trim(strings.ToLower(strings.TrimSpace(cfg.DeviceDomain)), "."),
 		publicScheme:          strings.ToLower(strings.TrimSpace(cfg.PublicScheme)),
 		publicURL:             strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),
@@ -285,6 +299,14 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	}
 	if a.tunnelHTTPHost == "" {
 		a.tunnelHTTPHost = "tunnel-ssh"
+	}
+	if a.tunnelPublicPort <= 0 {
+		a.tunnelPublicPort = 2222
+	}
+	if a.tunnelPublicHost == "" && a.publicURL != "" {
+		if parsed, err := url.Parse(a.publicURL); err == nil {
+			a.tunnelPublicHost = parsed.Hostname()
+		}
 	}
 	if a.publicScheme != "http" && a.publicScheme != "https" {
 		if a.cookieSecure {
@@ -625,6 +647,14 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 4 && parts[3] == "remote-sessions" && r.Method == http.MethodPost {
 		a.handleCreateRemoteSession(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "cloud-access" && r.Method == http.MethodGet {
+		a.handleCloudAccessStatus(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "cloud-access" && r.Method == http.MethodPost {
+		a.handleOpenCloudAccess(w, r)
 		return
 	}
 	if len(parts) == 6 && parts[3] == "remote-sessions" && parts[5] == "close" && r.Method == http.MethodPost {
@@ -1237,7 +1267,127 @@ func (a *App) handleListRemoteSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "device not found")
 		return
 	}
+	for i := range sessions {
+		sessions[i].AccessState = a.remoteSessionAccessState(sessions[i])
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"remote_sessions": sessions})
+}
+
+func (a *App) handleCloudAccessStatus(w http.ResponseWriter, r *http.Request) {
+	a.writeCloudAccessState(w, r, false)
+}
+
+func (a *App) handleOpenCloudAccess(w http.ResponseWriter, r *http.Request) {
+	a.writeCloudAccessState(w, r, true)
+}
+
+func (a *App) writeCloudAccessState(w http.ResponseWriter, r *http.Request, create bool) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	deviceID := parts[2]
+	if a.deviceDomain == "" || a.tunnelPublicHost == "" {
+		writeCloudError(w, http.StatusConflict, "not_configured", "cloud access is not configured")
+		return
+	}
+	device, found, err := a.store.GetDevice(r.Context(), deviceID)
+	if err != nil {
+		writeCloudError(w, http.StatusInternalServerError, "server_error", "failed to load device")
+		return
+	}
+	if !found || device.DNSLabel == "" {
+		writeCloudError(w, http.StatusNotFound, "device_unavailable", "device DNS name is unavailable")
+		return
+	}
+	if !device.Online {
+		writeCloudError(w, http.StatusServiceUnavailable, "device_offline", "router is offline")
+		return
+	}
+	sessions, _, err := a.store.ListRemoteSessions(r.Context(), deviceID, store.RemoteSessionListOptions{Limit: 10})
+	if err != nil {
+		writeCloudError(w, http.StatusInternalServerError, "server_error", "failed to load remote sessions")
+		return
+	}
+	now := time.Now().UTC()
+	for _, session := range sessions {
+		if !session.ExpiresAt.After(now) || !containsString([]string{"requested", "queued", "active"}, session.Status) {
+			continue
+		}
+		state := a.remoteSessionAccessState(session)
+		if state == "ready" {
+			if !create {
+				writeJSON(w, http.StatusOK, map[string]any{"status": state, "session": session})
+				return
+			}
+			principal, _ := principalFromContext(r.Context())
+			accessURL, expiresAt, grantErr := a.createDeviceAccessGrant(r.Context(), principal.User.ID, principal.User.Username, device, session)
+			if grantErr != nil {
+				if strings.Contains(strings.ToLower(grantErr.Error()), "limit") {
+					writeCloudError(w, http.StatusTooManyRequests, "grant_limit", "active LuCI access grant limit reached")
+					return
+				}
+				writeCloudError(w, http.StatusInternalServerError, "server_error", "failed to create LuCI access grant")
+				return
+			}
+			writeJSON(w, http.StatusCreated, map[string]any{"status": "ready", "session": session, "url": accessURL, "expires_at": expiresAt})
+			return
+		}
+		status := http.StatusAccepted
+		if state == "unavailable" {
+			if create {
+				if _, closeErr := a.closeRemoteSession(r.Context(), actorName(r), deviceID, session); closeErr != nil {
+					writeCloudError(w, http.StatusInternalServerError, "restart_failed", "failed to restart cloud tunnel")
+					return
+				}
+				break
+			}
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, map[string]any{"status": state, "session": session, "retry_after_seconds": 2})
+		return
+	}
+	if !create {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "closed"})
+		return
+	}
+	session, err := a.createRemoteSession(r.Context(), actorName(r), deviceID, remoteSessionRequest{
+		Target:          "ssh",
+		DurationSeconds: 15 * 60,
+		ServerHost:      a.tunnelPublicHost,
+		ServerPort:      a.tunnelPublicPort,
+		LocalPort:       22,
+		LuCIScheme:      "http",
+	}, a.tunnelPublicHost)
+	if err != nil {
+		var createErr *remoteSessionCreateError
+		if errors.As(err, &createErr) {
+			writeCloudError(w, createErr.Status, "create_failed", createErr.Message)
+		} else {
+			writeCloudError(w, http.StatusInternalServerError, "create_failed", "failed to create cloud tunnel")
+		}
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "starting", "session": session, "retry_after_seconds": 2})
+}
+
+func (a *App) remoteSessionAccessState(session model.RemoteSession) string {
+	if !session.ExpiresAt.After(time.Now().UTC()) || containsString([]string{"closed", "expired", "failed"}, session.Status) {
+		return "closed"
+	}
+	if session.Status != "active" || session.LuCIPort <= 0 {
+		return "starting"
+	}
+	connection, err := net.DialTimeout("tcp", net.JoinHostPort(a.tunnelHTTPHost, strconv.Itoa(session.LuCIPort)), 150*time.Millisecond)
+	if err == nil {
+		_ = connection.Close()
+		return "ready"
+	}
+	if session.StartedAt != nil && time.Since(*session.StartedAt) > 20*time.Second {
+		return "unavailable"
+	}
+	return "starting"
+}
+
+func writeCloudError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]string{"error": message, "code": code})
 }
 
 func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) {
@@ -1250,29 +1400,40 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	session, err := a.createRemoteSession(r.Context(), actorName(r), deviceID, req, hostWithoutPort(r.Host))
+	if err != nil {
+		var createErr *remoteSessionCreateError
+		if errors.As(err, &createErr) {
+			writeError(w, createErr.Status, createErr.Message)
+		} else {
+			writeError(w, http.StatusInternalServerError, "failed to create remote session")
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, session)
+}
+
+func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, req remoteSessionRequest, fallbackHost string) (model.RemoteSession, error) {
 	target := strings.TrimSpace(req.Target)
 	if target == "" {
 		target = "ssh"
 	}
 	if target != "ssh" {
-		writeError(w, http.StatusBadRequest, "only ssh remote sessions are supported")
-		return
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "only ssh remote sessions are supported"}
 	}
 	duration := req.DurationSeconds
 	if duration <= 0 {
 		duration = 15 * 60
 	}
 	if duration < 60 || duration > 2*60*60 {
-		writeError(w, http.StatusBadRequest, "duration_seconds must be between 60 and 7200")
-		return
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "duration_seconds must be between 60 and 7200"}
 	}
 	serverHost := strings.TrimSpace(req.ServerHost)
 	if serverHost == "" {
-		serverHost = hostWithoutPort(r.Host)
+		serverHost = fallbackHost
 	}
 	if serverHost == "" || !safeEndpointHost(serverHost) {
-		writeError(w, http.StatusBadRequest, "server_host is invalid")
-		return
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "server_host is invalid"}
 	}
 	serverPort := req.ServerPort
 	if serverPort <= 0 {
@@ -1292,16 +1453,14 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 		luciScheme = "http"
 	}
 	if luciScheme != "http" && luciScheme != "https" {
-		writeError(w, http.StatusBadRequest, "luci_scheme must be http or https")
-		return
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "luci_scheme must be http or https"}
 	}
 	if !validTCPPort(serverPort) || !validTCPPort(localPort) || !validTCPPort(remotePort) || !validTCPPort(luciPort) {
-		writeError(w, http.StatusBadRequest, "ports must be between 1 and 65535")
-		return
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "ports must be between 1 and 65535"}
 	}
 
 	expiresAt := time.Now().UTC().Add(time.Duration(duration) * time.Second)
-	session, found, err := a.store.CreateRemoteSession(r.Context(), model.RemoteSession{
+	session, found, err := a.store.CreateRemoteSession(ctx, model.RemoteSession{
 		DeviceID:   deviceID,
 		Target:     target,
 		Status:     "requested",
@@ -1315,12 +1474,10 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 		ExpiresAt:  expiresAt,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create remote session")
-		return
+		return model.RemoteSession{}, err
 	}
 	if !found {
-		writeError(w, http.StatusNotFound, "device not found")
-		return
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusNotFound, "device not found"}
 	}
 
 	luciLocalPort := "80"
@@ -1340,22 +1497,19 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 		"duration_seconds": strconv.Itoa(duration),
 		"expires_at":       session.ExpiresAt.Format(time.RFC3339Nano),
 	})
-	command, commandFound, err := a.store.CreateCommand(r.Context(), deviceID, "remote_ssh_reverse", args)
+	command, commandFound, err := a.store.CreateCommand(ctx, deviceID, "remote_ssh_reverse", args)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to queue remote tunnel command")
-		return
+		return model.RemoteSession{}, err
 	}
 	if !commandFound {
-		writeError(w, http.StatusNotFound, "device not found")
-		return
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusNotFound, "device not found"}
 	}
-	session, _, err = a.store.AttachRemoteSessionCommand(r.Context(), deviceID, session.ID, command.ID)
+	session, _, err = a.store.AttachRemoteSessionCommand(ctx, deviceID, session.ID, command.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to attach remote session command")
-		return
+		return model.RemoteSession{}, err
 	}
 
-	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "remote_session.create", deviceID, command.ID, mustJSON(map[string]any{
+	_, _ = a.store.AddAuditEvent(ctx, actor, "remote_session.create", deviceID, command.ID, mustJSON(map[string]any{
 		"session_id":  session.ID,
 		"target":      session.Target,
 		"server_host": session.ServerHost,
@@ -1365,9 +1519,10 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 		"luci_scheme": session.LuCIScheme,
 		"local_port":  session.LocalPort,
 		"expires_at":  session.ExpiresAt,
-		"request_id":  requestID(r.Context()),
+		"request_id":  requestID(ctx),
 	}))
-	writeJSON(w, http.StatusCreated, session)
+	a.events.publish("devices")
+	return session, nil
 }
 
 func (a *App) handleLuCIProxy(w http.ResponseWriter, r *http.Request) {
@@ -1608,27 +1763,38 @@ func (a *App) handleCloseRemoteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "remote session not found")
 		return
 	}
-	closeCommand, commandFound, err := a.store.CreateCommand(r.Context(), deviceID, "remote_ssh_close", mustJSON(map[string]string{
+	session, err = a.closeRemoteSession(r.Context(), actorName(r), deviceID, session)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to close remote session")
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (a *App) closeRemoteSession(ctx context.Context, actor, deviceID string, session model.RemoteSession) (model.RemoteSession, error) {
+	closeCommand, commandFound, err := a.store.CreateCommand(ctx, deviceID, "remote_ssh_close", mustJSON(map[string]string{
 		"session_id":  session.ID,
 		"remote_port": strconv.Itoa(session.RemotePort),
 		"luci_port":   strconv.Itoa(session.LuCIPort),
 	}))
 	if err != nil || !commandFound {
-		writeError(w, http.StatusInternalServerError, "failed to queue remote session close")
-		return
+		if err != nil {
+			return model.RemoteSession{}, err
+		}
+		return model.RemoteSession{}, errors.New("device not found while queueing remote session close")
 	}
-	session, _, err = a.store.CloseRemoteSession(r.Context(), deviceID, sessionID)
+	session, _, err = a.store.CloseRemoteSession(ctx, deviceID, session.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to close remote session")
-		return
+		return model.RemoteSession{}, err
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "remote_session.close", deviceID, closeCommand.ID, mustJSON(map[string]string{
-		"session_id":       sessionID,
+	_, _ = a.store.AddAuditEvent(ctx, actor, "remote_session.close", deviceID, closeCommand.ID, mustJSON(map[string]string{
+		"session_id":       session.ID,
 		"open_command_id":  session.CommandID,
 		"close_command_id": closeCommand.ID,
-		"request_id":       requestID(r.Context()),
+		"request_id":       requestID(ctx),
 	}))
-	writeJSON(w, http.StatusOK, session)
+	a.events.publish("devices")
+	return session, nil
 }
 
 func (a *App) handleListAuditEvents(w http.ResponseWriter, r *http.Request) {
@@ -1853,6 +2019,15 @@ func uniqueStrings(values []string) []string {
 		unique = append(unique, value)
 	}
 	return unique
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func hostWithoutPort(host string) string {
