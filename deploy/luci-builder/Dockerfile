@@ -22,7 +22,7 @@ RUN export CGO_ENABLED=0 GOOS=linux GOARCH="${RMM_GOARCH}" \
     && go build -trimpath -ldflags="-s -w" \
         -o /out/rmm-agent ./agent/go/cmd/rmm-agent
 
-FROM debian:bookworm-slim AS builder
+FROM debian:bookworm-slim AS sdk
 
 ARG OPENWRT_SDK_URL="https://downloads.openwrt.org/releases/25.12.4/targets/ramips/mt7621/openwrt-sdk-25.12.4-ramips-mt7621_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
 ARG OPENWRT_SDK_SHA256="03f4766fcfbae86a814cbbf194226fa7e9ec66be2d4273bc1a0927a72a43a333"
@@ -50,12 +50,23 @@ RUN apt-get update \
 USER builder
 WORKDIR /home/builder
 
-RUN curl --fail --location --show-error --silent \
-        --output openwrt-sdk.tar.zst "${OPENWRT_SDK_URL}" \
-    && echo "${OPENWRT_SDK_SHA256}  openwrt-sdk.tar.zst" | sha256sum --check --strict \
+RUN case "${OPENWRT_SDK_URL}" in \
+        *.tar.xz) sdk_archive="openwrt-sdk.tar.xz" ;; \
+        *.tar.zst) sdk_archive="openwrt-sdk.tar.zst" ;; \
+        *) echo "unsupported OpenWrt SDK URL: ${OPENWRT_SDK_URL}" >&2; exit 1 ;; \
+       esac \
+    && curl --fail --location --show-error --silent \
+        --output "${sdk_archive}" "${OPENWRT_SDK_URL}" \
+    && echo "${OPENWRT_SDK_SHA256}  ${sdk_archive}" | sha256sum --check --strict \
     && mkdir sdk \
-    && tar --zstd --extract --file openwrt-sdk.tar.zst --strip-components=1 --directory sdk \
-    && rm openwrt-sdk.tar.zst
+    && case "${sdk_archive}" in \
+        *.tar.xz) tar --extract --xz --file "${sdk_archive}" --strip-components=1 --directory sdk ;; \
+        *.tar.zst) tar --extract --zstd --file "${sdk_archive}" --strip-components=1 --directory sdk ;; \
+        *) echo "unsupported OpenWrt SDK archive: ${sdk_archive}" >&2; exit 1 ;; \
+       esac \
+    && rm "${sdk_archive}"
+
+FROM sdk AS builder
 
 USER root
 
@@ -112,8 +123,7 @@ RUN printf '%s\n' \
         >> .config \
     && make defconfig
 
-RUN grep -E '^CONFIG_PACKAGE_(libmbedtls|libustream-mbedtls)=' .config \
-    && make -j"$(nproc)" package/feeds/base/mbedtls/compile \
+RUN make -j"$(nproc)" package/feeds/base/mbedtls/compile \
     && make -j"$(nproc)" package/feeds/base/ustream-ssl/compile
 
 RUN make -j"$(nproc)" \

@@ -1,5 +1,10 @@
 # RMM OpenWrt Server
 
+The server and bundled web application are licensed under `AGPL-3.0-only`. A deployed
+modified version must keep a working offer of its corresponding source available to remote
+users. The default legal page links to the project repository; downstream deployments must
+update that link if their corresponding source is hosted elsewhere.
+
 MVP backend for OpenWrt RMM.
 
 ## Run

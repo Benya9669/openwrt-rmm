@@ -5,6 +5,10 @@ and the last heartbeat transport error after connectivity is restored.
 
 Production Go agent for OpenWrt, with the shell implementation retained as a fallback runtime.
 
+The agent, LuCI application and OpenWrt packaging under `agent/` are licensed under the
+MIT License. Binary OpenWrt packages install a copy of the license under
+`/usr/share/licenses/<package>/LICENSE`.
+
 The agent uses outbound HTTP polling:
 
 1. Enrolls with the server using an enrollment token.

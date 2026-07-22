@@ -1,0 +1,217 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+    tags: ["agent-v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/agent-v') }}
+
+jobs:
+  quality:
+    name: Tests and license checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: go test ./...
+      - run: go vet ./...
+      - run: npm run check:web
+      - name: Verify license copies and package metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp LICENSES/AGPL-3.0-only.txt web/licenses/AGPL-3.0-only.txt
+          for file in \
+            agent/LICENSE \
+            agent/package/rmm-agent/LICENSE \
+            agent/package/rmm-agent-go/LICENSE \
+            agent/package/rmm-agent-go-production/LICENSE \
+            agent/package/luci-app-rmm-agent/LICENSE \
+            web/licenses/MIT.txt; do
+            cmp LICENSES/MIT.txt "$file"
+          done
+          missing_license="$(grep -L 'PKG_LICENSE:=MIT' agent/package/*/Makefile || true)"
+          missing_file="$(grep -L 'PKG_LICENSE_FILES:=LICENSE' agent/package/*/Makefile || true)"
+          test -z "$missing_license"
+          test -z "$missing_file"
+
+  openwrt-packages:
+    name: OpenWrt ${{ matrix.release }} · ${{ matrix.label }}
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/agent-v')
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          # The matrix covers the common CPU families: amd64, mipsel, mips,
+          # ARMv7 and ARM64. Add a target/subtarget row when another device
+          # family needs an architecture-specific package.
+          - { release: "21.02.7", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
+          - { release: "21.02.7", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
+          - { release: "21.02.7", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
+          - { release: "21.02.7", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
+          - { release: "21.02.7", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
+
+          - { release: "22.03.7", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
+          - { release: "22.03.7", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
+          - { release: "22.03.7", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
+          - { release: "22.03.7", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
+          - { release: "22.03.7", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
+
+          - { release: "23.05.5", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
+          - { release: "23.05.5", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
+          - { release: "23.05.5", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
+          - { release: "23.05.5", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
+          - { release: "23.05.5", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
+          - { release: "23.05.5", target: mediatek, subtarget: filogic,    label: mediatek-filogic,     goarch: arm64 }
+
+          - { release: "24.10.7", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
+          - { release: "24.10.7", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
+          - { release: "24.10.7", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
+          - { release: "24.10.7", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
+          - { release: "24.10.7", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
+          - { release: "24.10.7", target: mediatek, subtarget: filogic,    label: mediatek-filogic,     goarch: arm64 }
+
+          - { release: "25.12.4", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
+          - { release: "25.12.4", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
+          - { release: "25.12.4", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
+          - { release: "25.12.4", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
+          - { release: "25.12.4", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
+          - { release: "25.12.4", target: mediatek, subtarget: filogic,    label: mediatek-filogic,     goarch: arm64 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify agent release version
+        if: startsWith(github.ref, 'refs/tags/agent-v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${GITHUB_REF_NAME#agent-v}"
+          source_version="$(sed -n 's/^const agentVersion = "\([^"]*\)"/\1/p' agent/go/cmd/rmm-agent/main.go)"
+          package_version="$(sed -n 's/^PKG_VERSION:=//p' agent/package/rmm-agent-go-production/Makefile)"
+          test "$source_version" = "$expected"
+          test "$package_version" = "$expected"
+
+      - name: Resolve official OpenWrt SDK
+        id: sdk
+        shell: bash
+        env:
+          RELEASE: ${{ matrix.release }}
+          TARGET: ${{ matrix.target }}
+          SUBTARGET: ${{ matrix.subtarget }}
+        run: |
+          set -euo pipefail
+          relative="releases/${RELEASE}/targets/${TARGET}/${SUBTARGET}"
+          record=""
+          base_url=""
+          for mirror in https://downloads.openwrt.org https://archive.openwrt.org; do
+            candidate="${mirror}/${relative}"
+            if sums="$(curl --fail --location --silent --show-error "${candidate}/sha256sums" 2>/dev/null)"; then
+              record="$(printf '%s\n' "$sums" | awk '
+                $2 ~ /^\*?openwrt-sdk-.*\.Linux-x86_64\.tar\.(xz|zst)$/ {
+                  sub(/^\*/, "", $2); print $1 " " $2; exit
+                }')"
+              if [ -n "$record" ]; then
+                base_url="$candidate"
+                break
+              fi
+            fi
+          done
+          if [ -z "$record" ]; then
+            echo "No SDK found for OpenWrt ${RELEASE} ${TARGET}/${SUBTARGET}" >&2
+            exit 1
+          fi
+          read -r sha256 filename <<<"$record"
+          echo "url=${base_url}/${filename}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+          echo "Using ${base_url}/${filename}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build agent and LuCI packages
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/luci-builder/Dockerfile
+          target: artifacts
+          push: false
+          outputs: type=local,dest=artifacts
+          build-args: |
+            OPENWRT_SDK_URL=${{ steps.sdk.outputs.url }}
+            OPENWRT_SDK_SHA256=${{ steps.sdk.outputs.sha256 }}
+            RMM_GOARCH=${{ matrix.goarch }}
+            RMM_GOARM=${{ matrix.goarm || '7' }}
+            RMM_GOMIPS=${{ matrix.gomips || 'softfloat' }}
+            RMM_GOAMD64=v1
+          cache-from: type=gha,scope=openwrt-${{ matrix.release }}-${{ matrix.label }}
+          cache-to: type=gha,mode=max,scope=openwrt-${{ matrix.release }}-${{ matrix.label }}
+
+      - name: Verify package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find artifacts -maxdepth 1 -type f -print
+          test -f artifacts/SHA256SUMS
+          (cd artifacts && sha256sum --check SHA256SUMS)
+          find artifacts -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) -print -quit | grep -q .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-${{ matrix.release }}-${{ matrix.label }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish agent GitHub release assets
+    if: startsWith(github.ref, 'refs/tags/agent-v')
+    needs: openwrt-packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: openwrt-*
+          path: release-assets
+      - name: Create release and upload packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir publish
+          while IFS= read -r file; do
+            artifact="$(basename "$(dirname "$file")")"
+            cp "$file" "publish/${artifact}-$(basename "$file")"
+          done < <(find release-assets -type f \( -name '*.ipk' -o -name '*.apk' \) -print | sort)
+          (cd publish && sha256sum ./* > SHA256SUMS)
+          mapfile -t files < <(find publish -type f -print | sort)
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${files[@]}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --generate-notes \
+              --title "OpenWrt RMM Agent ${GITHUB_REF_NAME#agent-v}"
+          fi

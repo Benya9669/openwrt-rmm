@@ -11,7 +11,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=24">
+    <link rel="stylesheet" href="/styles.css?v=25">
   </head>
   <body class="account-page">
     <main id="loginView" class="landing-view">
@@ -90,7 +90,10 @@
           <p id="loginError" class="login-error" role="alert"></p>
         </form>
       </section>
-      <footer class="landing-footer"><span>OpenWrt RMM</span><small>Безопасное управление вашей сетью</small></footer>
+      <footer class="landing-footer">
+        <span>OpenWrt RMM</span>
+        <span class="landing-footer-links"><small>Безопасное управление вашей сетью</small><a href="/legal.html">Лицензия и исходный код</a></span>
+      </footer>
     </main>
 
     <div id="appShell" class="app-shell is-hidden">
@@ -120,6 +123,8 @@
         </nav>
 
         <div class="sidebar-spacer"></div>
+
+        <a class="sidebar-legal-link" href="/legal.html">Лицензия · Исходный код</a>
 
         <div class="operator-row">
           <button id="profileBtn" class="operator-profile" type="button" aria-label="Открыть личный кабинет">

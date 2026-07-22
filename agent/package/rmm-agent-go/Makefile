@@ -1,11 +1,13 @@
+# SPDX-License-Identifier: MIT
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent-go
 PKG_VERSION:=0.6.1
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_MAINTAINER:=RMM OpenWrt
 PKG_LICENSE:=MIT
+PKG_LICENSE_FILES:=LICENSE
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -35,6 +37,8 @@ define Package/rmm-agent-go/install
 	$(INSTALL_BIN) ./files/etc/init.d/rmm-agent-go $(1)/etc/init.d/rmm-agent-go
 	$(INSTALL_DIR) $(1)/etc
 	$(INSTALL_CONF) ./files/etc/rmm-agent-go.conf $(1)/etc/rmm-agent-go.conf
+	$(INSTALL_DIR) $(1)/usr/share/licenses/rmm-agent-go
+	$(INSTALL_DATA) ./LICENSE $(1)/usr/share/licenses/rmm-agent-go/LICENSE
 endef
 
 $(eval $(call BuildPackage,rmm-agent-go))

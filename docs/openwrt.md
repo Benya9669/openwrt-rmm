@@ -126,3 +126,29 @@ The production agent should either:
 - be rewritten in Go;
 - include a tiny JSON parser strategy;
 - keep a stable shell-oriented command polling endpoint.
+
+## GitHub Actions package matrix
+
+`.github/workflows/build.yml` runs Go, web and license checks on every push and pull
+request. A manual workflow run or a tag matching `agent-v*` additionally builds installable
+OpenWrt packages through the official SDKs.
+
+The release matrix covers OpenWrt `21.02.7`, `22.03.7`, `23.05.5`, `24.10.7` and
+`25.12.4`, and these common CPU/target families where the target exists:
+
+- x86-64 (`x86/64`, `amd64`);
+- MediaTek MT7621 (`ramips/mt7621`, `mipsle`);
+- Atheros (`ath79/generic`, `mips`);
+- Qualcomm IPQ40xx (`ipq40xx/generic`, ARMv7);
+- Raspberry Pi 4 (`bcm27xx/bcm2711`, ARM64);
+- MediaTek Filogic (`mediatek/filogic`, ARM64) on supported releases.
+
+The workflow resolves each SDK filename and SHA256 from the official OpenWrt mirror,
+falling back to the OpenWrt archive for end-of-life branches. Releases through `24.10`
+produce `.ipk`; `25.12` produces `.apk`. Manual runs retain each target as a workflow
+artifact for 30 days. An `agent-v*` tag also creates a GitHub Release containing all packages and
+a combined `SHA256SUMS`.
+
+This matrix represents common CPU families, not every OpenWrt target. Add an explicit
+matrix row for another target/subtarget and select the matching Go architecture rather
+than assuming binaries from a different CPU family are compatible.

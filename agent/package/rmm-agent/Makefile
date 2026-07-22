@@ -1,11 +1,13 @@
+# SPDX-License-Identifier: MIT
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent
 PKG_VERSION:=0.1.1
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 PKG_MAINTAINER:=RMM OpenWrt
 PKG_LICENSE:=MIT
+PKG_LICENSE_FILES:=LICENSE
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -41,6 +43,8 @@ define Package/rmm-agent/install
 	$(INSTALL_CONF) ./files/etc/config/rmm-agent $(1)/etc/config/rmm-agent
 	$(INSTALL_DIR) $(1)/usr/libexec
 	$(INSTALL_BIN) ./files/usr/libexec/rmm-agent-uci-sync $(1)/usr/libexec/rmm-agent-uci-sync
+	$(INSTALL_DIR) $(1)/usr/share/licenses/rmm-agent
+	$(INSTALL_DATA) ./LICENSE $(1)/usr/share/licenses/rmm-agent/LICENSE
 endef
 
 $(eval $(call BuildPackage,rmm-agent))

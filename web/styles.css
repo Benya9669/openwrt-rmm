@@ -280,7 +280,35 @@
 .landing-login-section > div p { max-width: 500px; color: var(--muted); line-height: 1.6; }
 .landing-login-section .login-form { width: 100%; }
 .landing-footer { display: flex; justify-content: space-between; border-top: 1px solid var(--line); color: var(--muted); padding-block: 26px; }
+.landing-footer a,
+.sidebar-legal-link,
+.legal-text-link { color: var(--muted); text-decoration: none; transition: color .18s ease; }
+.landing-footer a:hover,
+.sidebar-legal-link:hover,
+.legal-text-link:hover { color: var(--text); }
+.landing-footer-links { display: flex; align-items: center; gap: 20px; }
 .landing-cta .landing-actions { justify-content: flex-end; margin-top: 0; }
+
+.sidebar-legal-link { margin: 0 8px 12px; font-size: 11px; }
+
+.legal-body { min-height: 100vh; background: var(--bg); color: var(--text); }
+.legal-header,
+.legal-footer,
+.legal-page { width: min(100% - 48px, 960px); margin-inline: auto; }
+.legal-page { padding-block: clamp(64px, 9vw, 112px); }
+.legal-page h1 { max-width: 760px; margin: 12px 0 18px; font-size: clamp(42px, 7vw, 72px); line-height: .98; letter-spacing: -.055em; }
+.legal-lead { max-width: 720px; margin: 0 0 44px; color: var(--muted); font-size: clamp(17px, 2.3vw, 21px); line-height: 1.6; }
+.legal-card { margin-top: 18px; padding: clamp(24px, 5vw, 42px); border: 1px solid var(--line); border-radius: 24px; background: rgb(255 255 255 / 2%); }
+.legal-card h2,
+.legal-note h2 { margin: 10px 0 12px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -.035em; }
+.legal-card p,
+.legal-note p { max-width: 760px; color: var(--muted); line-height: 1.7; }
+.legal-license { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.legal-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.legal-text-link { display: inline-block; margin-top: 12px; border-bottom: 1px solid currentColor; }
+.legal-note { padding: 42px 0 10px; }
+.legal-card code { color: var(--text); }
+.legal-footer a { color: var(--muted); }
 
 .account-page .landing-view {
   display: grid;
@@ -397,6 +425,9 @@
   .landing-login-section h2 { font-size: 31px; }
   .landing-login-section .login-form { padding: 20px; }
   .landing-footer { display: grid; gap: 5px; }
+  .landing-footer-links { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .legal-actions { display: grid; }
+  .legal-actions a { justify-content: center; }
   .profile-security-form,
   .profile-session-actions,
   .notification-channel-grid,

@@ -14,11 +14,16 @@ Then open:
 http://127.0.0.1:8080/       public landing page
 http://127.0.0.1:8080/login  sign in and password recovery
 http://127.0.0.1:8080/app    authenticated RMM cabinet
+http://127.0.0.1:8080/legal.html  license notices and source offer
 ```
 
 The UI uses a revocable HttpOnly server-side session. It does not store operator tokens in
 browser storage. Normal users see only their own routers and can create one-time enrollment
 grants; administrators can create user accounts.
+
+The server and web interface are licensed under `AGPL-3.0-only`. Keep the source-code
+link on `legal.html` available to users of a deployed modified version and point it to the
+corresponding source for that deployment.
 
 Current MVP features:
 
