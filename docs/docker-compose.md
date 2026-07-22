@@ -58,6 +58,23 @@ by retention maintenance.
 
 ## 2. Start The Stack
 
+For a production deployment, pin the server release in `.env` and use the release
+overlay. This pulls the server and tunnel images published by the same `server-v*` tag:
+
+```dotenv
+RMM_RELEASE_VERSION=0.8.0
+```
+
+```powershell
+docker compose -f compose.yaml -f compose.release.yaml pull
+docker compose -f compose.yaml -f compose.release.yaml up -d
+docker compose -f compose.yaml -f compose.release.yaml ps
+```
+
+Keep the exact version instead of `latest` so an upgrade is deliberate and reversible.
+The base Compose file remains buildable from source for development and emergency
+recovery:
+
 ```powershell
 docker compose up -d --build
 docker compose ps

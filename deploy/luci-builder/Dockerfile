@@ -69,6 +69,9 @@ RUN case "${OPENWRT_SDK_URL}" in \
 
 FROM sdk AS builder
 
+ARG REQUIRE_NATIVE_SIGNATURE=false
+ARG REPOSITORY_INDEX_REVISION=local
+
 USER root
 
 RUN apt-get update \
@@ -144,7 +147,11 @@ RUN printf '%s\n' 'CONFIG_PACKAGE_luci-app-rmm-agent=m' >> .config \
 
 RUN make -j1 package/luci-app-rmm-agent/compile V=s
 
-RUN mkdir -p /home/builder/artifacts \
+RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
+    --mount=type=secret,id=openwrt_usign_public_b64,uid=1000,required=false \
+    --mount=type=secret,id=openwrt_apk_secret_b64,uid=1000,required=false \
+    test -n "${REPOSITORY_INDEX_REVISION}" \
+    && mkdir -p /home/builder/artifacts \
     && find bin -type f \
         \( -name 'luci-app-rmm-agent*.apk' \
            -o -name 'luci-app-rmm-agent*.ipk' \
@@ -153,7 +160,54 @@ RUN mkdir -p /home/builder/artifacts \
         -exec cp '{}' /home/builder/artifacts/ \; \
     && test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipk' \) -print -quit)" \
     && cd /home/builder/artifacts \
-    && find . -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipk' \) -print \
+    && if find . -maxdepth 1 -type f -name '*.ipk' -print -quit | grep -q .; then \
+        /home/builder/sdk/scripts/ipkg-make-index.sh . > Packages; \
+        gzip -9nc Packages > Packages.gz; \
+        if [ -s /run/secrets/openwrt_usign_secret_b64 ] \
+            && [ -s /run/secrets/openwrt_usign_public_b64 ]; then \
+          base64 -d /run/secrets/openwrt_usign_secret_b64 > /tmp/usign.sec; \
+          base64 -d /run/secrets/openwrt_usign_public_b64 > /tmp/usign.pub; \
+          chmod 600 /tmp/usign.sec; \
+          /home/builder/sdk/staging_dir/host/bin/usign -S -m Packages -s /tmp/usign.sec; \
+          /home/builder/sdk/staging_dir/host/bin/usign -V -m Packages -p /tmp/usign.pub; \
+          key_id="$(/home/builder/sdk/staging_dir/host/bin/usign -F -p /tmp/usign.pub)"; \
+          cp /tmp/usign.pub "${key_id}"; \
+          rm -f /tmp/usign.sec /tmp/usign.pub; \
+        elif [ "${REQUIRE_NATIVE_SIGNATURE}" = "true" ]; then \
+          echo 'IPK release signing keys are required' >&2; \
+          exit 1; \
+        fi; \
+      else \
+        if [ -s /run/secrets/openwrt_apk_secret_b64 ]; then \
+          base64 -d /run/secrets/openwrt_apk_secret_b64 > /tmp/apk-signing.pem; \
+          chmod 600 /tmp/apk-signing.pem; \
+          /home/builder/sdk/staging_dir/host/bin/openssl ec \
+            -in /tmp/apk-signing.pem -pubout -out rmm-openwrt.pem; \
+          /home/builder/sdk/staging_dir/host/bin/apk mkndx \
+            --root /home/builder/sdk \
+            --keys-dir /home/builder/artifacts \
+            --allow-untrusted \
+            --sign /tmp/apk-signing.pem \
+            --output packages.adb \
+            ./*.apk; \
+          rm -f /tmp/apk-signing.pem; \
+        elif [ "${REQUIRE_NATIVE_SIGNATURE}" = "true" ]; then \
+          echo 'APK release signing key is required' >&2; \
+          exit 1; \
+        else \
+          /home/builder/sdk/staging_dir/host/bin/apk mkndx \
+            --root /home/builder/sdk \
+            --keys-dir /home/builder/artifacts \
+            --allow-untrusted \
+            --output packages.adb \
+            ./*.apk; \
+        fi; \
+      fi \
+    && find . -maxdepth 1 -type f \( \
+        -name '*.apk' -o -name '*.ipk' \
+        -o -name 'Packages' -o -name 'Packages.gz' -o -name 'Packages.sig' \
+        -o -name 'packages.adb' -o -name 'rmm-openwrt.pem' \
+        -o -name '????????????????' \) -print \
         | LC_ALL=C sort \
         | xargs sha256sum > SHA256SUMS
 

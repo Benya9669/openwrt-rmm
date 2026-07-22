@@ -148,6 +148,10 @@ jobs:
 
       - name: Build agent and LuCI packages
         uses: docker/build-push-action@v6
+        env:
+          OPENWRT_USIGN_SECRET_B64: ${{ secrets.OPENWRT_USIGN_SECRET_B64 }}
+          OPENWRT_USIGN_PUBLIC_B64: ${{ secrets.OPENWRT_USIGN_PUBLIC_B64 }}
+          OPENWRT_APK_SECRET_B64: ${{ secrets.OPENWRT_APK_SECRET_B64 }}
         with:
           context: .
           file: deploy/luci-builder/Dockerfile
@@ -161,6 +165,12 @@ jobs:
             RMM_GOARM=${{ matrix.goarm || '7' }}
             RMM_GOMIPS=${{ matrix.gomips || 'softfloat' }}
             RMM_GOAMD64=v1
+            REQUIRE_NATIVE_SIGNATURE=${{ startsWith(github.ref, 'refs/tags/agent-v') }}
+            REPOSITORY_INDEX_REVISION=${{ github.run_id }}
+          secret-envs: |
+            openwrt_usign_secret_b64=OPENWRT_USIGN_SECRET_B64
+            openwrt_usign_public_b64=OPENWRT_USIGN_PUBLIC_B64
+            openwrt_apk_secret_b64=OPENWRT_APK_SECRET_B64
           cache-from: type=gha,scope=openwrt-${{ matrix.release }}-${{ matrix.label }}
           cache-to: type=gha,mode=max,scope=openwrt-${{ matrix.release }}-${{ matrix.label }}
 
@@ -172,6 +182,20 @@ jobs:
           test -f artifacts/SHA256SUMS
           (cd artifacts && sha256sum --check SHA256SUMS)
           find artifacts -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) -print -quit | grep -q .
+          if find artifacts -maxdepth 1 -type f -name '*.ipk' -print -quit | grep -q .; then
+            test -f artifacts/Packages
+            test -f artifacts/Packages.gz
+            if [[ "$GITHUB_REF" == refs/tags/agent-v* ]]; then
+              test -f artifacts/Packages.sig
+              public_key="$(find artifacts -maxdepth 1 -type f -regextype posix-extended -regex '.*/[0-9a-f]{16}' -print -quit)"
+              test -n "$public_key"
+            fi
+          else
+            test -f artifacts/packages.adb
+            if [[ "$GITHUB_REF" == refs/tags/agent-v* ]]; then
+              test -f artifacts/rmm-openwrt.pem
+            fi
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -187,14 +211,15 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: openwrt-*
           path: release-assets
-      - name: Create release and upload packages
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Prepare release assets
         shell: bash
         run: |
           set -euo pipefail
@@ -202,8 +227,46 @@ jobs:
           while IFS= read -r file; do
             artifact="$(basename "$(dirname "$file")")"
             cp "$file" "publish/${artifact}-$(basename "$file")"
-          done < <(find release-assets -type f \( -name '*.ipk' -o -name '*.apk' \) -print | sort)
+          done < <(find release-assets -type f ! -name 'SHA256SUMS' -print | sort)
           (cd publish && sha256sum ./* > SHA256SUMS)
+
+      - name: Prepare signed package repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/prepare-package-repository.sh \
+            release-assets \
+            package-repository \
+            "${GITHUB_REF_NAME#agent-v}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-repository-site
+          path: package-repository
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Attest agent release assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: publish/*
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign release checksums with GitHub OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle publish/SHA256SUMS.sigstore.json \
+            publish/SHA256SUMS
+
+      - name: Create release and upload packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
           mapfile -t files < <(find publish -type f -print | sort)
           if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" "${files[@]}" \
@@ -215,3 +278,26 @@ jobs:
               --generate-notes \
               --title "OpenWrt RMM Agent ${GITHUB_REF_NAME#agent-v}"
           fi
+
+  package-repository:
+    name: Publish signed package repository
+    if: startsWith(github.ref, 'refs/tags/agent-v')
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-repository-site
+          path: package-repository
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: package-repository
+      - name: Deploy package repository to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

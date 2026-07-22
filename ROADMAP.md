@@ -1,6 +1,6 @@
 # OpenWrt RMM — актуальный roadmap
 
-Актуализировано: 2026-07-22. Текущая стабильная линия агента: `0.6.1`.
+Актуализировано: 2026-07-23. Текущая стабильная линия агента: `0.6.1`.
 
 ## Цель продукта
 
@@ -47,6 +47,8 @@ OpenWrt через исходящее соединение агента. Пол�
 - [x] NPMplus overlay и wildcard device domain.
 - [x] Healthcheck, ограничение capabilities/resources и persistent volumes.
 - [x] SMTP STARTTLS/TLS и Telegram bot configuration через environment.
+- [x] Версионированные server/tunnel images в GHCR и production Compose overlay.
+- [x] SBOM/provenance, keyless Cosign и подписанный APK/IPK package repository.
 
 ## Следующие этапы
 
@@ -76,8 +78,9 @@ OpenWrt через исходящее соединение агента. Пол�
 
 ### Этап 3 — обновления и release pipeline
 
-- [ ] Подписанный release manifest агента и LuCI-приложения.
-- [ ] Автосборка APK/IPK и multi-architecture artifacts в CI.
+- [x] Автосборка APK/IPK и multi-architecture artifacts в CI.
+- [x] Нативная подпись IPK/APK feed, Cosign checksums и публикация репозитория.
+- [ ] Подписанный update manifest агента и LuCI-приложения.
 - [ ] Обновление одного роутера из кабинета.
 - [ ] Canary/поэтапный rollout с остановкой при потере связи.
 - [ ] История и безопасный rollback версии агента.
@@ -107,6 +110,6 @@ OpenWrt через исходящее соединение агента. Пол�
 
 ## Ближайший приоритет
 
-1. Развернуть и проверить notification release на production.
-2. Добавить webhook и quiet hours.
-3. Начать конфигурационные backup/restore.
+1. Создать и сохранить ключи package feed, включить GitHub Pages и проверить первый подписанный agent/server release.
+2. Развернуть и проверить notification release на production.
+3. Добавить webhook и quiet hours, затем начать конфигурационные backup/restore.

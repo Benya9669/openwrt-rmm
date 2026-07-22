@@ -6,6 +6,7 @@ rmm.db
 /bin/
 /dist/
 /tmp/
+/.tmp/
 /.gocache/
 /.gopath/
 /rmm-server
@@ -13,5 +14,6 @@ rmm.db
 *.exe~
 deploy/tunnel/data/
 secrets/
+release-keys/
 router_tunnel_key
 router_tunnel_key.pub

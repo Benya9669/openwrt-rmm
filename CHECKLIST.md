@@ -1,6 +1,6 @@
 # Актуальный инженерный checklist
 
-Синхронизировано с кодом 2026-07-22. Источник продуктового порядка — `ROADMAP.md`.
+Синхронизировано с кодом 2026-07-23. Источник продуктового порядка — `ROADMAP.md`.
 
 ## Работает сейчас
 
@@ -22,6 +22,9 @@
 
 ## Обязательное перед следующим production-релизом
 
+- [ ] Сгенерировать и офлайн сохранить ключи `usign`/APK, добавить base64-значения в GitHub Actions Secrets.
+- [ ] Включить GitHub Pages из Actions и проверить первый подписанный package feed на реальном роутере.
+- [ ] Выпустить первый `server-v*`, проверить Cosign/provenance и закрепить `RMM_RELEASE_VERSION` в production `.env`.
 - [ ] Настроить SMTP и/или `RMM_TELEGRAM_BOT_TOKEN` в production environment.
 - [ ] Выполнить тестовую отправку из реального пользовательского профиля.
 - [ ] Проверить active → repeat → resolved на тестовом роутере.
@@ -39,8 +42,10 @@
 - [ ] Подписанный webhook channel.
 - [ ] Quiet hours/timezone и per-device notification overrides.
 - [ ] Конфигурационные backup artifacts и retention.
-- [ ] CI для тестов, Docker, APK/IPK и release artifacts.
-- [ ] Signed update manifest и безопасное обновление агента.
+- [x] CI для тестов, Docker, multi-version APK/IPK и release artifacts.
+- [x] Keyless Cosign, provenance/SBOM контейнеров и подписанные checksum релизов.
+- [x] Нативные подписанные `Packages.sig`/`packages.adb` и публикация package feed.
+- [ ] Signed update manifest и безопасное обновление агента из кабинета.
 - [ ] Per-device tunnel credentials.
 - [ ] Organizations и расширенный RBAC.
 - [ ] MFA, command signatures и replay protection.

@@ -8,6 +8,8 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: server-release-${{ github.ref }}
@@ -53,6 +55,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and optionally publish server image
+        id: server_image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -69,8 +72,11 @@ jobs:
             org.opencontainers.image.licenses=AGPL-3.0-only
           cache-from: type=gha,scope=rmm-server
           cache-to: type=gha,mode=max,scope=rmm-server
+          provenance: mode=max
+          sbom: true
 
       - name: Build and optionally publish tunnel image
+        id: tunnel_image
         uses: docker/build-push-action@v6
         with:
           context: deploy/tunnel
@@ -87,6 +93,37 @@ jobs:
             org.opencontainers.image.licenses=AGPL-3.0-only
           cache-from: type=gha,scope=rmm-tunnel
           cache-to: type=gha,mode=max,scope=rmm-tunnel
+          provenance: mode=max
+          sbom: true
+
+      - uses: sigstore/cosign-installer@v3
+        if: startsWith(github.ref, 'refs/tags/server-v')
+
+      - name: Sign published images with GitHub OIDC
+        if: startsWith(github.ref, 'refs/tags/server-v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign --yes \
+            "ghcr.io/benya9669/openwrt-rmm-server@${{ steps.server_image.outputs.digest }}"
+          cosign sign --yes \
+            "ghcr.io/benya9669/openwrt-rmm-tunnel@${{ steps.tunnel_image.outputs.digest }}"
+
+      - name: Attest server image provenance
+        if: startsWith(github.ref, 'refs/tags/server-v')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/benya9669/openwrt-rmm-server
+          subject-digest: ${{ steps.server_image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest tunnel image provenance
+        if: startsWith(github.ref, 'refs/tags/server-v')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/benya9669/openwrt-rmm-tunnel
+          subject-digest: ${{ steps.tunnel_image.outputs.digest }}
+          push-to-registry: true
 
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/server-v')

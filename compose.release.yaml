@@ -1,0 +1,8 @@
+services:
+  rmm-server:
+    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-latest}"
+    pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
+
+  tunnel-ssh:
+    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-latest}"
+    pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"

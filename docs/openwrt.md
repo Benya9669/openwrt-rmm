@@ -147,7 +147,9 @@ The workflow resolves each SDK filename and SHA256 from the official OpenWrt mir
 falling back to the OpenWrt archive for end-of-life branches. Releases through `24.10`
 produce `.ipk`; `25.12` produces `.apk`. Manual runs retain each target as a workflow
 artifact for 30 days. An `agent-v*` tag also creates a GitHub Release containing all packages and
-a combined `SHA256SUMS`.
+a combined `SHA256SUMS`, a Sigstore signature bundle and native signed package feeds.
+See [package-repository.md](package-repository.md) for key provisioning and the commands
+used to connect `opkg` or `apk` to the repository.
 
 This matrix represents common CPU families, not every OpenWrt target. Add an explicit
 matrix row for another target/subtarget and select the matching Go architecture rather

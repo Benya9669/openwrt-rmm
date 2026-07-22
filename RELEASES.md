@@ -64,4 +64,12 @@ git push origin agent-v0.6.2
 
 Pushing a server tag publishes the container image and creates a GitHub Release. Pushing
 an agent tag builds the full OpenWrt matrix and creates a GitHub Release with packages and
-checksums. `workflow_dispatch` can test either workflow without creating a release.
+checksums. It also publishes signed package feeds through GitHub Pages. Repository setup,
+key generation and router configuration are documented in
+[`docs/package-repository.md`](docs/package-repository.md). `workflow_dispatch` can test
+either workflow without creating a release.
+
+Server and tunnel images are published with SBOM/provenance attestations and keyless
+Sigstore signatures bound to the release workflow identity. Agent checksums receive the
+same GitHub OIDC-backed signature. IPK and APK feeds additionally use their native OpenWrt
+repository signatures so `opkg` and `apk` can enforce trust on the router.
