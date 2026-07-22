@@ -14,6 +14,7 @@
 - [x] Acknowledge/resolved lifecycle и audit events.
 - [x] E-mail/Telegram notifications, пользовательские пороги, repeat и delivery history.
 - [x] Reverse tunnel, cloud LuCI и wildcard router domain.
+- [x] DirectDNS удалён из продукта; адресация роутеров работает только через cloud/wildcard-домен и исходящий туннель.
 - [x] UCI preview/apply/commit/revert/backup/restore operations.
 - [x] Fleet filters, bulk commands, metrics history и SSE auto-refresh.
 - [x] Адаптивный UI и согласованные error/loading/empty состояния.
@@ -29,6 +30,12 @@
 
 ## Следующая разработка
 
+- [ ] Восстанавливать зависшие `queued`-доставки после перезапуска сервера; добавить retry/backoff, лимит попыток и dead-letter состояние.
+- [ ] Добавить retention и плановую очистку `notification_deliveries`, а также определить политику защиты e-mail и Telegram Chat ID в SQLite.
+- [ ] Добавить подтверждение e-mail и безопасную привязку Telegram-чата перед включением канала.
+- [ ] Сделать встроенный центр уведомлений: unread/read, счётчик, переход к роутеру и обновление через SSE.
+- [ ] Настройки по типам событий, maintenance/snooze и временное подавление алертов на период работ.
+- [ ] Добавить операционные метрики уведомлений: queued/sent/failed, возраст очереди и последняя ошибка канала.
 - [ ] Активная проверка проводных клиентов и `last_seen`, чтобы flow offload не оставлял реально работающий ПК в состоянии `STALE`.
 - [ ] Подписанный webhook channel.
 - [ ] Quiet hours/timezone и per-device notification overrides.
@@ -42,6 +49,8 @@
 
 ## Постоянная проверка изменений
 
+Это повторяемый шаблон для каждого следующего изменения. Результат последнего проверенного коммита фиксируется отдельно ниже.
+
 - [ ] `gofmt` и `go test ./...`.
 - [ ] `go vet ./...`.
 - [ ] `node --check web/app.js` и `web/landing-motion.js`.
@@ -49,3 +58,18 @@
 - [ ] Docker build.
 - [ ] Desktop 1366/1920, 4:3 1024, tablet 768 и mobile 390/360.
 - [ ] Отсутствие секретов и случайных production-файлов в diff.
+
+## Последняя верификация — `6a03061`
+
+- [x] `gofmt`, `go test ./...` и `go vet ./...`.
+- [x] `node --check web/app.js` и `web/landing-motion.js`.
+- [x] `docker compose config --quiet` и Docker build.
+- [x] Notification profile: 768×1024, 390×844 и 360×800 без горизонтального overflow.
+- [x] Недоступные SMTP/Telegram-каналы блокируются с понятной подсказкой.
+- [x] Ошибки тестовой отправки локализованы и сохраняют request ID.
+- [x] Проверены diff и отсутствие реальных секретов; присутствуют только безопасные example-placeholder значения.
+
+## Документация при изменении API и конфигурации
+
+- [ ] Синхронизировать `server/README.md`, `docs/api.md` и `.env.example` с endpoint и переменными окружения.
+- [ ] Обновить `docs/recent-progress.md`, checklist и roadmap без противоречащих статусов.
