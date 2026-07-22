@@ -126,7 +126,11 @@ type NotificationDelivery struct {
 	Destination       string     `json:"-"`
 	DestinationMasked string     `json:"destination"`
 	Error             string     `json:"error,omitempty"`
+	AttemptCount      int        `json:"attempt_count"`
+	MaxAttempts       int        `json:"max_attempts"`
 	CreatedAt         time.Time  `json:"created_at"`
+	LastAttemptAt     *time.Time `json:"last_attempt_at,omitempty"`
+	NextAttemptAt     *time.Time `json:"next_attempt_at,omitempty"`
 	SentAt            *time.Time `json:"sent_at,omitempty"`
 }
 

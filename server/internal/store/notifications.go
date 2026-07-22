@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"rmm-openwrt/server/internal/model"
 )
@@ -91,6 +92,10 @@ func (s *Store) CreateNotificationDelivery(ctx context.Context, delivery model.N
 		return model.NotificationDelivery{}, false, err
 	}
 	now := nowText()
+	maxAttempts := delivery.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 5
+	}
 	var deviceID any
 	if strings.TrimSpace(delivery.DeviceID) != "" {
 		deviceID = delivery.DeviceID
@@ -98,10 +103,11 @@ func (s *Store) CreateNotificationDelivery(ctx context.Context, delivery model.N
 	res, err := s.db.ExecContext(ctx, `
 INSERT OR IGNORE INTO notification_deliveries (
   id, user_id, device_id, alert_id, dedupe_key, event, channel, status, title, body,
-  destination, destination_masked, error, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, '', ?, ?)
+  destination, destination_masked, error, attempt_count, max_attempts, created_at,
+  next_attempt_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, '', 0, ?, ?, ?, ?)
 `, id, delivery.UserID, deviceID, delivery.AlertID, dedupeKey, delivery.Event, delivery.Channel,
-		delivery.Title, delivery.Body, delivery.Destination, delivery.DestinationMasked, now, now)
+		delivery.Title, delivery.Body, delivery.Destination, delivery.DestinationMasked, maxAttempts, now, now, now)
 	if err != nil {
 		return model.NotificationDelivery{}, false, err
 	}
@@ -111,33 +117,167 @@ INSERT OR IGNORE INTO notification_deliveries (
 	}
 	delivery.ID = id
 	delivery.Status = "queued"
+	delivery.MaxAttempts = maxAttempts
 	delivery.CreatedAt = parseTime(now)
+	nextAttemptAt := parseTime(now)
+	delivery.NextAttemptAt = &nextAttemptAt
 	return delivery, true, nil
 }
 
-func (s *Store) CompleteNotificationDelivery(ctx context.Context, id, status, errorMessage string) error {
+func (s *Store) CompleteNotificationDelivery(ctx context.Context, id, status, errorMessage string, nextAttemptAt *time.Time) error {
 	status = strings.TrimSpace(status)
-	if status != "sent" && status != "failed" {
+	if status != "sent" && status != "retry" && status != "dead_letter" {
 		return errors.New("invalid notification delivery status")
+	}
+	if status == "retry" && nextAttemptAt == nil {
+		return errors.New("retry notification delivery requires next attempt time")
 	}
 	now := nowText()
 	var sentAt any
+	var nextAttempt any
 	if status == "sent" {
 		sentAt = now
+	} else if nextAttemptAt != nil {
+		nextAttempt = notificationTimeText(nextAttemptAt.UTC())
 	}
-	_, err := s.db.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 UPDATE notification_deliveries
-SET status = ?, error = ?, sent_at = ?, updated_at = ?
-WHERE id = ? AND status = 'queued'
-`, status, strings.TrimSpace(errorMessage), sentAt, now, id)
-	return err
+SET status = ?, error = ?, sent_at = ?, next_attempt_at = COALESCE(?, ''),
+    lease_expires_at = NULL, updated_at = ?
+WHERE id = ? AND status = 'sending'
+`, status, strings.TrimSpace(errorMessage), sentAt, nextAttempt, now, id)
+	if err != nil {
+		return err
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated == 0 {
+		return errors.New("notification delivery is not claimed")
+	}
+	return nil
 }
 
-func (s *Store) LatestNotificationDelivery(ctx context.Context, userID, alertID, channel string) (model.NotificationDelivery, bool, error) {
-	row := s.db.QueryRowContext(ctx, `
-SELECT id, user_id, COALESCE(device_id, ''), alert_id, event, channel, status, title, body,
-       destination, destination_masked, error, created_at, sent_at
+func (s *Store) ClaimNotificationDelivery(ctx context.Context, id string, now time.Time, leaseDuration time.Duration) (model.NotificationDelivery, bool, error) {
+	deliveries, err := s.claimNotificationDeliveries(ctx, strings.TrimSpace(id), now, leaseDuration, 1)
+	if err != nil || len(deliveries) == 0 {
+		return model.NotificationDelivery{}, false, err
+	}
+	return deliveries[0], true, nil
+}
+
+func (s *Store) ClaimNotificationDeliveries(ctx context.Context, now time.Time, leaseDuration time.Duration, limit int) ([]model.NotificationDelivery, error) {
+	return s.claimNotificationDeliveries(ctx, "", now, leaseDuration, limit)
+}
+
+func (s *Store) claimNotificationDeliveries(ctx context.Context, onlyID string, now time.Time, leaseDuration time.Duration, limit int) ([]model.NotificationDelivery, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+	if leaseDuration <= 0 {
+		leaseDuration = 3 * time.Minute
+	}
+	now = now.UTC()
+	nowValue := notificationTimeText(now)
+	leaseValue := notificationTimeText(now.Add(leaseDuration))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+UPDATE notification_deliveries
+SET status = 'dead_letter', error = CASE WHEN error = '' THEN 'Попытки доставки исчерпаны. Проверьте настройки канала.' ELSE error END,
+    next_attempt_at = '', lease_expires_at = NULL, updated_at = ?
+WHERE status IN ('retry', 'sending') AND attempt_count >= max_attempts
+  AND (status = 'retry' OR lease_expires_at IS NULL OR lease_expires_at <= ?)
+`, nowValue, nowValue); err != nil {
+		return nil, err
+	}
+	query := `
+SELECT id
 FROM notification_deliveries
+WHERE attempt_count < max_attempts
+  AND ((status IN ('queued', 'retry') AND (next_attempt_at = '' OR next_attempt_at <= ?))
+       OR (status = 'sending' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?))`
+	args := []any{nowValue, nowValue}
+	if onlyID != "" {
+		query += ` AND id = ?`
+		args = append(args, onlyID)
+	}
+	query += ` ORDER BY created_at ASC LIMIT ?`
+	args = append(args, limit)
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, limit)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	claimed := make([]model.NotificationDelivery, 0, len(ids))
+	for _, id := range ids {
+		res, err := tx.ExecContext(ctx, `
+UPDATE notification_deliveries
+SET status = 'sending', attempt_count = attempt_count + 1, last_attempt_at = ?,
+    lease_expires_at = ?, next_attempt_at = '', updated_at = ?
+WHERE id = ? AND attempt_count < max_attempts
+  AND ((status IN ('queued', 'retry') AND (next_attempt_at = '' OR next_attempt_at <= ?))
+       OR (status = 'sending' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?))
+`, nowValue, leaseValue, nowValue, id, nowValue, nowValue)
+		if err != nil {
+			return nil, err
+		}
+		updated, err := res.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if updated == 0 {
+			continue
+		}
+		delivery, err := scanNotificationDelivery(tx.QueryRowContext(ctx, notificationDeliverySelect+` WHERE id = ?`, id))
+		if err != nil {
+			return nil, err
+		}
+		claimed = append(claimed, delivery)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return claimed, nil
+}
+
+func (s *Store) PurgeNotificationDeliveriesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+DELETE FROM notification_deliveries
+WHERE status IN ('sent', 'dead_letter', 'failed') AND updated_at < ?
+`, notificationTimeText(cutoff.UTC()))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+const notificationDeliverySelect = `
+SELECT id, user_id, COALESCE(device_id, ''), alert_id, event, channel, status, title, body,
+       destination, destination_masked, error, attempt_count, max_attempts, created_at,
+       last_attempt_at, next_attempt_at, sent_at
+FROM notification_deliveries`
+
+func (s *Store) LatestNotificationDelivery(ctx context.Context, userID, alertID, channel string) (model.NotificationDelivery, bool, error) {
+	row := s.db.QueryRowContext(ctx, notificationDeliverySelect+`
 WHERE user_id = ? AND alert_id = ? AND channel = ? AND event IN ('active', 'repeat')
 ORDER BY created_at DESC LIMIT 1
 `, userID, alertID, channel)
@@ -153,10 +293,7 @@ func (s *Store) ListNotificationDeliveries(ctx context.Context, opts Notificatio
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, user_id, COALESCE(device_id, ''), alert_id, event, channel, status, title, body,
-       destination, destination_masked, error, created_at, sent_at
-FROM notification_deliveries
+	rows, err := s.db.QueryContext(ctx, notificationDeliverySelect+`
 WHERE user_id = ?
 ORDER BY created_at DESC LIMIT ?
 `, opts.UserID, limit)
@@ -182,16 +319,25 @@ type notificationScanner interface {
 func scanNotificationDelivery(scanner notificationScanner) (model.NotificationDelivery, error) {
 	var delivery model.NotificationDelivery
 	var createdAt string
-	var sentAt sql.NullString
+	var lastAttemptAt, nextAttemptAt, sentAt sql.NullString
 	err := scanner.Scan(
 		&delivery.ID, &delivery.UserID, &delivery.DeviceID, &delivery.AlertID, &delivery.Event,
 		&delivery.Channel, &delivery.Status, &delivery.Title, &delivery.Body, &delivery.Destination,
-		&delivery.DestinationMasked, &delivery.Error, &createdAt, &sentAt,
+		&delivery.DestinationMasked, &delivery.Error, &delivery.AttemptCount, &delivery.MaxAttempts,
+		&createdAt, &lastAttemptAt, &nextAttemptAt, &sentAt,
 	)
 	if err != nil {
 		return model.NotificationDelivery{}, err
 	}
 	delivery.CreatedAt = parseTime(createdAt)
+	if lastAttemptAt.Valid && lastAttemptAt.String != "" {
+		value := parseTime(lastAttemptAt.String)
+		delivery.LastAttemptAt = &value
+	}
+	if nextAttemptAt.Valid && nextAttemptAt.String != "" {
+		value := parseTime(nextAttemptAt.String)
+		delivery.NextAttemptAt = &value
+	}
 	if sentAt.Valid {
 		value := parseTime(sentAt.String)
 		delivery.SentAt = &value
@@ -204,4 +350,8 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func notificationTimeText(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
 }

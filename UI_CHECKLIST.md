@@ -14,6 +14,7 @@
 - [x] Landing motion и reduced-motion fallback.
 - [x] Desktop, 4:3, tablet и mobile без page-level overflow.
 - [x] Notification settings, thresholds, test send и delivery history.
+- [x] История различает queued/sending/retry/sent/dead-letter и показывает номер попытки и время повтора.
 
 ## Проверить перед выпуском notification UI
 
@@ -21,7 +22,7 @@
 - [x] SMTP отсутствует: e-mail channel недоступен, остальные настройки сохраняются.
 - [x] Telegram token отсутствует: Telegram channel недоступен.
 - [ ] Неверный Chat ID и пороги показывают ошибку формы.
-- [ ] Test send показывает sent и failed без раскрытия секретов.
+- [ ] Test send показывает sent/retry/dead-letter без раскрытия секретов.
 - [ ] История корректна при пустом списке и длинной ошибке доставки.
 - [ ] Profile dialog прокручивается внутри 390×844 и 360×800.
 - [ ] Keyboard navigation и zoom 200%.

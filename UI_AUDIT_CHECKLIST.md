@@ -57,12 +57,12 @@ Docker-сборке с фиктивным роутером и длинными �
 
 - [x] Персональные настройки e-mail/Telegram и порогов алертов.
 - [x] Warning, critical, resolved, repeat и тестовая отправка.
-- [x] История queued/sent/failed использует только masked destination.
+- [x] История queued/sending/retry/sent/dead-letter использует только masked destination.
 - [x] Повторить browser matrix нового profile-раздела перед production deploy.
 - [x] При отсутствии SMTP и Telegram token каналы недоступны и объясняют причину.
 - [x] Ошибка тестовой отправки показана по-русски и сохраняет request ID.
 - [ ] Реальная доставка через production SMTP и Telegram проверена из пользовательского профиля.
-- [ ] Failed-доставка и длинный текст ошибки проверены в истории без раскрытия внутренних деталей.
+- [ ] Retry/dead-letter доставка и длинный текст ошибки проверены в истории без раскрытия внутренних деталей.
 
 ## Ограничения production-проверки
 

@@ -20,7 +20,8 @@
 - [x] Настройки каналов e-mail/Telegram в личном кабинете.
 - [x] Пороги memory/disk/packet loss/latency.
 - [x] Warning/critical/resolved и период повтора.
-- [x] Тестовая отправка и история sent/failed/queued.
+- [x] Тестовая отправка и история queued/sending/retry/sent/dead-letter.
+- [x] Retry/dead-letter состояния, номер попытки и время следующей доставки.
 - [x] Недоступный серверный канал объясняется и блокируется.
 - [ ] Quiet hours и выбор timezone.
 - [ ] Per-device overrides в карточке объекта.

@@ -198,7 +198,12 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
 	destination TEXT NOT NULL,
 	destination_masked TEXT NOT NULL,
 	error TEXT NOT NULL DEFAULT '',
+	attempt_count INTEGER NOT NULL DEFAULT 0,
+	max_attempts INTEGER NOT NULL DEFAULT 5,
 	created_at TEXT NOT NULL,
+	last_attempt_at TEXT,
+	next_attempt_at TEXT NOT NULL DEFAULT '',
+	lease_expires_at TEXT,
 	sent_at TEXT,
 	updated_at TEXT NOT NULL,
 	FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -358,6 +363,11 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`ALTER TABLE remote_sessions ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE notification_deliveries ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE notification_deliveries ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 5`,
+		`ALTER TABLE notification_deliveries ADD COLUMN last_attempt_at TEXT`,
+		`ALTER TABLE notification_deliveries ADD COLUMN next_attempt_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE notification_deliveries ADD COLUMN lease_expires_at TEXT`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !isDuplicateColumnError(err) {
 			return err
@@ -376,10 +386,24 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_status_expires_at ON remote_sessions(status, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_created ON notification_deliveries(user_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_created ON notification_deliveries(status, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_ready ON notification_deliveries(status, next_attempt_at, lease_expires_at)`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
+	}
+	if _, err := s.db.ExecContext(ctx, `
+UPDATE notification_deliveries
+SET status = 'dead_letter',
+    attempt_count = CASE WHEN attempt_count = 0 THEN 1 ELSE attempt_count END,
+    next_attempt_at = ''
+WHERE status = 'failed';
+
+UPDATE notification_deliveries
+SET next_attempt_at = created_at
+WHERE status IN ('queued', 'retry') AND next_attempt_at = ''
+`); err != nil {
+		return err
 	}
 	return s.migrateDeviceTokens(ctx)
 }

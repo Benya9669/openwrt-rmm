@@ -2,15 +2,20 @@ package httpapi_test
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"rmm-openwrt/server/internal/httpapi"
 	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
+
+	_ "modernc.org/sqlite"
 )
 
 type capturedNotification struct {
@@ -23,13 +28,20 @@ type captureNotificationSender struct {
 	messages chan capturedNotification
 }
 
+type failingNotificationSender struct{}
+
+func (failingNotificationSender) SendNotification(context.Context, string, string, string) error {
+	return errors.New("smtp.internal.example: authentication secret rejected")
+}
+
 func (s *captureNotificationSender) SendNotification(_ context.Context, destination, title, body string) error {
 	s.messages <- capturedNotification{destination: destination, title: title, body: body}
 	return nil
 }
 
 func TestNotificationSettingsTestAndAlertLifecycle(t *testing.T) {
-	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "notifications.db"))
+	dbPath := filepath.Join(t.TempDir(), "notifications.db")
+	st, err := store.OpenSQLite(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +74,7 @@ func TestNotificationSettingsTestAndAlertLifecycle(t *testing.T) {
 		"email_enabled": true, "telegram_enabled": false, "notify_warning": true,
 		"notify_critical": true, "notify_resolved": true, "memory_threshold_percent": 80,
 		"disk_threshold_percent": 90, "packet_loss_percent": 25, "latency_threshold_ms": 250,
-		"repeat_minutes": 0,
+		"repeat_minutes": 15,
 	}, http.StatusOK, &saved)
 	if !saved.Settings.Configured || !saved.Settings.EmailEnabled || saved.Settings.MemoryThresholdPercent != 80 {
 		t.Fatalf("settings were not saved: %#v", saved.Settings)
@@ -83,6 +95,29 @@ func TestNotificationSettingsTestAndAlertLifecycle(t *testing.T) {
 	if activeMessage.title == "" {
 		t.Fatal("active alert notification was empty")
 	}
+	waitNotificationDelivery(t, client, srv.URL, "active", "sent")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-16 * time.Minute).Format(time.RFC3339Nano)
+	if _, err := db.Exec(`UPDATE notification_deliveries SET created_at = ?, updated_at = ? WHERE event = 'active'`, old, old); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/heartbeat", enrolled.DeviceToken, map[string]any{
+		"device_id": enrolled.DeviceID,
+		"inventory": map[string]any{"hostname": "notify-router"},
+		"metrics":   map[string]any{"memory": map[string]any{"used_kb": 900, "total_kb": 1000}},
+	}, http.StatusOK, nil)
+	repeatMessage := waitNotification(t, sender.messages)
+	if repeatMessage.title == "" {
+		t.Fatal("repeat alert notification was empty")
+	}
+	waitNotificationDelivery(t, client, srv.URL, "repeat", "sent")
 
 	requestJSON(t, http.MethodPost, srv.URL+"/api/agent/heartbeat", enrolled.DeviceToken, map[string]any{
 		"device_id": enrolled.DeviceID,
@@ -98,14 +133,33 @@ func TestNotificationSettingsTestAndAlertLifecycle(t *testing.T) {
 		Notifications []model.NotificationDelivery `json:"notifications"`
 	}
 	authRequestJSON(t, client, http.MethodGet, srv.URL+"/api/notifications", nil, http.StatusOK, &history)
-	if len(history.Notifications) < 3 {
-		t.Fatalf("expected test, active and resolved deliveries, got %#v", history.Notifications)
+	if len(history.Notifications) < 4 {
+		t.Fatalf("expected test, active, repeat and resolved deliveries, got %#v", history.Notifications)
 	}
 	for _, delivery := range history.Notifications {
 		if delivery.Destination != "" {
 			t.Fatal("raw notification destination leaked through API")
 		}
 	}
+}
+
+func waitNotificationDelivery(t *testing.T, client *http.Client, serverURL, event, status string) model.NotificationDelivery {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var history struct {
+			Notifications []model.NotificationDelivery `json:"notifications"`
+		}
+		authRequestJSON(t, client, http.MethodGet, serverURL+"/api/notifications", nil, http.StatusOK, &history)
+		for _, delivery := range history.Notifications {
+			if delivery.Event == event && delivery.Status == status {
+				return delivery
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("notification event %q did not reach status %q", event, status)
+	return model.NotificationDelivery{}
 }
 
 func TestNotificationSettingsValidation(t *testing.T) {
@@ -128,6 +182,42 @@ func TestNotificationSettingsValidation(t *testing.T) {
 		"disk_threshold_percent": 85, "packet_loss_percent": 20, "latency_threshold_ms": 200,
 		"repeat_minutes": 0,
 	}, http.StatusBadRequest, nil)
+}
+
+func TestNotificationFailureIsRetriedWithoutLeakingProviderError(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "notification-failure.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		OperatorUsername: "admin", OperatorPassword: "notification-password-123",
+		AlertEmailSender: failingNotificationSender{}, NotificationMaxAttempts: 3,
+	}))
+	defer srv.Close()
+	client := authenticatedClient(t, srv.URL, "admin", "notification-password-123")
+	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
+		"display_name": "Owner", "email": "owner@example.test",
+	}, http.StatusOK, nil)
+	authRequestJSON(t, client, http.MethodPut, srv.URL+"/api/notifications/settings", map[string]any{
+		"email_enabled": true, "notify_warning": true, "notify_critical": true, "notify_resolved": true,
+		"memory_threshold_percent": 85, "disk_threshold_percent": 85, "packet_loss_percent": 20,
+		"latency_threshold_ms": 200, "repeat_minutes": 0,
+	}, http.StatusOK, nil)
+	var result struct {
+		Notifications []model.NotificationDelivery `json:"notifications"`
+	}
+	authRequestJSON(t, client, http.MethodPost, srv.URL+"/api/notifications/test", nil, http.StatusOK, &result)
+	if len(result.Notifications) != 1 {
+		t.Fatalf("unexpected test result: %#v", result.Notifications)
+	}
+	delivery := result.Notifications[0]
+	if delivery.Status != "retry" || delivery.AttemptCount != 1 || delivery.MaxAttempts != 3 || delivery.NextAttemptAt == nil {
+		t.Fatalf("unexpected retry state: %#v", delivery)
+	}
+	if strings.Contains(delivery.Error, "smtp.internal") || strings.Contains(delivery.Error, "secret") {
+		t.Fatalf("provider error leaked to API: %q", delivery.Error)
+	}
 }
 
 func waitNotification(t *testing.T, messages <-chan capturedNotification) capturedNotification {

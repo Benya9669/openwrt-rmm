@@ -29,6 +29,12 @@ operators.
 - SMTP credentials and the Telegram bot token are read only from the deployment
   environment. The browser API returns masked notification destinations and never returns
   channel credentials or full delivery destinations.
+- Notification provider errors are logged server-side, while users receive a generic
+  delivery error. Terminal notification history is removed by configurable retention;
+  pending rows are preserved.
+- The pending queue stores the full destination because the worker needs it for delivery.
+  Treat the SQLite volume and its backups as sensitive data; the browser receives only a
+  masked destination. Storage encryption and access control remain deployment concerns.
 
 ## Operational guidance
 
@@ -42,6 +48,8 @@ operators.
 - Back up SQLite without deleting or recreating the live volume.
 - Treat notification delivery errors as sensitive operational data and restrict database
   backups to trusted administrators.
+- Delivery is at-least-once. A rare duplicate is possible if a provider accepted a message
+  immediately before the server stopped and its lease later expired.
 
 ## Remaining hardening work
 

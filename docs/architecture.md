@@ -39,6 +39,11 @@ Core tables:
 - `notification_settings`
 - `notification_deliveries`
 
+Notification delivery uses a persistent SQLite queue. Workers atomically claim ready rows
+with a lease, increment the attempt counter, and finish them as `sent`, `retry`, or
+`dead_letter`. Expired leases are claimable after a process restart. Terminal history has
+an independent retention period; queued, retrying, and in-flight rows are preserved.
+
 ## Agent
 
 The agent is a small Go binary and uses tools normally available on OpenWrt for platform

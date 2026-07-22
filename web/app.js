@@ -1638,9 +1638,13 @@ function renderNotificationHistory() {
   for (const delivery of state.notifications) {
     const row = document.createElement("article");
     row.className = `notification-history-row is-${delivery.status || "queued"}`;
+    const attempts = delivery.attempt_count > 0 ? ` · попытка ${delivery.attempt_count}/${delivery.max_attempts || "?"}` : "";
+    const retryAt = delivery.status === "retry" && delivery.next_attempt_at
+      ? ` · повтор ${formatDate(delivery.next_attempt_at)}`
+      : "";
     row.innerHTML = `
       <span class="notification-channel">${delivery.channel === "telegram" ? "Telegram" : "E-mail"}</span>
-      <div><strong>${escapeHtml(delivery.title || "Уведомление")}</strong><small>${escapeHtml(delivery.destination || "")}${delivery.error ? ` · ${escapeHtml(delivery.error)}` : ""}</small></div>
+      <div><strong>${escapeHtml(delivery.title || "Уведомление")}</strong><small>${escapeHtml(delivery.destination || "")}${delivery.error ? ` · ${escapeHtml(delivery.error)}` : ""}${escapeHtml(attempts)}${escapeHtml(retryAt)}</small></div>
       <span class="notification-delivery-status">${escapeHtml(notificationStatusLabel(delivery.status))}</span>
       <time>${escapeHtml(formatDate(delivery.sent_at || delivery.created_at))}</time>
     `;
@@ -1649,7 +1653,14 @@ function renderNotificationHistory() {
 }
 
 function notificationStatusLabel(status) {
-  return { queued: "В очереди", sent: "Отправлено", failed: "Ошибка" }[status] || status || "Неизвестно";
+  return {
+    queued: "В очереди",
+    sending: "Отправляется",
+    retry: "Повтор ожидается",
+    sent: "Отправлено",
+    dead_letter: "Не доставлено",
+    failed: "Ошибка",
+  }[status] || status || "Неизвестно";
 }
 
 function notificationErrorMessage(error) {

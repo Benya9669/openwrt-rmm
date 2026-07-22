@@ -93,24 +93,25 @@ func main() {
 	go maintenanceLoop(st)
 
 	handler := httpapi.NewHandler(st, httpapi.Config{
-		EnrollmentToken:       enrollmentToken,
-		AllowLegacyEnrollment: allowLegacyEnrollment,
-		AllowLegacyLuCIProxy:  envBool("RMM_ALLOW_LEGACY_LUCI_PROXY", false),
-		OperatorToken:         operatorToken,
-		OperatorUsername:      env("RMM_OPERATOR_USERNAME", "admin"),
-		OperatorPassword:      operatorPassword,
-		CookieSecure:          envBool("RMM_COOKIE_SECURE", !insecureDevMode),
-		TunnelHTTPHost:        env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
-		TunnelPublicHost:      strings.TrimSpace(os.Getenv("RMM_TUNNEL_PUBLIC_HOST")),
-		TunnelPublicPort:      envInt("RMM_TUNNEL_PUBLIC_PORT", 2222, 1, 65535),
-		DeviceDomain:          strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
-		PublicScheme:          env("RMM_PUBLIC_SCHEME", "https"),
-		PublicURL:             publicURL,
-		PasswordResetSender:   passwordResetSender,
-		AlertEmailSender:      alertEmailSender,
-		TelegramSender:        telegramSender,
-		BackgroundTasks:       true,
-		StaticDir:             env("RMM_WEB_DIR", "web"),
+		EnrollmentToken:         enrollmentToken,
+		AllowLegacyEnrollment:   allowLegacyEnrollment,
+		AllowLegacyLuCIProxy:    envBool("RMM_ALLOW_LEGACY_LUCI_PROXY", false),
+		OperatorToken:           operatorToken,
+		OperatorUsername:        env("RMM_OPERATOR_USERNAME", "admin"),
+		OperatorPassword:        operatorPassword,
+		CookieSecure:            envBool("RMM_COOKIE_SECURE", !insecureDevMode),
+		TunnelHTTPHost:          env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
+		TunnelPublicHost:        strings.TrimSpace(os.Getenv("RMM_TUNNEL_PUBLIC_HOST")),
+		TunnelPublicPort:        envInt("RMM_TUNNEL_PUBLIC_PORT", 2222, 1, 65535),
+		DeviceDomain:            strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
+		PublicScheme:            env("RMM_PUBLIC_SCHEME", "https"),
+		PublicURL:               publicURL,
+		PasswordResetSender:     passwordResetSender,
+		AlertEmailSender:        alertEmailSender,
+		TelegramSender:          telegramSender,
+		BackgroundTasks:         true,
+		NotificationMaxAttempts: envInt("RMM_NOTIFICATION_MAX_ATTEMPTS", 5, 1, 20),
+		StaticDir:               env("RMM_WEB_DIR", "web"),
 	})
 
 	srv := &http.Server{
@@ -135,6 +136,7 @@ func insecurePlaceholder(value string) bool {
 type maintenanceStore interface {
 	PurgeExpiredSecurityData(ctx context.Context) error
 	PurgeMetricSamplesBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	PurgeNotificationDeliveriesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 func maintenanceLoop(st maintenanceStore) {
@@ -158,6 +160,14 @@ func runMaintenance(ctx context.Context, st maintenanceStore) error {
 	}
 	if deleted > 0 {
 		log.Printf("maintenance removed %d expired metric samples", deleted)
+	}
+	notificationRetentionDays := envInt("RMM_NOTIFICATION_RETENTION_DAYS", 90, 1, 3650)
+	deleted, err = st.PurgeNotificationDeliveriesBefore(ctx, time.Now().UTC().Add(-time.Duration(notificationRetentionDays)*24*time.Hour))
+	if err != nil {
+		return err
+	}
+	if deleted > 0 {
+		log.Printf("maintenance removed %d expired notification deliveries", deleted)
 	}
 	return nil
 }

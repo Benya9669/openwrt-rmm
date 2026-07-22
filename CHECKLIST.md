@@ -13,6 +13,7 @@
 - [x] Alerts: offline, WAN, memory, disk, packet loss, latency, WAN IP, commands.
 - [x] Acknowledge/resolved lifecycle и audit events.
 - [x] E-mail/Telegram notifications, пользовательские пороги, repeat и delivery history.
+- [x] Durable notification queue: leased claims, restart recovery, exponential retry, dead-letter и retention.
 - [x] Reverse tunnel, cloud LuCI и wildcard router domain.
 - [x] DirectDNS удалён из продукта; адресация роутеров работает только через cloud/wildcard-домен и исходящий туннель.
 - [x] UCI preview/apply/commit/revert/backup/restore operations.
@@ -30,8 +31,6 @@
 
 ## Следующая разработка
 
-- [ ] Восстанавливать зависшие `queued`-доставки после перезапуска сервера; добавить retry/backoff, лимит попыток и dead-letter состояние.
-- [ ] Добавить retention и плановую очистку `notification_deliveries`, а также определить политику защиты e-mail и Telegram Chat ID в SQLite.
 - [ ] Добавить подтверждение e-mail и безопасную привязку Telegram-чата перед включением канала.
 - [ ] Сделать встроенный центр уведомлений: unread/read, счётчик, переход к роутеру и обновление через SSE.
 - [ ] Настройки по типам событий, maintenance/snooze и временное подавление алертов на период работ.

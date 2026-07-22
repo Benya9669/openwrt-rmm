@@ -17,9 +17,12 @@ Environment variables:
 - `RMM_OPERATOR_USERNAME` - web UI username, default `admin`
 - `RMM_PUBLIC_URL` - trusted external base URL used in password recovery links
 - `RMM_SMTP_HOST`, `RMM_SMTP_PORT`, `RMM_SMTP_USERNAME`, `RMM_SMTP_PASSWORD`,
-  `RMM_SMTP_FROM` - optional SMTP delivery for password recovery
+  `RMM_SMTP_FROM` - optional SMTP delivery for password recovery and alert notifications
 - `RMM_SMTP_TLS_MODE` - `starttls` (default), `tls`, or `none` in insecure local mode only
 - `RMM_SMTP_SERVER_NAME` - optional TLS server name override
+- `RMM_TELEGRAM_BOT_TOKEN` - optional Telegram bot used for per-user alert delivery
+- `RMM_NOTIFICATION_MAX_ATTEMPTS` - delivery attempt limit, default `5`
+- `RMM_NOTIFICATION_RETENTION_DAYS` - terminal delivery history retention, default `90`
 - `RMM_COOKIE_SECURE` - defaults to `true` outside explicit development mode
 - `RMM_DEVICE_DOMAIN` - wildcard device domain, for example `routers.example.com`
 - `RMM_ALLOW_LEGACY_ENROLLMENT` - opt-in shared enrollment compatibility mode
@@ -55,6 +58,9 @@ Operator API:
 - `PATCH /api/auth/profile`
 - `POST /api/auth/change-password`
 - `POST /api/auth/logout-all`
+- `GET|PUT /api/notifications/settings`
+- `GET /api/notifications`
+- `POST /api/notifications/test`
 - `GET|POST /api/users` (administrator only)
 - `PATCH /api/users/{id}` (administrator only)
 - `POST /api/enrollment-grants`

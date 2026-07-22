@@ -69,9 +69,12 @@ type Store interface {
 	GetNotificationSettings(ctx context.Context, userID string) (model.NotificationSettings, bool, error)
 	UpsertNotificationSettings(ctx context.Context, settings model.NotificationSettings) (model.NotificationSettings, error)
 	CreateNotificationDelivery(ctx context.Context, delivery model.NotificationDelivery, dedupeKey string) (model.NotificationDelivery, bool, error)
-	CompleteNotificationDelivery(ctx context.Context, id, status, errorMessage string) error
+	ClaimNotificationDelivery(ctx context.Context, id string, now time.Time, leaseDuration time.Duration) (model.NotificationDelivery, bool, error)
+	ClaimNotificationDeliveries(ctx context.Context, now time.Time, leaseDuration time.Duration, limit int) ([]model.NotificationDelivery, error)
+	CompleteNotificationDelivery(ctx context.Context, id, status, errorMessage string, nextAttemptAt *time.Time) error
 	LatestNotificationDelivery(ctx context.Context, userID, alertID, channel string) (model.NotificationDelivery, bool, error)
 	ListNotificationDeliveries(ctx context.Context, opts store.NotificationListOptions) ([]model.NotificationDelivery, error)
+	PurgeNotificationDeliveriesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	CreateCommand(ctx context.Context, deviceID, commandType string, args json.RawMessage) (model.Command, bool, error)
 	ListCommands(ctx context.Context, deviceID string, opts store.CommandListOptions) ([]model.Command, bool, error)
 	GetCommand(ctx context.Context, deviceID, commandID string) (model.Command, bool, error)
@@ -89,48 +92,52 @@ type Store interface {
 }
 
 type Config struct {
-	EnrollmentToken       string
-	AllowLegacyEnrollment bool
-	AllowLegacyLuCIProxy  bool
-	OperatorToken         string
-	OperatorUsername      string
-	OperatorPassword      string
-	SessionSecret         string
-	CookieSecure          bool
-	TunnelHTTPHost        string
-	TunnelPublicHost      string
-	TunnelPublicPort      int
-	DeviceDomain          string
-	PublicScheme          string
-	PublicURL             string
-	PasswordResetSender   PasswordResetSender
-	AlertEmailSender      NotificationSender
-	TelegramSender        NotificationSender
-	BackgroundTasks       bool
-	StaticDir             string
+	EnrollmentToken            string
+	AllowLegacyEnrollment      bool
+	AllowLegacyLuCIProxy       bool
+	OperatorToken              string
+	OperatorUsername           string
+	OperatorPassword           string
+	SessionSecret              string
+	CookieSecure               bool
+	TunnelHTTPHost             string
+	TunnelPublicHost           string
+	TunnelPublicPort           int
+	DeviceDomain               string
+	PublicScheme               string
+	PublicURL                  string
+	PasswordResetSender        PasswordResetSender
+	AlertEmailSender           NotificationSender
+	TelegramSender             NotificationSender
+	BackgroundTasks            bool
+	NotificationMaxAttempts    int
+	NotificationWorkerInterval time.Duration
+	StaticDir                  string
 }
 
 type App struct {
-	store                 Store
-	enrollmentToken       string
-	allowLegacyEnrollment bool
-	operatorToken         string
-	operatorUsername      string
-	dummyPasswordHash     string
-	cookieSecure          bool
-	tunnelHTTPHost        string
-	tunnelPublicHost      string
-	tunnelPublicPort      int
-	deviceDomain          string
-	publicScheme          string
-	publicURL             string
-	passwordResetSender   PasswordResetSender
-	alertEmailSender      NotificationSender
-	telegramSender        NotificationSender
-	loginLimiter          *loginRateLimiter
-	passwordResetLimiter  *loginRateLimiter
-	loginSlots            chan struct{}
-	events                *eventHub
+	store                      Store
+	enrollmentToken            string
+	allowLegacyEnrollment      bool
+	operatorToken              string
+	operatorUsername           string
+	dummyPasswordHash          string
+	cookieSecure               bool
+	tunnelHTTPHost             string
+	tunnelPublicHost           string
+	tunnelPublicPort           int
+	deviceDomain               string
+	publicScheme               string
+	publicURL                  string
+	passwordResetSender        PasswordResetSender
+	alertEmailSender           NotificationSender
+	telegramSender             NotificationSender
+	notificationMaxAttempts    int
+	notificationWorkerInterval time.Duration
+	loginLimiter               *loginRateLimiter
+	passwordResetLimiter       *loginRateLimiter
+	loginSlots                 chan struct{}
+	events                     *eventHub
 }
 
 type contextKey string
@@ -278,26 +285,34 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		panic("initialize password verifier: " + err.Error())
 	}
 	a := &App{
-		store:                 s,
-		enrollmentToken:       cfg.EnrollmentToken,
-		allowLegacyEnrollment: cfg.AllowLegacyEnrollment || strings.TrimSpace(cfg.EnrollmentToken) != "",
-		operatorToken:         cfg.OperatorToken,
-		operatorUsername:      cfg.OperatorUsername,
-		dummyPasswordHash:     dummyPasswordHash,
-		cookieSecure:          cfg.CookieSecure,
-		tunnelHTTPHost:        strings.TrimSpace(cfg.TunnelHTTPHost),
-		tunnelPublicHost:      strings.TrimSpace(cfg.TunnelPublicHost),
-		tunnelPublicPort:      cfg.TunnelPublicPort,
-		deviceDomain:          strings.Trim(strings.ToLower(strings.TrimSpace(cfg.DeviceDomain)), "."),
-		publicScheme:          strings.ToLower(strings.TrimSpace(cfg.PublicScheme)),
-		publicURL:             strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),
-		passwordResetSender:   cfg.PasswordResetSender,
-		alertEmailSender:      cfg.AlertEmailSender,
-		telegramSender:        cfg.TelegramSender,
-		loginLimiter:          newLoginRateLimiter(5, 5*time.Minute),
-		passwordResetLimiter:  newLoginRateLimiter(3, time.Hour),
-		loginSlots:            make(chan struct{}, 4),
-		events:                newEventHub(),
+		store:                      s,
+		enrollmentToken:            cfg.EnrollmentToken,
+		allowLegacyEnrollment:      cfg.AllowLegacyEnrollment || strings.TrimSpace(cfg.EnrollmentToken) != "",
+		operatorToken:              cfg.OperatorToken,
+		operatorUsername:           cfg.OperatorUsername,
+		dummyPasswordHash:          dummyPasswordHash,
+		cookieSecure:               cfg.CookieSecure,
+		tunnelHTTPHost:             strings.TrimSpace(cfg.TunnelHTTPHost),
+		tunnelPublicHost:           strings.TrimSpace(cfg.TunnelPublicHost),
+		tunnelPublicPort:           cfg.TunnelPublicPort,
+		deviceDomain:               strings.Trim(strings.ToLower(strings.TrimSpace(cfg.DeviceDomain)), "."),
+		publicScheme:               strings.ToLower(strings.TrimSpace(cfg.PublicScheme)),
+		publicURL:                  strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),
+		passwordResetSender:        cfg.PasswordResetSender,
+		alertEmailSender:           cfg.AlertEmailSender,
+		telegramSender:             cfg.TelegramSender,
+		notificationMaxAttempts:    cfg.NotificationMaxAttempts,
+		notificationWorkerInterval: cfg.NotificationWorkerInterval,
+		loginLimiter:               newLoginRateLimiter(5, 5*time.Minute),
+		passwordResetLimiter:       newLoginRateLimiter(3, time.Hour),
+		loginSlots:                 make(chan struct{}, 4),
+		events:                     newEventHub(),
+	}
+	if a.notificationMaxAttempts <= 0 {
+		a.notificationMaxAttempts = 5
+	}
+	if a.notificationWorkerInterval <= 0 {
+		a.notificationWorkerInterval = 30 * time.Second
 	}
 	if a.tunnelHTTPHost == "" {
 		a.tunnelHTTPHost = "tunnel-ssh"
@@ -420,7 +435,11 @@ func (a *App) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	} else if deliveries, queueErr := a.queueDeviceNotifications(r.Context(), req.DeviceID); queueErr != nil {
 		log.Printf("queue notifications for %s: %v", req.DeviceID, queueErr)
 	} else if len(deliveries) > 0 {
-		go a.deliverNotifications(deliveries)
+		go func() {
+			if err := a.processNotificationQueue(context.Background()); err != nil {
+				log.Printf("process notification queue: %v", err)
+			}
+		}()
 	}
 	a.events.publish("devices")
 

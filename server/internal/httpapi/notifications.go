@@ -18,6 +18,8 @@ type NotificationSender interface {
 	SendNotification(ctx context.Context, destination, title, body string) error
 }
 
+const notificationDeliveryLease = 5 * time.Minute
+
 type notificationSettingsRequest struct {
 	EmailEnabled           bool   `json:"email_enabled"`
 	TelegramEnabled        bool   `json:"telegram_enabled"`
@@ -113,7 +115,12 @@ func (a *App) handleTestNotifications(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to create test notification")
 			return
 		}
-		results = append(results, a.deliverNotification(r.Context(), created))
+		claimed, found, claimErr := a.store.ClaimNotificationDelivery(r.Context(), created.ID, time.Now().UTC(), notificationDeliveryLease)
+		if claimErr != nil || !found {
+			writeError(w, http.StatusInternalServerError, "failed to claim test notification")
+			return
+		}
+		results = append(results, a.deliverNotification(r.Context(), claimed))
 	}
 	_, _ = a.store.AddAuditEvent(r.Context(), principal.User.Username, "notifications.test", "", "", mustJSON(map[string]string{"request_id": requestID(r.Context())}))
 	writeJSON(w, http.StatusOK, map[string]any{"notifications": results})
@@ -170,7 +177,7 @@ func validTelegramChatID(value string) bool {
 }
 
 func (a *App) alertNotificationLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(a.notificationWorkerInterval)
 	defer ticker.Stop()
 	for {
 		if err := a.runAlertNotificationCycle(context.Background()); err != nil {
@@ -190,16 +197,13 @@ func (a *App) runAlertNotificationCycle(ctx context.Context) error {
 			log.Printf("refresh alerts for %s: %v", device.ID, refreshErr)
 			continue
 		}
-		deliveries, queueErr := a.queueDeviceNotifications(ctx, device.ID)
+		_, queueErr := a.queueDeviceNotifications(ctx, device.ID)
 		if queueErr != nil {
 			log.Printf("queue notifications for %s: %v", device.ID, queueErr)
 			continue
 		}
-		if len(deliveries) > 0 {
-			go a.deliverNotifications(deliveries)
-		}
 	}
-	return nil
+	return a.processNotificationQueue(ctx)
 }
 
 func (a *App) queueDeviceNotifications(ctx context.Context, deviceID string) ([]model.NotificationDelivery, error) {
@@ -258,9 +262,6 @@ func (a *App) queueDeviceNotifications(ctx context.Context, deviceID string) ([]
 				return nil, lastErr
 			}
 			retryAfter := time.Duration(settings.RepeatMinutes) * time.Minute
-			if lastFound && last.Status == "failed" {
-				retryAfter = 5 * time.Minute
-			}
 			if !lastFound || last.CreatedAt.Add(retryAfter).After(now) {
 				continue
 			}
@@ -287,7 +288,10 @@ func notificationSeverityEnabled(settings model.NotificationSettings, severity s
 
 func (a *App) notificationDeliveriesForMessage(user model.User, settings model.NotificationSettings, event, deviceID, alertID, title, body string) []model.NotificationDelivery {
 	deliveries := make([]model.NotificationDelivery, 0, 2)
-	base := model.NotificationDelivery{UserID: user.ID, DeviceID: deviceID, AlertID: alertID, Event: event, Title: title, Body: body}
+	base := model.NotificationDelivery{
+		UserID: user.ID, DeviceID: deviceID, AlertID: alertID, Event: event,
+		Title: title, Body: body, MaxAttempts: a.notificationMaxAttempts,
+	}
 	if settings.EmailEnabled && a.alertEmailSender != nil && user.Email != "" {
 		delivery := base
 		delivery.Channel = "email"
@@ -305,12 +309,20 @@ func (a *App) notificationDeliveriesForMessage(user model.User, settings model.N
 	return deliveries
 }
 
-func (a *App) deliverNotifications(deliveries []model.NotificationDelivery) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	for _, delivery := range deliveries {
-		a.deliverNotification(ctx, delivery)
+func (a *App) processNotificationQueue(ctx context.Context) error {
+	deliveries, err := a.store.ClaimNotificationDeliveries(ctx, time.Now().UTC(), notificationDeliveryLease, 10)
+	if err != nil {
+		return err
 	}
+	for _, delivery := range deliveries {
+		deliveryCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		a.deliverNotification(deliveryCtx, delivery)
+		cancel()
+	}
+	if len(deliveries) > 0 {
+		a.events.publish("notifications")
+	}
+	return nil
 }
 
 func (a *App) deliverNotification(ctx context.Context, delivery model.NotificationDelivery) model.NotificationDelivery {
@@ -326,16 +338,43 @@ func (a *App) deliverNotification(ctx context.Context, delivery model.Notificati
 	}
 	if err != nil {
 		log.Printf("notification delivery %s via %s failed: %v", delivery.ID, delivery.Channel, err)
-		delivery.Status = "failed"
+		delivery.Status = "retry"
 		delivery.Error = "Канал не подтвердил доставку. Проверьте его настройки и повторите тест."
-		_ = a.store.CompleteNotificationDelivery(context.Background(), delivery.ID, "failed", delivery.Error)
+		var nextAttemptAt *time.Time
+		if delivery.AttemptCount >= delivery.MaxAttempts {
+			delivery.Status = "dead_letter"
+		} else {
+			next := time.Now().UTC().Add(notificationRetryDelay(delivery.AttemptCount))
+			nextAttemptAt = &next
+			delivery.NextAttemptAt = &next
+		}
+		if completeErr := a.store.CompleteNotificationDelivery(context.Background(), delivery.ID, delivery.Status, delivery.Error, nextAttemptAt); completeErr != nil {
+			log.Printf("notification delivery %s completion failed: %v", delivery.ID, completeErr)
+		}
 		return delivery
 	}
 	now := time.Now().UTC()
 	delivery.Status = "sent"
 	delivery.SentAt = &now
-	_ = a.store.CompleteNotificationDelivery(context.Background(), delivery.ID, "sent", "")
+	delivery.NextAttemptAt = nil
+	if completeErr := a.store.CompleteNotificationDelivery(context.Background(), delivery.ID, "sent", "", nil); completeErr != nil {
+		log.Printf("notification delivery %s completion failed: %v", delivery.ID, completeErr)
+	}
 	return delivery
+}
+
+func notificationRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := 30 * time.Second
+	for current := 1; current < attempt && delay < 30*time.Minute; current++ {
+		delay *= 2
+	}
+	if delay > 30*time.Minute {
+		return 30 * time.Minute
+	}
+	return delay
 }
 
 func notificationCopy(device model.Device, alert model.Alert, event, publicURL string) (string, string) {

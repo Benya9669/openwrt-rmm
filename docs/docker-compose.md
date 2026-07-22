@@ -46,10 +46,15 @@ Telegram notifications use one server-side bot token and a per-user numeric Chat
 
 ```dotenv
 RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
+RMM_NOTIFICATION_MAX_ATTEMPTS=5
+RMM_NOTIFICATION_RETENTION_DAYS=90
 ```
 
 Do not commit this token. After deployment, each user enables Telegram and enters their
 Chat ID in **Profile → Notifications and thresholds**, then uses **Send test**.
+Failed deliveries are retried with exponential backoff. Terminal `sent` and `dead_letter`
+history is removed after `RMM_NOTIFICATION_RETENTION_DAYS`; pending work is never removed
+by retention maintenance.
 
 ## 2. Start The Stack
 

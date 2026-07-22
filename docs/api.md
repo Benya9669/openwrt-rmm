@@ -350,10 +350,18 @@ The update request accepts:
 
 E-mail requires SMTP on the server and an e-mail address in the user profile. Telegram
 requires `RMM_TELEGRAM_BOT_TOKEN` on the server and a numeric Chat ID in the profile.
-Deliveries are persisted with `queued`, `sent`, or `failed` status. Raw destinations and
-server-side credentials are not returned by the API. Active and resolved events use
-lifecycle deduplication; an optional repeat interval can remind the user about an open
-problem.
+Deliveries are persisted with `queued`, `sending`, `retry`, `sent`, or `dead_letter`
+status. History also includes `attempt_count`, `max_attempts`, `last_attempt_at`, and
+`next_attempt_at`. Raw destinations and server-side credentials are not returned by the
+API. Active and resolved events use lifecycle deduplication; an optional repeat interval
+can remind the user about an open problem.
+
+The worker claims a delivery with a time-limited lease before contacting a provider. A
+temporary failure uses exponential backoff starting at 30 seconds and capped at 30
+minutes. After `RMM_NOTIFICATION_MAX_ATTEMPTS`, the delivery becomes `dead_letter`.
+Expired worker leases are recovered after restart, so delivery is at-least-once and a
+provider may rarely receive a duplicate if the server stopped after the provider accepted
+the message but before SQLite recorded success.
 
 ## Create Command
 

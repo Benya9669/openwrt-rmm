@@ -4,6 +4,8 @@
 - [x] Per-user notification settings and alert thresholds.
 - [x] E-mail and Telegram alert delivery with lifecycle deduplication and optional repeats.
 - [x] Persistent delivery history, masked destinations, test send and profile UI.
+- [x] Durable notification queue with restart recovery, leased claims, exponential retry,
+  dead-letter state and terminal-history retention.
 
 - [x] Persistent alert state with `active`, `acknowledged`, and `resolved`.
 - [x] Alert acknowledge API and UI action.
