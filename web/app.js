@@ -38,7 +38,7 @@ const state = {
 let eventSource = null;
 let liveRefreshTimer = null;
 
-const EXPECTED_AGENT_VERSION = "0.6.1";
+const EXPECTED_AGENT_VERSION = "0.6.2";
 
 const els = {
   loginView: document.querySelector("#loginView"),

@@ -57,6 +57,7 @@ RUN case "${OPENWRT_SDK_URL}" in \
         *) echo "unsupported OpenWrt SDK URL: ${OPENWRT_SDK_URL}" >&2; exit 1 ;; \
        esac \
     && curl --fail --location --show-error --silent \
+        --retry 5 --retry-all-errors --retry-delay 2 \
         --output "${sdk_archive}" "${OPENWRT_SDK_URL}" \
     && echo "${OPENWRT_SDK_SHA256}  ${sdk_archive}" | sha256sum --check --strict \
     && mkdir sdk \

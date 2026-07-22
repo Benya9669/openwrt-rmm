@@ -119,30 +119,20 @@ jobs:
           SUBTARGET: ${{ matrix.subtarget }}
         run: |
           set -euo pipefail
-          relative="releases/${RELEASE}/targets/${TARGET}/${SUBTARGET}"
-          record=""
-          base_url=""
-          for mirror in https://downloads.openwrt.org https://archive.openwrt.org; do
-            candidate="${mirror}/${relative}"
-            if sums="$(curl --fail --location --silent --show-error "${candidate}/sha256sums" 2>/dev/null)"; then
-              record="$(printf '%s\n' "$sums" | awk '
-                $2 ~ /^\*?openwrt-sdk-.*\.Linux-x86_64\.tar\.(xz|zst)$/ {
-                  sub(/^\*/, "", $2); print $1 " " $2; exit
-                }')"
-              if [ -n "$record" ]; then
-                base_url="$candidate"
-                break
-              fi
-            fi
-          done
+          record="$(awk -F '\t' \
+            -v release="$RELEASE" \
+            -v target="$TARGET" \
+            -v subtarget="$SUBTARGET" \
+            '$1 == release && $2 == target && $3 == subtarget { print $4 " " $5; exit }' \
+            .github/openwrt-sdk-lock.tsv)"
           if [ -z "$record" ]; then
-            echo "No SDK found for OpenWrt ${RELEASE} ${TARGET}/${SUBTARGET}" >&2
+            echo "No locked SDK found for OpenWrt ${RELEASE} ${TARGET}/${SUBTARGET}" >&2
             exit 1
           fi
-          read -r sha256 filename <<<"$record"
-          echo "url=${base_url}/${filename}" >> "$GITHUB_OUTPUT"
+          read -r sha256 url <<<"$record"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
           echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
-          echo "Using ${base_url}/${filename}"
+          echo "Using locked SDK ${url}"
 
       - uses: docker/setup-buildx-action@v3
 
