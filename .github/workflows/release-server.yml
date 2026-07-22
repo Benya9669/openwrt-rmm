@@ -70,6 +70,24 @@ jobs:
           cache-from: type=gha,scope=rmm-server
           cache-to: type=gha,mode=max,scope=rmm-server
 
+      - name: Build and optionally publish tunnel image
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/tunnel
+          file: deploy/tunnel/Dockerfile
+          push: ${{ startsWith(github.ref, 'refs/tags/server-v') }}
+          tags: |
+            ghcr.io/benya9669/openwrt-rmm-tunnel:${{ steps.version.outputs.value }}
+            ghcr.io/benya9669/openwrt-rmm-tunnel:latest
+          labels: |
+            org.opencontainers.image.title=OpenWrt RMM Tunnel
+            org.opencontainers.image.source=https://github.com/Benya9669/openwrt-rmm
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          cache-from: type=gha,scope=rmm-tunnel
+          cache-to: type=gha,mode=max,scope=rmm-tunnel
+
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/server-v')
         env:

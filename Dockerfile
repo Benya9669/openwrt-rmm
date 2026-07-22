@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 FROM golang:1.26.5-alpine AS build
 
 WORKDIR /src

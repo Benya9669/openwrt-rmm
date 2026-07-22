@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 FROM alpine:3.21
 
 RUN apk add --no-cache openssh-server netcat-openbsd

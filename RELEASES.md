@@ -7,13 +7,21 @@ Versioning.
 
 Tags use `server-vMAJOR.MINOR.PATCH`, for example `server-v0.8.0`.
 
-A server release contains the Go API, web interface, database migrations and deployment
-files. The GitHub Actions server workflow tests the server and publishes:
+A server release contains the Go API, web interface, database migrations and the coupled
+SSH reverse-tunnel service. The GitHub Actions server workflow tests the server and
+publishes two images with the same version:
 
 ```text
 ghcr.io/benya9669/openwrt-rmm-server:0.8.0
 ghcr.io/benya9669/openwrt-rmm-server:latest
+ghcr.io/benya9669/openwrt-rmm-tunnel:0.8.0
+ghcr.io/benya9669/openwrt-rmm-tunnel:latest
 ```
+
+The tunnel remains a separate container for isolation, but shares the server release line
+because its SSH policy and port-forwarding behavior form part of the server-side protocol.
+Introduce independent `tunnel-v*` releases only if the tunnel later gains a separate API
+and lifecycle.
 
 Increment `MAJOR` for incompatible API or migration requirements, `MINOR` for compatible
 features, and `PATCH` for compatible fixes. Database backups remain mandatory before a

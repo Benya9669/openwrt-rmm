@@ -5,12 +5,14 @@ Copyright (c) 2026 Benya.
 This repository uses separate licenses for the cloud application and the OpenWrt
 components:
 
-- `server/` and `web/` are licensed under the GNU Affero General Public License,
-  version 3 only (`AGPL-3.0-only`). The canonical license text is in
+- `server/`, `web/`, `deploy/tunnel/`, the root server `Dockerfile` and
+  `compose.yaml` are licensed under the GNU Affero General Public License, version 3
+  only (`AGPL-3.0-only`). The canonical license text is in
   `LICENSES/AGPL-3.0-only.txt`.
 - `agent/`, including the Go agent, shell compatibility agent, LuCI application,
-  OpenWrt package recipes and their configuration files, is licensed under the MIT
-  License. The license text is in `LICENSES/MIT.txt` and `agent/LICENSE`.
+  OpenWrt package recipes and their configuration files, and `deploy/luci-builder/`
+  are licensed under the MIT License. The license text is in `LICENSES/MIT.txt` and
+  `agent/LICENSE`.
 - Documentation outside those directories is licensed under `AGPL-3.0-only`, unless a
   file states otherwise.
 
