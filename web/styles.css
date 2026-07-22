@@ -21,12 +21,34 @@
 }
 
 .landing-view {
+  position: relative;
   min-height: 100vh;
   overflow: hidden;
   background:
     radial-gradient(circle at 16% 8%, rgb(39 182 230 / 15%), transparent 30rem),
     radial-gradient(circle at 88% 28%, rgb(67 96 246 / 11%), transparent 32rem),
     #071019;
+}
+
+.landing-view::before,
+.landing-view::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: min(52vw, 720px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: .13;
+  pointer-events: none;
+}
+
+.landing-view::before { top: -18rem; left: -14rem; background: #27b6e6; }
+.landing-view::after { top: 24rem; right: -22rem; background: #435ff6; }
+
+.landing-view > * {
+  position: relative;
+  z-index: 1;
 }
 
 .landing-header,
@@ -146,6 +168,7 @@
   font-weight: 750;
   padding: 0 20px;
   text-decoration: none;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, color 180ms ease, transform 180ms ease;
 }
 .landing-primary { background: var(--accent); color: #fff; }
 .landing-secondary { border: 1px solid var(--line); color: var(--text); }
@@ -161,6 +184,26 @@
   padding: 18px;
   transform: perspective(1000px) rotateY(-3deg) rotateX(2deg);
 }
+
+@media (hover: hover) and (pointer: fine) {
+  .landing-actions a:hover,
+  .landing-header .landing-login-link:hover {
+    transform: translateY(-2px);
+  }
+
+  .landing-primary:hover {
+    background: #29b6e7;
+    box-shadow: 0 12px 34px rgb(33 168 216 / 24%);
+  }
+
+  .landing-secondary:hover {
+    border-color: rgb(39 182 230 / 54%);
+    background: rgb(39 182 230 / 7%);
+  }
+}
+
+.landing-actions a:active,
+.landing-header .landing-login-link:active { transform: translateY(0) scale(.985); }
 
 .landing-console::after {
   content: "";
@@ -321,6 +364,48 @@
   .landing-cta .landing-actions { justify-content: stretch; }
   .live-state span { display: none; }
   .live-state { width: 30px; justify-content: center; padding: 0; }
+}
+
+@keyframes landing-enter {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes landing-console-enter {
+  from { opacity: 0; transform: perspective(1000px) rotateY(-3deg) rotateX(2deg) translateY(24px) scale(.975); }
+  to { opacity: 1; transform: perspective(1000px) rotateY(-3deg) rotateX(2deg) translateY(0) scale(1); }
+}
+
+@keyframes landing-ambient-left {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(3rem, 2rem, 0) scale(1.08); }
+}
+
+@keyframes landing-ambient-right {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-3rem, 3rem, 0) scale(.94); }
+}
+
+.motion-ready::before { animation: landing-ambient-left 16s ease-in-out infinite; }
+.motion-ready::after { animation: landing-ambient-right 19s ease-in-out infinite; }
+.motion-ready .landing-header { animation: landing-enter 520ms cubic-bezier(.2, .75, .25, 1) both; }
+.motion-ready .landing-kicker { animation: landing-enter 540ms 70ms cubic-bezier(.2, .75, .25, 1) both; }
+.motion-ready .landing-copy h1 { animation: landing-enter 580ms 130ms cubic-bezier(.2, .75, .25, 1) both; }
+.motion-ready .landing-copy > p { animation: landing-enter 580ms 190ms cubic-bezier(.2, .75, .25, 1) both; }
+.motion-ready .landing-copy .landing-actions { animation: landing-enter 580ms 250ms cubic-bezier(.2, .75, .25, 1) both; }
+.motion-ready .landing-trust { animation: landing-enter 580ms 310ms cubic-bezier(.2, .75, .25, 1) both; }
+.motion-ready .landing-console { animation: landing-console-enter 700ms 170ms cubic-bezier(.2, .75, .25, 1) both; }
+
+.motion-ready .landing-reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity 560ms ease, transform 560ms cubic-bezier(.2, .75, .25, 1);
+  transition-delay: calc(var(--reveal-order, 0) * 70ms);
+}
+
+.motion-ready .landing-reveal.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 * {
@@ -3724,6 +3809,22 @@ select:focus-visible,
   }
 }
 
+@media (min-width: 721px) and (max-width: 900px) {
+  .topbar-actions {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .live-state { grid-column: 1; grid-row: 1; }
+  .status-line { grid-column: 2 / 4; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #refreshBtn { grid-column: 4; grid-row: 1; }
+  #addRouterBtn { grid-column: 1 / 3; grid-row: 2; }
+  #addUserBtn { grid-column: 3 / 5; grid-row: 2; }
+
+  .motion-ready .landing-console {
+    animation-name: landing-enter;
+  }
+}
+
 /* Motion system: short, functional transitions with an accessibility fallback. */
 @keyframes ui-fade-up {
   from { opacity: 0; transform: translateY(8px); }
@@ -3768,6 +3869,39 @@ button,
 
 button:not(:disabled):active {
   transform: translateY(1px) scale(.99);
+}
+
+button.is-loading {
+  cursor: progress;
+  opacity: .78;
+}
+
+.cloud-wait-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: radial-gradient(circle at 18% 8%, rgb(39 182 230 / 15%), transparent 30rem), var(--bg);
+}
+
+.cloud-wait-page main {
+  width: min(100%, 520px);
+  padding: clamp(28px, 7vw, 48px);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface);
+  animation: ui-dialog-in 220ms ease-out both;
+}
+
+.cloud-wait-page h1 { margin: 9px 0 14px; font-size: clamp(30px, 7vw, 44px); letter-spacing: -.04em; }
+.cloud-wait-page p:not(.eyebrow) { color: var(--muted); line-height: 1.6; }
+.cloud-wait-mark { width: 42px; height: 42px; display: grid; place-items: center; margin-bottom: 28px; border-radius: 12px; color: #fff; background: linear-gradient(145deg, #27b6e6, #435ff6); font-weight: 800; }
+.cloud-wait-progress { height: 4px; overflow: hidden; margin-top: 28px; border-radius: 999px; background: var(--surface-muted); }
+.cloud-wait-progress i { display: block; width: 42%; height: 100%; border-radius: inherit; background: var(--accent); animation: cloud-wait-progress 1.25s ease-in-out infinite alternate; }
+
+@keyframes cloud-wait-progress {
+  from { transform: translateX(-20%); }
+  to { transform: translateX(160%); }
 }
 
 @media (hover: hover) and (pointer: fine) {

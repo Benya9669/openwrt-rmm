@@ -34,38 +34,52 @@ var luciErrorPageTemplate = template.Must(template.New("luci-error").Parse(`<!do
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · OpenWrt RMM</title>
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --bg: #14191f; --surface: #1e252d; --raised: #242d36; --text: #f4f7fa; --muted: #9baaba; --line: #3a4652; --accent: #21a8d8; --warn: #f3b43f; }
     * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; padding: 24px; display: grid; place-items: center; color: #eef8f7; background: radial-gradient(circle at 18% 0%, rgba(19, 190, 184, .16), transparent 35%), #0b1217; }
-    main { width: min(100%, 620px); padding: clamp(24px, 6vw, 48px); border: 1px solid #263942; border-radius: 28px; background: rgba(18, 29, 36, .96); box-shadow: 0 24px 70px rgba(0, 0, 0, .35); }
-    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 42px; color: #a9bfbd; font-size: 14px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-    .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; color: #061312; background: #39d6cb; box-shadow: 0 0 28px rgba(57, 214, 203, .2); }
-    .route { display: flex; align-items: center; gap: 8px; margin-bottom: 24px; color: #78918f; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
-    .route span { color: #39d6cb; }
-    .code { margin: 0 0 12px; color: #ffbf69; font: 700 12px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; }
-    h1 { margin: 0; font-size: clamp(28px, 7vw, 44px); line-height: 1.08; letter-spacing: -.035em; }
-    p { margin: 18px 0 0; color: #a9bfbd; font-size: 16px; line-height: 1.65; }
-    .notice { margin-top: 28px; padding: 16px 18px; border: 1px solid #2a4048; border-radius: 16px; color: #bdd0ce; background: #101c22; font-size: 14px; line-height: 1.5; }
+    body { min-height: 100dvh; margin: 0; padding: clamp(16px, 4vw, 40px); display: grid; place-items: center; color: var(--text); background: radial-gradient(circle at 16% 8%, rgb(39 182 230 / 15%), transparent 30rem), radial-gradient(circle at 88% 78%, rgb(67 96 246 / 10%), transparent 32rem), var(--bg); }
+    main { width: min(100%, 760px); overflow: hidden; border: 1px solid var(--line); border-radius: 24px; background: rgb(30 37 45 / 96%); box-shadow: 0 28px 90px rgb(0 0 0 / 34%); animation: enter 260ms cubic-bezier(.2, .75, .25, 1) both; }
+    header { min-height: 72px; padding: 16px clamp(20px, 5vw, 38px); display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); }
+    .brand { display: flex; align-items: center; gap: 11px; color: var(--text); font-size: 14px; font-weight: 760; }
+    .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(145deg, #27b6e6, #435ff6); box-shadow: 0 8px 24px rgb(33 168 216 / 22%); }
+    .route { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .route i { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgb(33 168 216 / 10%); }
+    .content { padding: clamp(26px, 6vw, 50px); }
+    .signal { width: 86px; height: 50px; display: flex; align-items: center; gap: 8px; margin-bottom: 30px; }
+    .signal span { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--raised); font-size: 11px; font-weight: 800; }
+    .signal b { width: 20px; height: 1px; position: relative; background: var(--line); }
+    .signal b::after { content: ""; position: absolute; top: -3px; left: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 4px rgb(243 180 63 / 10%); }
+    .code { margin: 0 0 12px; color: var(--warn); font: 750 12px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; }
+    h1 { max-width: 620px; margin: 0; font-size: clamp(30px, 7vw, 48px); line-height: 1.04; letter-spacing: -.045em; }
+    p { max-width: 640px; margin: 18px 0 0; color: var(--muted); font-size: 16px; line-height: 1.65; }
+    .notice { margin-top: 28px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; color: #c7d1da; background: var(--raised); font-size: 14px; line-height: 1.5; }
     .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 32px; }
-    a { min-height: 46px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #315058; border-radius: 13px; color: #d9e7e5; text-decoration: none; font-weight: 750; }
-    a.primary { border-color: #39d6cb; color: #071615; background: #39d6cb; }
-    .request { margin-top: 28px; color: #607977; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
-    @media (max-width: 520px) { body { padding: 14px; align-items: end; } main { padding: 26px 22px; border-radius: 24px; } .brand { margin-bottom: 34px; } .actions a { width: 100%; } }
+    a { min-height: 46px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 12px; color: var(--text); text-decoration: none; font-weight: 750; transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease; }
+    a.primary { border-color: var(--accent); color: #fff; background: var(--accent); }
+    .request { margin-top: 26px; color: #718091; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+    @keyframes enter { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @media (hover: hover) and (pointer: fine) { a:hover { border-color: rgb(33 168 216 / 64%); transform: translateY(-1px); } a.primary:hover { background: #29b6e7; } }
+    @media (max-width: 560px) { body { padding: 0; align-items: end; } main { border-width: 1px 0 0; border-radius: 24px 24px 0 0; } header { min-height: 64px; padding: 14px 20px; } .route { display: none; } .content { padding: 28px 20px max(24px, env(safe-area-inset-bottom)); } .signal { margin-bottom: 24px; } .actions { display: grid; } .actions a { width: 100%; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
   </style>
 </head>
 <body>
   <main>
-    <div class="brand"><span class="brand-mark">R</span> OpenWrt RMM</div>
-    <div class="route">RMM <span>→</span> защищённый туннель <span>→</span> LuCI</div>
-    <div class="code">{{.Code}}</div>
-    <h1>{{.Title}}</h1>
-    <p>{{.Description}}</p>
-    <div class="notice">Настройки роутера не изменялись. Можно безопасно вернуться в RMM и проверить состояние агента или запустить диагностику.</div>
-    <div class="actions">
-      <a class="primary" href="{{.ActionURL}}">{{.ActionLabel}}</a>
-      <a href="{{.ControlURL}}">Вернуться в RMM</a>
+    <header>
+      <div class="brand"><span class="brand-mark">R</span> OpenWrt RMM</div>
+      <div class="route"><span>RMM</span><i></i><span>облако</span><i></i><span>LuCI</span></div>
+    </header>
+    <div class="content">
+      <div class="signal" aria-hidden="true"><span>R</span><b></b><span>L</span></div>
+      <div class="code">{{.Code}}</div>
+      <h1>{{.Title}}</h1>
+      <p>{{.Description}}</p>
+      <div class="notice">Настройки роутера не изменялись. Можно безопасно вернуться в RMM и проверить состояние агента или запустить диагностику.</div>
+      <div class="actions">
+        <a class="primary" href="{{.ActionURL}}">{{.ActionLabel}}</a>
+        <a href="{{.ControlURL}}">Вернуться в RMM</a>
+      </div>
+      {{if .RequestID}}<div class="request">ID запроса: {{.RequestID}}</div>{{end}}
     </div>
-    {{if .RequestID}}<div class="request">ID запроса: {{.RequestID}}</div>{{end}}
   </main>
 </body>
 </html>`))

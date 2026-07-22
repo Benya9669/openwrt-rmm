@@ -1850,10 +1850,29 @@ function renderCloudAccessState(sessions) {
   els.openCloudAccessBtn.textContent = copy[1];
 }
 
+function prepareCloudAccessPopup(popup) {
+  if (!popup) return;
+  try {
+    popup.document.open();
+    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=24"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
+    popup.document.close();
+    popup.opener = null;
+  } catch {
+    // The popup may be restricted by the browser; navigation below still works.
+  }
+}
+
 async function openCloudAccess() {
-  if (!state.selectedDeviceId || els.openCloudAccessBtn.disabled) return;
+  if (!state.selectedDeviceId || openCloudAccess.inFlight) return;
+  openCloudAccess.inFlight = true;
   const popup = window.open("", "_blank");
+  prepareCloudAccessPopup(popup);
+  els.openLuciBtn.disabled = true;
   els.openCloudAccessBtn.disabled = true;
+  els.openLuciBtn.classList.add("is-loading");
+  els.openCloudAccessBtn.classList.add("is-loading");
+  els.openLuciBtn.textContent = "Подключаемся…";
+  els.openCloudAccessBtn.textContent = "Подключаемся…";
   els.cloudAccessCard.dataset.state = "starting";
   els.cloudAccessStatus.textContent = "Связываемся с агентом и проверяем LuCI…";
   try {
@@ -1883,9 +1902,17 @@ async function openCloudAccess() {
     showLuCIState(error, "retry");
     await loadRemoteSessions().catch(() => {});
   } finally {
+    openCloudAccess.inFlight = false;
+    els.openLuciBtn.classList.remove("is-loading");
+    els.openCloudAccessBtn.classList.remove("is-loading");
+    els.openLuciBtn.textContent = "Открыть LuCI";
+    renderCloudAccessState(state.remoteSessions || []);
+    els.openLuciBtn.disabled = !state.selectedDeviceId;
     els.openCloudAccessBtn.disabled = false;
   }
 }
+
+openCloudAccess.inFlight = false;
 
 async function sendCommand() {
   if (!state.selectedDeviceId) return;
