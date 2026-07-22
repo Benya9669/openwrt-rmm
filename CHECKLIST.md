@@ -22,7 +22,8 @@
 
 ## Обязательное перед следующим production-релизом
 
-- [ ] Сгенерировать и офлайн сохранить ключи `usign`/APK, добавить base64-значения в GitHub Actions Secrets.
+- [x] Сгенерировать ключи `usign`/APK и зафиксировать проверяемые публичные ключи.
+- [ ] Сохранить приватные ключи в зашифрованной офлайн-копии и добавить два base64-значения в GitHub Actions Secrets.
 - [ ] Включить GitHub Pages из Actions и проверить первый подписанный package feed на реальном роутере.
 - [ ] Выпустить первый `server-v*`, проверить Cosign/provenance и закрепить `RMM_RELEASE_VERSION` в production `.env`.
 - [ ] Настроить SMTP и/или `RMM_TELEGRAM_BOT_TOKEN` в production environment.

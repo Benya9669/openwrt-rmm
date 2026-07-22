@@ -147,8 +147,9 @@ RUN printf '%s\n' 'CONFIG_PACKAGE_luci-app-rmm-agent=m' >> .config \
 
 RUN make -j1 package/luci-app-rmm-agent/compile V=s
 
+COPY --chown=builder:builder keys/openwrt /home/builder/release-keys
+
 RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
-    --mount=type=secret,id=openwrt_usign_public_b64,uid=1000,required=false \
     --mount=type=secret,id=openwrt_apk_secret_b64,uid=1000,required=false \
     test -n "${REPOSITORY_INDEX_REVISION}" \
     && mkdir -p /home/builder/artifacts \
@@ -163,16 +164,14 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
     && if find . -maxdepth 1 -type f -name '*.ipk' -print -quit | grep -q .; then \
         /home/builder/sdk/scripts/ipkg-make-index.sh . > Packages; \
         gzip -9nc Packages > Packages.gz; \
-        if [ -s /run/secrets/openwrt_usign_secret_b64 ] \
-            && [ -s /run/secrets/openwrt_usign_public_b64 ]; then \
+        if [ -s /run/secrets/openwrt_usign_secret_b64 ]; then \
           base64 -d /run/secrets/openwrt_usign_secret_b64 > /tmp/usign.sec; \
-          base64 -d /run/secrets/openwrt_usign_public_b64 > /tmp/usign.pub; \
           chmod 600 /tmp/usign.sec; \
           /home/builder/sdk/staging_dir/host/bin/usign -S -m Packages -s /tmp/usign.sec; \
-          /home/builder/sdk/staging_dir/host/bin/usign -V -m Packages -p /tmp/usign.pub; \
-          key_id="$(/home/builder/sdk/staging_dir/host/bin/usign -F -p /tmp/usign.pub)"; \
-          cp /tmp/usign.pub "${key_id}"; \
-          rm -f /tmp/usign.sec /tmp/usign.pub; \
+          /home/builder/sdk/staging_dir/host/bin/usign -V -m Packages \
+            -p /home/builder/release-keys/usign/7fb0908fb6bc82c8; \
+          cp /home/builder/release-keys/usign/7fb0908fb6bc82c8 ./; \
+          rm -f /tmp/usign.sec; \
         elif [ "${REQUIRE_NATIVE_SIGNATURE}" = "true" ]; then \
           echo 'IPK release signing keys are required' >&2; \
           exit 1; \
@@ -182,7 +181,9 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
           base64 -d /run/secrets/openwrt_apk_secret_b64 > /tmp/apk-signing.pem; \
           chmod 600 /tmp/apk-signing.pem; \
           /home/builder/sdk/staging_dir/host/bin/openssl ec \
-            -in /tmp/apk-signing.pem -pubout -out rmm-openwrt.pem; \
+            -in /tmp/apk-signing.pem -pubout -out /tmp/apk-signing.pub.pem; \
+          cmp /tmp/apk-signing.pub.pem /home/builder/release-keys/apk/rmm-openwrt.pem; \
+          cp /home/builder/release-keys/apk/rmm-openwrt.pem ./; \
           /home/builder/sdk/staging_dir/host/bin/apk mkndx \
             --root /home/builder/sdk \
             --keys-dir /home/builder/artifacts \
@@ -190,7 +191,7 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
             --sign /tmp/apk-signing.pem \
             --output packages.adb \
             ./*.apk; \
-          rm -f /tmp/apk-signing.pem; \
+          rm -f /tmp/apk-signing.pem /tmp/apk-signing.pub.pem; \
         elif [ "${REQUIRE_NATIVE_SIGNATURE}" = "true" ]; then \
           echo 'APK release signing key is required' >&2; \
           exit 1; \

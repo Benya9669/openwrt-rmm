@@ -150,7 +150,6 @@ jobs:
         uses: docker/build-push-action@v6
         env:
           OPENWRT_USIGN_SECRET_B64: ${{ secrets.OPENWRT_USIGN_SECRET_B64 }}
-          OPENWRT_USIGN_PUBLIC_B64: ${{ secrets.OPENWRT_USIGN_PUBLIC_B64 }}
           OPENWRT_APK_SECRET_B64: ${{ secrets.OPENWRT_APK_SECRET_B64 }}
         with:
           context: .
@@ -169,7 +168,6 @@ jobs:
             REPOSITORY_INDEX_REVISION=${{ github.run_id }}
           secret-envs: |
             openwrt_usign_secret_b64=OPENWRT_USIGN_SECRET_B64
-            openwrt_usign_public_b64=OPENWRT_USIGN_PUBLIC_B64
             openwrt_apk_secret_b64=OPENWRT_APK_SECRET_B64
           cache-from: type=gha,scope=openwrt-${{ matrix.release }}-${{ matrix.label }}
           cache-to: type=gha,mode=max,scope=openwrt-${{ matrix.release }}-${{ matrix.label }}

@@ -37,7 +37,6 @@ Encode the keys without printing private material into CI logs:
 
 ```sh
 base64 -w0 release-keys/openwrt-usign.sec > release-keys/openwrt-usign.sec.b64
-base64 -w0 release-keys/openwrt-usign.pub > release-keys/openwrt-usign.pub.b64
 base64 -w0 release-keys/openwrt-apk.pem > release-keys/openwrt-apk.pem.b64
 ```
 
@@ -46,8 +45,15 @@ Create these GitHub Actions repository secrets from the corresponding `.b64` fil
 | Secret | Source file |
 | --- | --- |
 | `OPENWRT_USIGN_SECRET_B64` | `openwrt-usign.sec.b64` |
-| `OPENWRT_USIGN_PUBLIC_B64` | `openwrt-usign.pub.b64` |
 | `OPENWRT_APK_SECRET_B64` | `openwrt-apk.pem.b64` |
+
+The public keys are committed under `keys/openwrt/`. Their expected identifiers are:
+
+- usign key ID: `7fb0908fb6bc82c8`;
+- APK public key SHA256: `ce6f190c937961db306ddc3cbe138a877157d97252a2c8290980c43fc4f55f26`.
+
+The release build verifies that each private key matches the committed public key before
+publishing a signed feed.
 
 An `agent-v*` release fails closed when the key required by an OpenWrt generation is
 missing. Manual workflow runs may still create unsigned test artifacts. BuildKit secret
@@ -62,7 +68,7 @@ OpenWrt 24.10:
 ```sh
 feed='https://benya9669.github.io/openwrt-rmm/feeds/stable/openwrt/24.10.7/ramips-mt7621'
 key_base='https://benya9669.github.io/openwrt-rmm/keys/usign'
-key_id='<16-character-key-id>'
+key_id='7fb0908fb6bc82c8'
 
 wget -O "/etc/opkg/keys/${key_id}" "${key_base}/${key_id}"
 printf 'src/gz rmm %s\n' "$feed" > /etc/opkg/customfeeds.conf.d/rmm.conf
