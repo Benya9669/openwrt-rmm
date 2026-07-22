@@ -317,6 +317,44 @@ Authorization: Bearer <operator-api-token>
 
 Acknowledged alerts remain open while the condition still exists. When the condition disappears, the server marks the alert as `resolved`.
 
+## Notification Settings and History
+
+Notification settings belong to the authenticated user and apply to devices owned by that
+user. Administrators do not implicitly receive notifications for devices owned by other
+accounts.
+
+```http
+GET /api/notifications/settings
+PUT /api/notifications/settings
+GET /api/notifications?limit=50
+POST /api/notifications/test
+```
+
+The update request accepts:
+
+```json
+{
+  "email_enabled": true,
+  "telegram_enabled": false,
+  "telegram_chat_id": "123456789",
+  "notify_warning": true,
+  "notify_critical": true,
+  "notify_resolved": true,
+  "memory_threshold_percent": 85,
+  "disk_threshold_percent": 85,
+  "packet_loss_percent": 20,
+  "latency_threshold_ms": 200,
+  "repeat_minutes": 60
+}
+```
+
+E-mail requires SMTP on the server and an e-mail address in the user profile. Telegram
+requires `RMM_TELEGRAM_BOT_TOKEN` on the server and a numeric Chat ID in the profile.
+Deliveries are persisted with `queued`, `sent`, or `failed` status. Raw destinations and
+server-side credentials are not returned by the API. Active and resolved events use
+lifecycle deduplication; an optional repeat interval can remind the user about an open
+problem.
+
 ## Create Command
 
 ```http

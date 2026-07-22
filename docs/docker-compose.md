@@ -25,8 +25,8 @@ Set a long `RMM_OPERATOR_PASSWORD`. Shared enrollment is disabled: users add rou
 15-minute one-time grants created in the web UI. Leave `RMM_OPERATOR_TOKEN` empty unless
 an emergency/API bearer token is required.
 
-To enable password recovery, set `RMM_PUBLIC_URL` to the external HTTPS address and
-configure SMTP in `.env`:
+To enable password recovery and e-mail alert notifications, set `RMM_PUBLIC_URL` to the
+external HTTPS address and configure SMTP in `.env`:
 
 ```dotenv
 RMM_PUBLIC_URL=https://rmm.example.com
@@ -41,6 +41,15 @@ RMM_SMTP_TLS_MODE=starttls
 Use `RMM_SMTP_TLS_MODE=tls` for implicit TLS on port 465. Plain SMTP is rejected in
 production mode. Reset links are one-time, expire after 30 minutes, and revoke all
 existing web sessions after the password is changed.
+
+Telegram notifications use one server-side bot token and a per-user numeric Chat ID:
+
+```dotenv
+RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
+```
+
+Do not commit this token. After deployment, each user enables Telegram and enters their
+Chat ID in **Profile → Notifications and thresholds**, then uses **Send test**.
 
 ## 2. Start The Stack
 

@@ -42,6 +42,11 @@ type AlertListOptions struct {
 	Limit    int
 }
 
+type NotificationListOptions struct {
+	UserID string
+	Limit  int
+}
+
 type PurgeOptions struct {
 	DeviceID string
 }
@@ -160,6 +165,48 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_device_status ON alerts(device_id, status);
 CREATE INDEX IF NOT EXISTS idx_alerts_status_last_seen ON alerts(status, last_seen_at);
+
+CREATE TABLE IF NOT EXISTS notification_settings (
+	user_id TEXT PRIMARY KEY,
+	email_enabled INTEGER NOT NULL DEFAULT 0,
+	telegram_enabled INTEGER NOT NULL DEFAULT 0,
+	telegram_chat_id TEXT NOT NULL DEFAULT '',
+	notify_warning INTEGER NOT NULL DEFAULT 1,
+	notify_critical INTEGER NOT NULL DEFAULT 1,
+	notify_resolved INTEGER NOT NULL DEFAULT 1,
+	memory_threshold_percent INTEGER NOT NULL DEFAULT 85,
+	disk_threshold_percent INTEGER NOT NULL DEFAULT 85,
+	packet_loss_percent INTEGER NOT NULL DEFAULT 20,
+	latency_threshold_ms INTEGER NOT NULL DEFAULT 200,
+	repeat_minutes INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL,
+	device_id TEXT,
+	alert_id TEXT NOT NULL DEFAULT '',
+	dedupe_key TEXT NOT NULL UNIQUE,
+	event TEXT NOT NULL,
+	channel TEXT NOT NULL,
+	status TEXT NOT NULL,
+	title TEXT NOT NULL,
+	body TEXT NOT NULL,
+	destination TEXT NOT NULL,
+	destination_masked TEXT NOT NULL,
+	error TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	sent_at TEXT,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+	FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_created ON notification_deliveries(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_created ON notification_deliveries(status, created_at);
 
 CREATE TABLE IF NOT EXISTS remote_sessions (
 	id TEXT PRIMARY KEY,
@@ -327,6 +374,8 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`CREATE INDEX IF NOT EXISTS idx_device_access_sessions_device_expires ON device_access_sessions(device_id, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_device_created_at ON remote_sessions(device_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_status_expires_at ON remote_sessions(status, expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_created ON notification_deliveries(user_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_created ON notification_deliveries(status, created_at)`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
@@ -729,6 +778,7 @@ ON CONFLICT(id) DO UPDATE SET
 	status = CASE WHEN alerts.status = 'acknowledged' THEN 'acknowledged' ELSE 'active' END,
 	message = excluded.message,
 	details_json = excluded.details_json,
+	first_seen_at = CASE WHEN alerts.status = 'resolved' THEN excluded.first_seen_at ELSE alerts.first_seen_at END,
 	last_seen_at = excluded.last_seen_at,
 	resolved_at = NULL,
 	updated_at = excluded.updated_at

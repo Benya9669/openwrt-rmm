@@ -2,6 +2,6 @@
   "name": "rmm-openwrt",
   "private": true,
   "scripts": {
-    "check:web": "node --check web/app.js"
+    "check:web": "node --check web/app.js && node --check web/landing-motion.js"
   }
 }

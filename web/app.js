@@ -22,6 +22,9 @@ const state = {
   commands: [],
   auditEvents: [],
   alerts: [],
+  notificationSettings: null,
+  notificationChannels: {},
+  notifications: [],
   remoteSessions: [],
   selectedCommand: null,
   presetReview: null,
@@ -225,6 +228,25 @@ const els = {
   newPassword: document.querySelector("#newPassword"),
   confirmPassword: document.querySelector("#confirmPassword"),
   passwordMessage: document.querySelector("#passwordMessage"),
+  notificationSettingsForm: document.querySelector("#notificationSettingsForm"),
+  notificationEmailEnabled: document.querySelector("#notificationEmailEnabled"),
+  notificationEmailHint: document.querySelector("#notificationEmailHint"),
+  notificationTelegramEnabled: document.querySelector("#notificationTelegramEnabled"),
+  notificationTelegramHint: document.querySelector("#notificationTelegramHint"),
+  notificationTelegramChatRow: document.querySelector("#notificationTelegramChatRow"),
+  notificationTelegramChatId: document.querySelector("#notificationTelegramChatId"),
+  notificationWarningEnabled: document.querySelector("#notificationWarningEnabled"),
+  notificationCriticalEnabled: document.querySelector("#notificationCriticalEnabled"),
+  notificationResolvedEnabled: document.querySelector("#notificationResolvedEnabled"),
+  notificationMemoryThreshold: document.querySelector("#notificationMemoryThreshold"),
+  notificationDiskThreshold: document.querySelector("#notificationDiskThreshold"),
+  notificationPacketLossThreshold: document.querySelector("#notificationPacketLossThreshold"),
+  notificationLatencyThreshold: document.querySelector("#notificationLatencyThreshold"),
+  notificationRepeatMinutes: document.querySelector("#notificationRepeatMinutes"),
+  notificationSettingsMessage: document.querySelector("#notificationSettingsMessage"),
+  testNotificationsBtn: document.querySelector("#testNotificationsBtn"),
+  refreshNotificationsBtn: document.querySelector("#refreshNotificationsBtn"),
+  notificationHistory: document.querySelector("#notificationHistory"),
   logoutAllBtn: document.querySelector("#logoutAllBtn"),
   userManagementSection: document.querySelector("#userManagementSection"),
   userList: document.querySelector("#userList"),
@@ -1483,6 +1505,9 @@ function showProfile() {
   setFormMessage(els.passwordMessage, "");
   els.passwordForm.reset();
   if (!els.profileDialog.open) els.profileDialog.showModal();
+  loadNotificationCenter().catch((error) => {
+    setFormMessage(els.notificationSettingsMessage, `Не удалось загрузить уведомления: ${error.message}`, "error");
+  });
   if (state.user && state.user.role === "admin") {
     loadUsers().catch((error) => {
       els.userList.innerHTML = inlineStateMarkup("Не удалось загрузить пользователей", error.message);
@@ -1510,7 +1535,140 @@ async function saveProfile() {
     }),
   });
   showApp(response.user);
+  await loadNotificationCenter();
   setFormMessage(els.profileMessage, "Профиль сохранён", "success");
+}
+
+async function loadNotificationCenter() {
+  setFormMessage(els.notificationSettingsMessage, "Загружаем настройки…");
+  const [settingsResponse, historyResponse] = await Promise.all([
+    api("/api/notifications/settings"),
+    api("/api/notifications?limit=30"),
+  ]);
+  state.notificationSettings = settingsResponse.settings || {};
+  state.notificationChannels = settingsResponse.channels || {};
+  state.notifications = historyResponse.notifications || [];
+  renderNotificationSettings();
+  renderNotificationHistory();
+  setFormMessage(els.notificationSettingsMessage, state.notificationSettings.configured ? "Настройки загружены" : "Каналы пока выключены");
+}
+
+function renderNotificationSettings() {
+  const settings = state.notificationSettings || {};
+  const email = state.notificationChannels.email || {};
+  const telegram = state.notificationChannels.telegram || {};
+  els.notificationEmailEnabled.checked = Boolean(settings.email_enabled);
+  els.notificationEmailEnabled.disabled = !email.available || !email.profile_email_configured;
+  els.notificationEmailHint.textContent = !email.available
+    ? "SMTP не настроен на сервере"
+    : !email.profile_email_configured
+      ? "Сначала добавьте e-mail в профиль"
+      : `Получатель: ${email.destination || "e-mail профиля"}`;
+  els.notificationTelegramEnabled.checked = Boolean(settings.telegram_enabled);
+  els.notificationTelegramEnabled.disabled = !telegram.available;
+  els.notificationTelegramHint.textContent = telegram.available ? "Сообщения от RMM-бота" : "Bot token не настроен на сервере";
+  els.notificationTelegramChatId.value = settings.telegram_chat_id || "";
+  els.notificationTelegramChatId.disabled = !telegram.available;
+  els.notificationTelegramChatRow.classList.toggle("is-disabled", !telegram.available);
+  els.notificationWarningEnabled.checked = settings.notify_warning !== false;
+  els.notificationCriticalEnabled.checked = settings.notify_critical !== false;
+  els.notificationResolvedEnabled.checked = settings.notify_resolved !== false;
+  els.notificationMemoryThreshold.value = settings.memory_threshold_percent || 85;
+  els.notificationDiskThreshold.value = settings.disk_threshold_percent || 85;
+  els.notificationPacketLossThreshold.value = settings.packet_loss_percent || 20;
+  els.notificationLatencyThreshold.value = settings.latency_threshold_ms || 200;
+  els.notificationRepeatMinutes.value = String(settings.repeat_minutes || 0);
+}
+
+async function saveNotificationSettings() {
+  setFormMessage(els.notificationSettingsMessage, "Сохраняем…");
+  const response = await api("/api/notifications/settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      email_enabled: els.notificationEmailEnabled.checked,
+      telegram_enabled: els.notificationTelegramEnabled.checked,
+      telegram_chat_id: els.notificationTelegramChatId.value.trim(),
+      notify_warning: els.notificationWarningEnabled.checked,
+      notify_critical: els.notificationCriticalEnabled.checked,
+      notify_resolved: els.notificationResolvedEnabled.checked,
+      memory_threshold_percent: Number(els.notificationMemoryThreshold.value),
+      disk_threshold_percent: Number(els.notificationDiskThreshold.value),
+      packet_loss_percent: Number(els.notificationPacketLossThreshold.value),
+      latency_threshold_ms: Number(els.notificationLatencyThreshold.value),
+      repeat_minutes: Number(els.notificationRepeatMinutes.value),
+    }),
+  });
+  state.notificationSettings = response.settings || {};
+  state.notificationChannels = response.channels || {};
+  renderNotificationSettings();
+  setFormMessage(els.notificationSettingsMessage, "Настройки уведомлений сохранены", "success");
+}
+
+async function testNotifications() {
+  els.testNotificationsBtn.disabled = true;
+  setFormMessage(els.notificationSettingsMessage, "Отправляем тест…");
+  try {
+    const response = await api("/api/notifications/test", { method: "POST" });
+    const deliveries = response.notifications || [];
+    const sent = deliveries.filter((item) => item.status === "sent").length;
+    const failed = deliveries.length - sent;
+    await loadNotificationHistory();
+    setFormMessage(
+      els.notificationSettingsMessage,
+      failed ? `Отправлено: ${sent}, с ошибкой: ${failed}` : `Тест отправлен по каналам: ${sent}`,
+      failed ? "error" : "success",
+    );
+  } finally {
+    els.testNotificationsBtn.disabled = false;
+  }
+}
+
+async function loadNotificationHistory() {
+  const response = await api("/api/notifications?limit=30");
+  state.notifications = response.notifications || [];
+  renderNotificationHistory();
+}
+
+function renderNotificationHistory() {
+  els.notificationHistory.innerHTML = "";
+  if (!state.notifications.length) {
+    els.notificationHistory.innerHTML = inlineStateMarkup("Отправок пока нет", "После первой проблемы или теста здесь появится результат доставки.");
+    return;
+  }
+  for (const delivery of state.notifications) {
+    const row = document.createElement("article");
+    row.className = `notification-history-row is-${delivery.status || "queued"}`;
+    row.innerHTML = `
+      <span class="notification-channel">${delivery.channel === "telegram" ? "Telegram" : "E-mail"}</span>
+      <div><strong>${escapeHtml(delivery.title || "Уведомление")}</strong><small>${escapeHtml(delivery.destination || "")}${delivery.error ? ` · ${escapeHtml(delivery.error)}` : ""}</small></div>
+      <span class="notification-delivery-status">${escapeHtml(notificationStatusLabel(delivery.status))}</span>
+      <time>${escapeHtml(formatDate(delivery.sent_at || delivery.created_at))}</time>
+    `;
+    els.notificationHistory.appendChild(row);
+  }
+}
+
+function notificationStatusLabel(status) {
+  return { queued: "В очереди", sent: "Отправлено", failed: "Ошибка" }[status] || status || "Неизвестно";
+}
+
+function notificationErrorMessage(error) {
+  const raw = String(error && error.message ? error.message : error || "Неизвестная ошибка");
+  const requestId = raw.match(/\(req_[^)]+\)$/)?.[0] || "";
+  const message = raw.replace(/\s*\(req_[^)]+\)$/, "");
+  const translations = {
+    "enable and save at least one notification channel": "Включите и сохраните хотя бы один доступный канал",
+    "no available notification channels": "На сервере нет доступных каналов уведомлений",
+    "email notifications are not configured on the server": "SMTP для уведомлений не настроен на сервере",
+    "add an email address to the profile before enabling email notifications": "Сначала добавьте e-mail в контактные данные профиля",
+    "Telegram notifications are not configured on the server": "Telegram-бот не настроен на сервере",
+    "Telegram chat ID is invalid": "Некорректный Telegram Chat ID",
+    "memory and disk thresholds must be between 50 and 99 percent": "Пороги памяти и диска должны быть от 50 до 99%",
+    "packet loss threshold must be between 1 and 100 percent": "Порог потерь должен быть от 1 до 100%",
+    "latency threshold must be between 10 and 5000 milliseconds": "Порог задержки должен быть от 10 до 5000 мс",
+    "repeat interval must be 0 or between 15 and 10080 minutes": "Интервал повтора должен быть выключен или находиться в пределах 15–10080 минут",
+  };
+  return `${translations[message] || message}${requestId ? ` ${requestId}` : ""}`;
 }
 
 async function changePassword() {
@@ -2474,6 +2632,16 @@ els.profileForm.addEventListener("submit", (event) => {
 els.passwordForm.addEventListener("submit", (event) => {
   event.preventDefault();
   changePassword().catch((error) => setFormMessage(els.passwordMessage, error.message, "error"));
+});
+els.notificationSettingsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveNotificationSettings().catch((error) => setFormMessage(els.notificationSettingsMessage, notificationErrorMessage(error), "error"));
+});
+els.testNotificationsBtn.addEventListener("click", () => {
+  testNotifications().catch((error) => setFormMessage(els.notificationSettingsMessage, notificationErrorMessage(error), "error"));
+});
+els.refreshNotificationsBtn.addEventListener("click", () => {
+  loadNotificationHistory().catch((error) => setFormMessage(els.notificationSettingsMessage, notificationErrorMessage(error), "error"));
 });
 els.logoutAllBtn.addEventListener("click", () => logoutAll().catch(reportError));
 

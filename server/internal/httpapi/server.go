@@ -66,6 +66,12 @@ type Store interface {
 	ListAlerts(ctx context.Context, opts store.AlertListOptions) ([]model.Alert, error)
 	AcknowledgeAlert(ctx context.Context, deviceID, alertID, actor string) (model.Alert, bool, error)
 	PurgeAlerts(ctx context.Context, opts store.PurgeOptions) (int64, error)
+	GetNotificationSettings(ctx context.Context, userID string) (model.NotificationSettings, bool, error)
+	UpsertNotificationSettings(ctx context.Context, settings model.NotificationSettings) (model.NotificationSettings, error)
+	CreateNotificationDelivery(ctx context.Context, delivery model.NotificationDelivery, dedupeKey string) (model.NotificationDelivery, bool, error)
+	CompleteNotificationDelivery(ctx context.Context, id, status, errorMessage string) error
+	LatestNotificationDelivery(ctx context.Context, userID, alertID, channel string) (model.NotificationDelivery, bool, error)
+	ListNotificationDeliveries(ctx context.Context, opts store.NotificationListOptions) ([]model.NotificationDelivery, error)
 	CreateCommand(ctx context.Context, deviceID, commandType string, args json.RawMessage) (model.Command, bool, error)
 	ListCommands(ctx context.Context, deviceID string, opts store.CommandListOptions) ([]model.Command, bool, error)
 	GetCommand(ctx context.Context, deviceID, commandID string) (model.Command, bool, error)
@@ -98,6 +104,9 @@ type Config struct {
 	PublicScheme          string
 	PublicURL             string
 	PasswordResetSender   PasswordResetSender
+	AlertEmailSender      NotificationSender
+	TelegramSender        NotificationSender
+	BackgroundTasks       bool
 	StaticDir             string
 }
 
@@ -116,6 +125,8 @@ type App struct {
 	publicScheme          string
 	publicURL             string
 	passwordResetSender   PasswordResetSender
+	alertEmailSender      NotificationSender
+	telegramSender        NotificationSender
 	loginLimiter          *loginRateLimiter
 	passwordResetLimiter  *loginRateLimiter
 	loginSlots            chan struct{}
@@ -281,6 +292,8 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		publicScheme:          strings.ToLower(strings.TrimSpace(cfg.PublicScheme)),
 		publicURL:             strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),
 		passwordResetSender:   cfg.PasswordResetSender,
+		alertEmailSender:      cfg.AlertEmailSender,
+		telegramSender:        cfg.TelegramSender,
 		loginLimiter:          newLoginRateLimiter(5, 5*time.Minute),
 		passwordResetLimiter:  newLoginRateLimiter(3, time.Hour),
 		loginSlots:            make(chan struct{}, 4),
@@ -314,6 +327,10 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("PATCH /api/auth/profile", a.operatorAuth(http.HandlerFunc(a.handleUpdateProfile)))
 	mux.Handle("POST /api/auth/change-password", a.operatorAuth(http.HandlerFunc(a.handleChangePassword)))
 	mux.Handle("POST /api/auth/logout-all", a.operatorAuth(http.HandlerFunc(a.handleLogoutAll)))
+	mux.Handle("GET /api/notifications/settings", a.operatorAuth(http.HandlerFunc(a.handleGetNotificationSettings)))
+	mux.Handle("PUT /api/notifications/settings", a.operatorAuth(http.HandlerFunc(a.handleUpdateNotificationSettings)))
+	mux.Handle("GET /api/notifications", a.operatorAuth(http.HandlerFunc(a.handleListNotifications)))
+	mux.Handle("POST /api/notifications/test", a.operatorAuth(http.HandlerFunc(a.handleTestNotifications)))
 	mux.Handle("GET /api/users", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleListUsers))))
 	mux.Handle("POST /api/users", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleCreateUser))))
 	mux.Handle("PATCH /api/users/", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleUpdateUser))))
@@ -344,6 +361,9 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	})
 	if cfg.StaticDir != "" {
 		mux.Handle("GET /", staticHandler(cfg.StaticDir))
+	}
+	if cfg.BackgroundTasks {
+		go a.alertNotificationLoop()
 	}
 
 	return withRequestLogging(a.routeByHost(mux))
@@ -397,6 +417,10 @@ func (a *App) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, _, err := a.refreshDeviceAlerts(r.Context(), req.DeviceID); err != nil {
 		log.Printf("refresh alerts for %s: %v", req.DeviceID, err)
+	} else if deliveries, queueErr := a.queueDeviceNotifications(r.Context(), req.DeviceID); queueErr != nil {
+		log.Printf("queue notifications for %s: %v", req.DeviceID, queueErr)
+	} else if len(deliveries) > 0 {
+		go a.deliverNotifications(deliveries)
 	}
 	a.events.publish("devices")
 
@@ -799,6 +823,14 @@ func (a *App) computeDeviceAlerts(ctx context.Context, deviceID string) ([]model
 	if !samplesFound {
 		samples = nil
 	}
+	settings := store.DefaultNotificationSettings(device.OwnerUserID)
+	if device.OwnerUserID != "" {
+		if configured, _, settingsErr := a.store.GetNotificationSettings(ctx, device.OwnerUserID); settingsErr != nil {
+			return nil, true, settingsErr
+		} else {
+			settings = configured
+		}
+	}
 	commands, commandsFound, err := a.store.ListCommands(ctx, deviceID, store.CommandListOptions{Limit: 50})
 	if err != nil {
 		return nil, true, err
@@ -813,13 +845,13 @@ func (a *App) computeDeviceAlerts(ctx context.Context, deviceID string) ([]model
 		details := map[string]any{"last_seen_at": device.LastSeenAt}
 		alerts = append(alerts, newAlert(deviceID, "offline", "critical", "Device is offline", details, now))
 	}
-	if ratio, ok := jsonRatio(device.Metrics, "memory", "used_kb", "total_kb"); ok && ratio >= 0.85 {
-		alerts = append(alerts, newUsageAlert(deviceID, "memory_high", "Memory usage is high", ratio, now))
+	if ratio, ok := jsonRatio(device.Metrics, "memory", "used_kb", "total_kb"); ok && ratio >= float64(settings.MemoryThresholdPercent)/100 {
+		alerts = append(alerts, newUsageAlert(deviceID, "memory_high", "Memory usage is high", ratio, settings.MemoryThresholdPercent, now))
 	}
-	if ratio, ok := diskUsageRatio(device.Metrics); ok && ratio >= 0.85 {
-		alerts = append(alerts, newUsageAlert(deviceID, "disk_high", "Disk usage is high", ratio, now))
+	if ratio, ok := diskUsageRatio(device.Metrics); ok && ratio >= float64(settings.DiskThresholdPercent)/100 {
+		alerts = append(alerts, newUsageAlert(deviceID, "disk_high", "Disk usage is high", ratio, settings.DiskThresholdPercent, now))
 	}
-	alerts = append(alerts, connectivityAlerts(deviceID, device.Metrics, now)...)
+	alerts = append(alerts, connectivityAlerts(deviceID, device.Metrics, settings, now)...)
 	if len(samples) >= 2 {
 		latestWAN := jsonString(samples[0].Inventory, "wan_ip")
 		previousWAN := jsonString(samples[1].Inventory, "wan_ip")
@@ -839,7 +871,7 @@ func (a *App) computeDeviceAlerts(ctx context.Context, deviceID string) ([]model
 	return alerts, true, nil
 }
 
-func connectivityAlerts(deviceID string, raw json.RawMessage, now time.Time) []model.Alert {
+func connectivityAlerts(deviceID string, raw json.RawMessage, settings model.NotificationSettings, now time.Time) []model.Alert {
 	checks := jsonObjectArray(raw, "connectivity_checks")
 	if len(checks) == 0 {
 		return nil
@@ -871,9 +903,9 @@ func connectivityAlerts(deviceID string, raw json.RawMessage, now time.Time) []m
 			"targets": len(checks),
 		}, now))
 	}
-	if worstLoss >= 20 {
+	if worstLoss >= float64(settings.PacketLossPercent) {
 		severity := "warning"
-		if worstLoss >= 80 {
+		if worstLoss >= float64(min(100, settings.PacketLossPercent*3)) {
 			severity = "critical"
 		}
 		alerts = append(alerts, newAlert(deviceID, "packet_loss_high", severity, "Packet loss is high", map[string]any{
@@ -882,9 +914,9 @@ func connectivityAlerts(deviceID string, raw json.RawMessage, now time.Time) []m
 			"reachable_target_cnt": reachableCount,
 		}, now))
 	}
-	if worstLatency >= 200 {
+	if worstLatency >= float64(settings.LatencyThresholdMS) {
 		severity := "warning"
-		if worstLatency >= 500 {
+		if worstLatency >= float64(settings.LatencyThresholdMS*2) {
 			severity = "critical"
 		}
 		alerts = append(alerts, newAlert(deviceID, "latency_high", severity, "Latency is high", map[string]any{
@@ -895,9 +927,10 @@ func connectivityAlerts(deviceID string, raw json.RawMessage, now time.Time) []m
 	return alerts
 }
 
-func newUsageAlert(deviceID, alertType, message string, ratio float64, now time.Time) model.Alert {
+func newUsageAlert(deviceID, alertType, message string, ratio float64, warningThreshold int, now time.Time) model.Alert {
 	severity := "warning"
-	if ratio >= 0.95 {
+	criticalThreshold := min(99, warningThreshold+10)
+	if ratio >= float64(criticalThreshold)/100 {
 		severity = "critical"
 	}
 	return newAlert(deviceID, alertType, severity, message, map[string]any{

@@ -1,5 +1,10 @@
 # Recent Progress
 
+- [x] Roadmap and engineering/UI checklists synchronized with the implemented product.
+- [x] Per-user notification settings and alert thresholds.
+- [x] E-mail and Telegram alert delivery with lifecycle deduplication and optional repeats.
+- [x] Persistent delivery history, masked destinations, test send and profile UI.
+
 - [x] Persistent alert state with `active`, `acknowledged`, and `resolved`.
 - [x] Alert acknowledge API and UI action.
 - [x] WAN connectivity probes from agent heartbeat.

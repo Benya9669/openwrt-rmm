@@ -95,6 +95,41 @@ type Alert struct {
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
+type NotificationSettings struct {
+	UserID                 string    `json:"user_id,omitempty"`
+	Configured             bool      `json:"configured"`
+	EmailEnabled           bool      `json:"email_enabled"`
+	TelegramEnabled        bool      `json:"telegram_enabled"`
+	TelegramChatID         string    `json:"telegram_chat_id,omitempty"`
+	NotifyWarning          bool      `json:"notify_warning"`
+	NotifyCritical         bool      `json:"notify_critical"`
+	NotifyResolved         bool      `json:"notify_resolved"`
+	MemoryThresholdPercent int       `json:"memory_threshold_percent"`
+	DiskThresholdPercent   int       `json:"disk_threshold_percent"`
+	PacketLossPercent      int       `json:"packet_loss_percent"`
+	LatencyThresholdMS     int       `json:"latency_threshold_ms"`
+	RepeatMinutes          int       `json:"repeat_minutes"`
+	CreatedAt              time.Time `json:"created_at,omitempty"`
+	UpdatedAt              time.Time `json:"updated_at,omitempty"`
+}
+
+type NotificationDelivery struct {
+	ID                string     `json:"id"`
+	UserID            string     `json:"user_id,omitempty"`
+	DeviceID          string     `json:"device_id,omitempty"`
+	AlertID           string     `json:"alert_id,omitempty"`
+	Event             string     `json:"event"`
+	Channel           string     `json:"channel"`
+	Status            string     `json:"status"`
+	Title             string     `json:"title"`
+	Body              string     `json:"body"`
+	Destination       string     `json:"-"`
+	DestinationMasked string     `json:"destination"`
+	Error             string     `json:"error,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	SentAt            *time.Time `json:"sent_at,omitempty"`
+}
+
 type RemoteSession struct {
 	ID          string     `json:"id"`
 	DeviceID    string     `json:"device_id"`

@@ -6,7 +6,7 @@ The first implementation uses:
 
 - Go server;
 - SQLite persistence;
-- POSIX shell OpenWrt agent;
+- Go OpenWrt agent, distributed as APK/IPK packages;
 - outbound HTTP polling;
 - REST API;
 - per-user, one-time enrollment grants;
@@ -36,10 +36,13 @@ Core tables:
 - `alerts`
 - `metric_samples`
 - `remote_sessions`
+- `notification_settings`
+- `notification_deliveries`
 
 ## Agent
 
-The MVP agent is intentionally simple and uses tools normally available on OpenWrt:
+The agent is a small Go binary and uses tools normally available on OpenWrt for platform
+operations:
 
 - `ubus`
 - `ip`
@@ -81,4 +84,5 @@ The agent uses outbound HTTPS polling:
 - does not require stable long-lived connections;
 - simple to debug with curl.
 
-WebSocket or MQTT can be added later for faster command delivery.
+Server-Sent Events update the browser dashboard; agent transport remains HTTPS polling.
+WebSocket or MQTT can be added later if faster agent command delivery is required.

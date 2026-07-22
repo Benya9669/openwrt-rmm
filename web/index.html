@@ -852,6 +852,30 @@
           <button type="submit">Изменить пароль</button>
           <p id="passwordMessage" class="form-message" role="status"></p>
         </form>
+        <form id="notificationSettingsForm" class="profile-form notification-settings-form">
+          <div class="profile-section-heading"><strong>Уведомления и пороги</strong><span>Настройки применяются к вашим роутерам</span></div>
+          <div class="notification-channel-grid">
+            <label class="notification-toggle"><input id="notificationEmailEnabled" type="checkbox"><span><strong>E-mail</strong><small id="notificationEmailHint">Используется e-mail из профиля</small></span></label>
+            <label class="notification-toggle"><input id="notificationTelegramEnabled" type="checkbox"><span><strong>Telegram</strong><small id="notificationTelegramHint">Нужен Chat ID</small></span></label>
+          </div>
+          <label id="notificationTelegramChatRow">Telegram Chat ID<input id="notificationTelegramChatId" type="text" maxlength="32" inputmode="numeric" placeholder="Например, 123456789"></label>
+          <div class="notification-toggle-grid">
+            <label class="notification-toggle compact"><input id="notificationWarningEnabled" type="checkbox"><span>Предупреждения</span></label>
+            <label class="notification-toggle compact"><input id="notificationCriticalEnabled" type="checkbox"><span>Критические</span></label>
+            <label class="notification-toggle compact"><input id="notificationResolvedEnabled" type="checkbox"><span>Восстановление</span></label>
+          </div>
+          <div class="notification-threshold-grid">
+            <label>Память, %<input id="notificationMemoryThreshold" type="number" min="50" max="99" required></label>
+            <label>Диск, %<input id="notificationDiskThreshold" type="number" min="50" max="99" required></label>
+            <label>Потери, %<input id="notificationPacketLossThreshold" type="number" min="1" max="100" required></label>
+            <label>Задержка, мс<input id="notificationLatencyThreshold" type="number" min="10" max="5000" required></label>
+          </div>
+          <label>Повторять активную проблему<select id="notificationRepeatMinutes"><option value="0">Не повторять</option><option value="15">Каждые 15 минут</option><option value="60">Каждый час</option><option value="360">Каждые 6 часов</option><option value="1440">Раз в сутки</option></select></label>
+          <div class="notification-form-actions"><button class="primary" type="submit">Сохранить уведомления</button><button id="testNotificationsBtn" type="button">Отправить тест</button></div>
+          <p id="notificationSettingsMessage" class="form-message" role="status"></p>
+          <div class="notification-history-heading"><strong>Последние отправки</strong><button id="refreshNotificationsBtn" class="text-button" type="button">Обновить</button></div>
+          <div id="notificationHistory" class="notification-history"></div>
+        </form>
         <section id="userManagementSection" class="profile-form user-management is-hidden">
           <div class="profile-section-heading"><strong>Пользователи</strong><span>Роли и доступы всех аккаунтов</span></div>
           <div id="userList" class="user-list"></div>
@@ -906,6 +930,6 @@
     </dialog>
 
     <script src="/landing-motion.js?v=1" defer></script>
-    <script src="/app.js?v=27" defer></script>
+    <script src="/app.js?v=28" defer></script>
   </body>
 </html>

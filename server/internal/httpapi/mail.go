@@ -18,6 +18,11 @@ type PasswordResetSender interface {
 	SendPasswordReset(ctx context.Context, recipient, resetURL string) error
 }
 
+type SMTPMessageSender interface {
+	PasswordResetSender
+	NotificationSender
+}
+
 type SMTPConfig struct {
 	Host       string
 	Port       int
@@ -33,7 +38,7 @@ type smtpPasswordResetSender struct {
 	from   *mail.Address
 }
 
-func NewSMTPPasswordResetSender(config SMTPConfig) (PasswordResetSender, error) {
+func NewSMTPPasswordResetSender(config SMTPConfig) (SMTPMessageSender, error) {
 	config.Host = strings.TrimSpace(config.Host)
 	config.Username = strings.TrimSpace(config.Username)
 	config.From = strings.TrimSpace(config.From)
@@ -65,12 +70,28 @@ func NewSMTPPasswordResetSender(config SMTPConfig) (PasswordResetSender, error) 
 }
 
 func (s *smtpPasswordResetSender) SendPasswordReset(ctx context.Context, recipient, resetURL string) error {
-	to, err := mail.ParseAddress(strings.TrimSpace(recipient))
-	if err != nil || strings.ContainsAny(recipient, "\r\n") {
-		return errors.New("password reset recipient is invalid")
-	}
 	if !strings.HasPrefix(resetURL, "https://") && !strings.HasPrefix(resetURL, "http://") {
 		return errors.New("password reset URL is invalid")
+	}
+	body := "A password reset was requested for your OpenWrt RMM account.\r\n\r\n" + resetURL + "\r\n\r\nThe link expires in 30 minutes. If you did not request this, ignore this message.\r\n"
+	return s.sendMessage(ctx, recipient, "OpenWrt RMM password reset", body)
+}
+
+func (s *smtpPasswordResetSender) SendNotification(ctx context.Context, recipient, title, body string) error {
+	title = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(title))
+	if title == "" {
+		title = "OpenWrt RMM notification"
+	}
+	if len(title) > 160 {
+		title = title[:160]
+	}
+	return s.sendMessage(ctx, recipient, "OpenWrt RMM: "+title, strings.TrimSpace(body)+"\r\n")
+}
+
+func (s *smtpPasswordResetSender) sendMessage(ctx context.Context, recipient, subject, body string) error {
+	to, err := mail.ParseAddress(strings.TrimSpace(recipient))
+	if err != nil || strings.ContainsAny(recipient, "\r\n") {
+		return errors.New("email recipient is invalid")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -136,13 +157,11 @@ func (s *smtpPasswordResetSender) SendPasswordReset(ctx context.Context, recipie
 	w := text.DotWriter()
 	message := "From: " + s.from.String() + "\r\n" +
 		"To: " + to.String() + "\r\n" +
-		"Subject: OpenWrt RMM password reset\r\n" +
+		"Subject: " + subject + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: text/plain; charset=UTF-8\r\n" +
 		"Content-Transfer-Encoding: 8bit\r\n\r\n" +
-		"A password reset was requested for your OpenWrt RMM account.\r\n\r\n" +
-		resetURL + "\r\n\r\n" +
-		"The link expires in 30 minutes. If you did not request this, ignore this message.\r\n"
+		body
 	if _, err := w.Write([]byte(message)); err != nil {
 		w.Close()
 		return fmt.Errorf("write SMTP message: %w", err)

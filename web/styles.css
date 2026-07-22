@@ -314,6 +314,44 @@
 .form-message.is-error { color: var(--bad); }
 .form-message.is-success { color: var(--good); }
 .profile-session-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; border-top: 1px solid var(--line); padding-top: 18px; }
+.notification-channel-grid,
+.notification-toggle-grid,
+.notification-threshold-grid,
+.notification-form-actions { display: grid; gap: 9px; }
+.notification-channel-grid { grid-template-columns: 1fr 1fr; }
+.notification-toggle-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.notification-threshold-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.notification-form-actions { grid-template-columns: 1fr 1fr; }
+.notification-toggle {
+  display: flex !important;
+  min-width: 0;
+  min-height: 62px;
+  flex-direction: row !important;
+  gap: 10px !important;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  padding: 10px 12px;
+}
+.notification-toggle.compact { min-height: 48px; }
+.notification-toggle input { width: 18px; min-height: 18px; flex: 0 0 18px; accent-color: var(--accent); }
+.notification-toggle span { display: grid; min-width: 0; gap: 2px; color: var(--text); }
+.notification-toggle small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.notification-settings-form label.is-disabled { opacity: .6; }
+.notification-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); padding-top: 16px; }
+.notification-history { display: grid; gap: 8px; }
+.notification-history-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); padding: 11px 12px; }
+.notification-history-row > div { display: grid; min-width: 0; gap: 3px; }
+.notification-history-row strong,
+.notification-history-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notification-history-row small,
+.notification-history-row time { color: var(--muted); font-size: 11px; }
+.notification-history-row time { grid-column: 2 / -1; }
+.notification-channel { color: var(--muted); font-size: 11px; font-weight: 750; text-transform: uppercase; }
+.notification-delivery-status { color: var(--warn); font-size: 12px; font-weight: 750; }
+.notification-history-row.is-sent .notification-delivery-status { color: var(--good); }
+.notification-history-row.is-failed .notification-delivery-status { color: var(--bad); }
 
 @media (max-width: 900px) {
   .landing-header nav a:not(.landing-login-link) { display: none; }
@@ -358,7 +396,11 @@
   .landing-login-section .login-form { padding: 20px; }
   .landing-footer { display: grid; gap: 5px; }
   .profile-security-form,
-  .profile-session-actions { grid-template-columns: 1fr; }
+  .profile-session-actions,
+  .notification-channel-grid,
+  .notification-toggle-grid,
+  .notification-threshold-grid,
+  .notification-form-actions { grid-template-columns: 1fr; }
   .profile-security-form > * { grid-column: 1 !important; }
   .account-page .landing-login-section { min-height: calc(100vh - 130px); padding-block: 28px; }
   .landing-cta .landing-actions { justify-content: stretch; }

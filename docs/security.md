@@ -26,6 +26,9 @@ operators.
   device, stream-local forwarding or SFTP sessions.
 - Metric history defaults to 30-day retention. Expired authentication/access rows are
   removed by scheduled maintenance.
+- SMTP credentials and the Telegram bot token are read only from the deployment
+  environment. The browser API returns masked notification destinations and never returns
+  channel credentials or full delivery destinations.
 
 ## Operational guidance
 
@@ -37,6 +40,8 @@ operators.
   default; expose them only through a VPN or a narrowly scoped firewall rule.
 - Prefer `uci_preview`, `uci_backup`, and `uci_commit_confirmed` for network changes.
 - Back up SQLite without deleting or recreating the live volume.
+- Treat notification delivery errors as sensitive operational data and restrict database
+  backups to trusted administrators.
 
 ## Remaining hardening work
 
@@ -45,8 +50,8 @@ operators.
 - Add device-token rotation/revocation and optional mTLS or signed requests.
 - Add command approval policies for reboot, package changes, restore, UCI commit and remote
   access.
-- Add organization-level tenancy, recovery codes/MFA, user self-service password changes,
-  and external identity-provider integration before offering the service as public SaaS.
+- Add organization-level tenancy, recovery codes/MFA and external identity-provider
+  integration before offering the service as public SaaS.
 - Add distributed rate limiting when running more than one server instance.
 - Add an automated SBOM/dependency scan and build signed, immutable container/package
   artifacts in CI.

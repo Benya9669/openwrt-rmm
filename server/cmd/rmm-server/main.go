@@ -44,6 +44,7 @@ func main() {
 		}
 	}
 	var passwordResetSender httpapi.PasswordResetSender
+	var alertEmailSender httpapi.NotificationSender
 	smtpHost := strings.TrimSpace(os.Getenv("RMM_SMTP_HOST"))
 	publicURL := strings.TrimRight(strings.TrimSpace(os.Getenv("RMM_PUBLIC_URL")), "/")
 	if smtpHost != "" {
@@ -70,6 +71,15 @@ func main() {
 			log.Fatalf("invalid SMTP configuration: %v", smtpErr)
 		}
 		passwordResetSender = sender
+		alertEmailSender = sender
+	}
+	var telegramSender httpapi.NotificationSender
+	if telegramToken := strings.TrimSpace(os.Getenv("RMM_TELEGRAM_BOT_TOKEN")); telegramToken != "" {
+		sender, telegramErr := httpapi.NewTelegramNotificationSender(telegramToken)
+		if telegramErr != nil {
+			log.Fatalf("invalid Telegram configuration: %v", telegramErr)
+		}
+		telegramSender = sender
 	}
 
 	st, err := store.OpenSQLite(context.Background(), dbPath)
@@ -97,6 +107,9 @@ func main() {
 		PublicScheme:          env("RMM_PUBLIC_SCHEME", "https"),
 		PublicURL:             publicURL,
 		PasswordResetSender:   passwordResetSender,
+		AlertEmailSender:      alertEmailSender,
+		TelegramSender:        telegramSender,
+		BackgroundTasks:       true,
 		StaticDir:             env("RMM_WEB_DIR", "web"),
 	})
 
