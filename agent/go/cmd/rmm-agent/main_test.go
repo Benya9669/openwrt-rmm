@@ -9,7 +9,7 @@ import (
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.6.3" {
+	if agentVersion != "0.6.4" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
 }

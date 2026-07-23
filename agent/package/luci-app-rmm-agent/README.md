@@ -67,7 +67,7 @@ application to the router. Do not copy or install the shell runtime at the same 
 cd dist/rmm-openwrt-25.12.4-ramips-mt7621
 sha256sum -c SHA256SUMS
 scp \
-  rmm-agent-go-production-0.6.3-r1.apk \
+  rmm-agent-go-production-0.6.4-r1.apk \
   luci-app-rmm-agent-0.2.1-r2.apk \
   root@ROUTER_IP:/tmp/
 ```
@@ -76,7 +76,7 @@ Then install the locally built, unsigned packages over SSH:
 
 ```sh
 apk add --allow-untrusted \
-  /tmp/rmm-agent-go-production-0.6.3-r1.apk \
+  /tmp/rmm-agent-go-production-0.6.4-r1.apk \
   /tmp/luci-app-rmm-agent-0.2.1-r2.apk
 /etc/init.d/rpcd restart
 /etc/init.d/uhttpd restart

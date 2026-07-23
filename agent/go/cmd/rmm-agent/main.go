@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.6.3"
+const agentVersion = "0.6.4"
 
 type agentRuntimeHealth struct {
 	StartedAt            time.Time

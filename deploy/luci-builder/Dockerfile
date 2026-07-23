@@ -166,26 +166,29 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
     --mount=type=secret,id=openwrt_apk_secret_b64,uid=1000,required=false \
     set -eu; \
     export PATH="/home/builder/sdk/staging_dir/host/bin:${PATH}"; \
-    test -n "${REPOSITORY_INDEX_REVISION}" \
-    && mkdir -p /home/builder/artifacts \
-    && find bin -type f \
+    test -n "${REPOSITORY_INDEX_REVISION}"; \
+    mkdir -p /home/builder/artifacts; \
+    find bin -type f \
         \( -name 'luci-app-rmm-agent*.apk' \
            -o -name 'luci-app-rmm-agent*.ipk' \
            -o -name 'rmm-agent*.apk' \
            -o -name 'rmm-agent*.ipk' \) \
-        -exec cp '{}' /home/builder/artifacts/ \; \
-    && test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipk' \) -print -quit)" \
-    && cd /home/builder/artifacts \
-    && if find . -maxdepth 1 -type f -name '*.ipk' -print -quit | grep -q .; then \
-        /home/builder/sdk/scripts/ipkg-make-index.sh . > Packages; \
+        -exec cp '{}' /home/builder/artifacts/ \;; \
+    test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipk' \) -print -quit)"; \
+    cd /home/builder/artifacts; \
+    if find . -maxdepth 1 -type f -name '*.ipk' -print -quit | grep -q .; then \
+        MKHASH=/home/builder/sdk/staging_dir/host/bin/mkhash \
+          /home/builder/sdk/scripts/ipkg-make-index.sh . > Packages; \
         gzip -9nc Packages > Packages.gz; \
         test -s Packages; \
         test -s Packages.gz; \
         if [ -s /run/secrets/openwrt_usign_secret_b64 ]; then \
           base64 -d /run/secrets/openwrt_usign_secret_b64 > /tmp/usign.sec; \
           chmod 600 /tmp/usign.sec; \
-          /home/builder/sdk/staging_dir/host/bin/usign -S -m Packages -s /tmp/usign.sec; \
+          /home/builder/sdk/staging_dir/host/bin/usign -S -m Packages \
+            -s /tmp/usign.sec -x Packages.sig; \
           /home/builder/sdk/staging_dir/host/bin/usign -V -m Packages \
+            -x Packages.sig \
             -p /home/builder/release-keys/usign/7fb0908fb6bc82c8; \
           test -s Packages.sig; \
           cp /home/builder/release-keys/usign/7fb0908fb6bc82c8 ./; \
@@ -221,14 +224,15 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
             --output packages.adb \
             ./*.apk; \
         fi; \
-      fi \
-    && find . -maxdepth 1 -type f \( \
+      fi; \
+    find . -maxdepth 1 -type f \( \
         -name '*.apk' -o -name '*.ipk' \
         -o -name 'Packages' -o -name 'Packages.gz' -o -name 'Packages.sig' \
         -o -name 'packages.adb' -o -name 'rmm-openwrt.pem' \
         -o -name '????????????????' \) -print \
         | LC_ALL=C sort \
-        | xargs sha256sum > SHA256SUMS
+        | xargs sha256sum > SHA256SUMS; \
+    test -s SHA256SUMS
 
 FROM scratch AS artifacts
 
