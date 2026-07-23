@@ -97,7 +97,6 @@ RUN ./scripts/feeds update -a \
         ./scripts/feeds install "${package_name}"; \
        done
 
-COPY --chown=builder:builder agent/package/rmm-agent package/rmm-agent
 COPY --chown=builder:builder agent/package/rmm-agent-go-production package/rmm-agent-go-production
 COPY --from=go-agent --chown=builder:builder /out/rmm-agent package/rmm-agent-go-production/files/usr/bin/rmm-agent
 
@@ -107,12 +106,15 @@ RUN printf '%s\n' \
         '# CONFIG_ALL_NONSHARED is not set' \
         'CONFIG_PACKAGE_libmbedtls=y' \
         'CONFIG_PACKAGE_libustream-mbedtls=y' \
-        'CONFIG_PACKAGE_rmm-agent=m' \
         'CONFIG_PACKAGE_rmm-agent-go-production=m' \
         > .config \
     && make defconfig \
     && awk ' \
-        /^CONFIG_PACKAGE_[^=]+=[ym]$/ { \
+        /^CONFIG_PACKAGE_(ca-bundle|ip-tiny|iwinfo|libopenssl|openssh-client|openssh-keygen|rmm-agent-go-production|zlib)=m$/ { \
+            print; \
+            next; \
+        } \
+        /^CONFIG_PACKAGE_[^=]+=m$/ { \
             split($0, parts, "="); \
             print "# " parts[1] " is not set"; \
             next; \
@@ -120,20 +122,16 @@ RUN printf '%s\n' \
         { print; } \
        ' .config > .config.packages-pruned \
     && mv .config.packages-pruned .config \
-    && printf '%s\n' \
-        'CONFIG_PACKAGE_libmbedtls=y' \
-        'CONFIG_PACKAGE_libustream-mbedtls=y' \
-        'CONFIG_PACKAGE_rmm-agent=m' \
-        'CONFIG_PACKAGE_rmm-agent-go-production=m' \
-        >> .config \
-    && make defconfig
+    && grep -q '^CONFIG_PACKAGE_rmm-agent-go-production=m$' .config
 
 RUN make -j"$(nproc)" package/feeds/base/mbedtls/compile \
     && make -j"$(nproc)" package/feeds/base/ustream-ssl/compile
 
-RUN make -j"$(nproc)" \
-        package/rmm-agent/compile \
-        package/rmm-agent-go-production/compile
+RUN if ! make -j"$(nproc)" package/rmm-agent-go-production/compile V=s \
+        > /tmp/rmm-openwrt-build.log 2>&1; then \
+      tail -n 400 /tmp/rmm-openwrt-build.log; \
+      exit 1; \
+    fi
 
 COPY --chown=builder:builder agent/package/luci-app-rmm-agent package/luci-app-rmm-agent
 
@@ -144,7 +142,21 @@ RUN rm -rf tmp/info \
         tmp/.packageinfo
 
 RUN printf '%s\n' 'CONFIG_PACKAGE_luci-app-rmm-agent=m' >> .config \
-    && make defconfig
+    && make defconfig \
+    && awk ' \
+        /^CONFIG_PACKAGE_(ca-bundle|ip-tiny|iwinfo|libopenssl|luci-app-rmm-agent|openssh-client|openssh-keygen|rmm-agent-go-production|zlib)=m$/ { \
+            print; \
+            next; \
+        } \
+        /^CONFIG_PACKAGE_[^=]+=m$/ { \
+            split($0, parts, "="); \
+            print "# " parts[1] " is not set"; \
+            next; \
+        } \
+        { print; } \
+       ' .config > .config.packages-pruned \
+    && mv .config.packages-pruned .config \
+    && grep -q '^CONFIG_PACKAGE_luci-app-rmm-agent=m$' .config
 
 RUN make -j1 package/luci-app-rmm-agent/compile V=s
 
@@ -152,6 +164,8 @@ COPY --chown=builder:builder keys/openwrt /home/builder/release-keys
 
 RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
     --mount=type=secret,id=openwrt_apk_secret_b64,uid=1000,required=false \
+    set -eu; \
+    export PATH="/home/builder/sdk/staging_dir/host/bin:${PATH}"; \
     test -n "${REPOSITORY_INDEX_REVISION}" \
     && mkdir -p /home/builder/artifacts \
     && find bin -type f \
@@ -165,12 +179,15 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
     && if find . -maxdepth 1 -type f -name '*.ipk' -print -quit | grep -q .; then \
         /home/builder/sdk/scripts/ipkg-make-index.sh . > Packages; \
         gzip -9nc Packages > Packages.gz; \
+        test -s Packages; \
+        test -s Packages.gz; \
         if [ -s /run/secrets/openwrt_usign_secret_b64 ]; then \
           base64 -d /run/secrets/openwrt_usign_secret_b64 > /tmp/usign.sec; \
           chmod 600 /tmp/usign.sec; \
           /home/builder/sdk/staging_dir/host/bin/usign -S -m Packages -s /tmp/usign.sec; \
           /home/builder/sdk/staging_dir/host/bin/usign -V -m Packages \
             -p /home/builder/release-keys/usign/7fb0908fb6bc82c8; \
+          test -s Packages.sig; \
           cp /home/builder/release-keys/usign/7fb0908fb6bc82c8 ./; \
           rm -f /tmp/usign.sec; \
         elif [ "${REQUIRE_NATIVE_SIGNATURE}" = "true" ]; then \

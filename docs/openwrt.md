@@ -146,8 +146,10 @@ The release matrix covers OpenWrt `21.02.7`, `22.03.7`, `23.05.5`, `24.10.7` and
 The workflow reads each official SDK URL and SHA256 from the reviewed
 `.github/openwrt-sdk-lock.tsv` lock file. Updating an OpenWrt patch release requires
 refreshing that file from the official `sha256sums`; Docker still verifies every SDK
-archive before extraction and retries transient downloads. Releases through `24.10`
-produce `.ipk`; `25.12` produces `.apk`. Manual runs retain each target as a workflow
+archive before extraction and retries transient downloads. The release builder packages
+only the production Go runtime and LuCI application; the legacy shell implementation
+remains in the source tree but is not published. Releases through `24.10` produce `.ipk`;
+`25.12` produces `.apk`. Manual runs retain each target as a workflow
 artifact for 30 days. An `agent-v*` tag also creates a GitHub Release containing all packages and
 a combined `SHA256SUMS`, a Sigstore signature bundle and native signed package feeds.
 See [package-repository.md](package-repository.md) for key provisioning and the commands
