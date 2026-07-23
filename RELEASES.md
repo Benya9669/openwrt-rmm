@@ -29,7 +29,7 @@ production upgrade even when the release is marked compatible.
 
 ## Agent releases
 
-Tags use `agent-vMAJOR.MINOR.PATCH`, for example `agent-v0.6.4`.
+Tags use `agent-vMAJOR.MINOR.PATCH`, for example `agent-v0.6.5`.
 
 An agent release contains the Go runtime, LuCI application and OpenWrt IPK/APK packages.
 Before tagging, the tag version must match `agentVersion` in the Go source and
@@ -58,8 +58,8 @@ transition period; it should not silently reuse `v1`.
 git tag -a server-v0.8.0 -m "OpenWrt RMM Server 0.8.0"
 git push origin server-v0.8.0
 
-git tag -a agent-v0.6.4 -m "OpenWrt RMM Agent 0.6.4"
-git push origin agent-v0.6.4
+git tag -a agent-v0.6.5 -m "OpenWrt RMM Agent 0.6.5"
+git push origin agent-v0.6.5
 ```
 
 Pushing a server tag publishes the container image and creates a GitHub Release. Pushing

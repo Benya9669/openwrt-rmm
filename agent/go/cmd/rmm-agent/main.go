@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.6.4"
+const agentVersion = "0.6.5"
 
 type agentRuntimeHealth struct {
 	StartedAt            time.Time
@@ -922,6 +922,16 @@ func remoteSSHReverseOutput(ctx context.Context, cfg config, args map[string]str
 	if !ok {
 		return validationOutput, 2
 	}
+	localHost, err := selectRemoteSSHLocalHost(
+		remoteArgs.LocalHost,
+		remoteArgs.LocalPort,
+		localInterfaceIPv4Candidates(),
+		remoteSSHTargetReachable,
+	)
+	if err != nil {
+		return err.Error() + "\n", 1
+	}
+	remoteArgs.LocalHost = localHost
 	_, _ = remoteSSHStopSession(cfg, remoteArgs.SessionID, remoteArgs.RemotePort)
 	if err := os.MkdirAll(cfg.TunnelStateDir, 0o700); err != nil {
 		return err.Error() + "\n", 1
@@ -971,6 +981,99 @@ func remoteSSHReverseOutput(ctx context.Context, cfg config, args map[string]str
 	_, _ = fmt.Fprintf(&b, "LuCI proxy endpoint: %s:%d -> 127.0.0.1:%d\n", remoteArgs.ServerHost, remoteArgs.LuCIPort, remoteArgs.LuCILocalPort)
 	_, _ = fmt.Fprintf(&b, "log=%s\n", logFile)
 	return b.String(), 0
+}
+
+func selectRemoteSSHLocalHost(requestedHost string, port int, candidates []string, reachable func(string, int) bool) (string, error) {
+	hosts := []string{requestedHost}
+	requestedIP := net.ParseIP(requestedHost)
+	if requestedIP != nil && requestedIP.IsLoopback() {
+		hosts = append(hosts, candidates...)
+	}
+	seen := make(map[string]struct{}, len(hosts))
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if host == "" {
+			continue
+		}
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		if reachable(host, port) {
+			return host, nil
+		}
+	}
+	return "", fmt.Errorf("local SSH service is unavailable on port %d (checked %s)", port, strings.Join(uniqueHostsInOrder(hosts), ", "))
+}
+
+func uniqueHostsInOrder(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func remoteSSHTargetReachable(host string, port int) bool {
+	connection, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), 750*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = connection.Close()
+	return true
+}
+
+func localInterfaceIPv4Candidates() []string {
+	return parseLocalInterfaceIPv4Candidates(commandOutput("ip", "-4", "-o", "addr", "show"))
+}
+
+func parseLocalInterfaceIPv4Candidates(output string) []string {
+	type candidate struct {
+		host     string
+		priority int
+	}
+	var candidates []candidate
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[2] != "inet" {
+			continue
+		}
+		interfaceName := strings.TrimSuffix(fields[1], ":")
+		ip, _, err := net.ParseCIDR(fields[3])
+		if err != nil || ip == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		host := ip.String()
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		priority := 10
+		if interfaceName == "br-lan" || interfaceName == "lan" {
+			priority = 0
+		}
+		candidates = append(candidates, candidate{host: host, priority: priority})
+	}
+	for i := 1; i < len(candidates); i++ {
+		for j := i; j > 0 && candidates[j].priority < candidates[j-1].priority; j-- {
+			candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
+		}
+	}
+	result := make([]string, 0, len(candidates))
+	for _, item := range candidates {
+		result = append(result, item.host)
+	}
+	return result
 }
 
 func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) {

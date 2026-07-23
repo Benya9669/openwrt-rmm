@@ -9,8 +9,47 @@ import (
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.6.4" {
+	if agentVersion != "0.6.5" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
+	}
+}
+
+func TestParseLocalInterfaceIPv4CandidatesPrefersLAN(t *testing.T) {
+	output := `1: lo    inet 127.0.0.1/8 scope host lo
+2: eth0    inet 203.0.113.10/24 brd 203.0.113.255 scope global eth0
+5: br-lan    inet 10.10.10.1/24 brd 10.10.10.255 scope global br-lan
+6: guest    inet 192.168.50.1/24 brd 192.168.50.255 scope global guest`
+	got := parseLocalInterfaceIPv4Candidates(output)
+	want := []string{"10.10.10.1", "203.0.113.10", "192.168.50.1"}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected candidates: %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("candidate %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSelectRemoteSSHLocalHostFallsBackFromLoopbackToLAN(t *testing.T) {
+	reachable := func(host string, port int) bool {
+		return host == "10.10.10.1" && port == 22
+	}
+	got, err := selectRemoteSSHLocalHost("127.0.0.1", 22, []string{"10.10.10.1", "192.168.50.1"}, reachable)
+	if err != nil {
+		t.Fatalf("selectRemoteSSHLocalHost() error: %v", err)
+	}
+	if got != "10.10.10.1" {
+		t.Fatalf("selected host %q, want LAN address", got)
+	}
+}
+
+func TestSelectRemoteSSHLocalHostDoesNotReplaceExplicitHost(t *testing.T) {
+	reachable := func(host string, port int) bool {
+		return host == "10.10.10.1"
+	}
+	if _, err := selectRemoteSSHLocalHost("192.0.2.10", 22, []string{"10.10.10.1"}, reachable); err == nil {
+		t.Fatal("explicit unreachable host unexpectedly fell back to another interface")
 	}
 }
 
