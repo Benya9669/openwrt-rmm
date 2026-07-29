@@ -1,6 +1,6 @@
 # OpenWrt RMM Agent
 
-Current stable Go agent: `0.6.6`. It reports runtime health, pending command results,
+Current stable Go agent: `0.6.7`. It reports runtime health, pending command results,
 and the last heartbeat transport error after connectivity is restored. Its OpenWrt
 dependency uses the virtual `ip` provider, so either `ip-tiny` or `ip-full` can satisfy it.
 Production package upgrades restart an already running agent so the new binary takes effect.

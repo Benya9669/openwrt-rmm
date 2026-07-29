@@ -5,7 +5,7 @@
 ## Работает сейчас
 
 - [x] Go server, SQLite/WAL, Docker/Compose и `/healthz`.
-- [x] Go agent 0.6.6, heartbeat, команды, backoff и OpenWrt init integration.
+- [x] Go agent 0.6.7, heartbeat, команды, backoff и OpenWrt init integration.
 - [x] APK/IPK и LuCI-пакет: OpenWrt 24.10/25.12 в основном релизе,
   OpenWrt 21.02/22.03/23.05 в ручном legacy workflow.
 - [x] Multi-user, роли admin/user, владение и передача роутеров.

@@ -75,11 +75,11 @@ versions.
 
 To extend the latest agent release with signed OpenWrt 21.02, 22.03 and 23.05 packages,
 run **Actions → Build legacy OpenWrt packages → Run workflow** from the default branch
-and enter its existing tag, for example `agent-v0.6.6`. The same operation is available
+and enter its existing tag, for example `agent-v0.6.7`. The same operation is available
 through GitHub CLI:
 
 ```sh
-gh workflow run build-legacy.yml -f agent_tag=agent-v0.6.6
+gh workflow run build-legacy.yml -f agent_tag=agent-v0.6.7
 ```
 
 Run it only after the main agent release has completed. The legacy workflow:
