@@ -1,12 +1,13 @@
 # Актуальный инженерный checklist
 
-Синхронизировано с кодом 2026-07-23. Источник продуктового порядка — `ROADMAP.md`.
+Синхронизировано с кодом 2026-07-30. Источник продуктового порядка — `ROADMAP.md`.
 
 ## Работает сейчас
 
 - [x] Go server, SQLite/WAL, Docker/Compose и `/healthz`.
-- [x] Go agent 0.6.5, heartbeat, команды, backoff и OpenWrt init integration.
-- [x] APK/IPK и LuCI-пакет.
+- [x] Go agent 0.6.6, heartbeat, команды, backoff и OpenWrt init integration.
+- [x] APK/IPK и LuCI-пакет: OpenWrt 24.10/25.12 в основном релизе,
+  OpenWrt 21.02/22.03/23.05 в ручном legacy workflow.
 - [x] Multi-user, роли admin/user, владение и передача роутеров.
 - [x] Профиль, e-mail, смена/сброс пароля и управление сессиями.
 - [x] Одноразовый secure enrollment; reusable token secrets хранятся как hash.
@@ -43,7 +44,8 @@
 - [ ] Подписанный webhook channel.
 - [ ] Quiet hours/timezone и per-device notification overrides.
 - [ ] Конфигурационные backup artifacts и retention.
-- [x] CI для тестов, Docker, multi-version APK/IPK и release artifacts.
+- [x] CI для тестов, Docker, текущей multi-architecture APK/IPK-матрицы и отдельной
+  legacy-сборки без блокировки основного релиза.
 - [x] Keyless Cosign, provenance/SBOM контейнеров и подписанные checksum релизов.
 - [x] Нативные подписанные `Packages.sig`/`packages.adb` и публикация package feed.
 - [ ] Signed update manifest и безопасное обновление агента из кабинета.

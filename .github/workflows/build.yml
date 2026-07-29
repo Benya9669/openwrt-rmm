@@ -55,6 +55,38 @@ jobs:
             grep -Eq '^[[:space:]]*DEPENDS:=.*[[:space:]]\+ip([[:space:]]|$)' "$file"
             ! grep -Eq '\+ip-(tiny|full)' "$file"
           done
+      - name: Verify package release support tiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n \
+            scripts/prepare-package-repository.sh \
+            scripts/unpack-release-package-assets.sh
+
+          current_matrix="$(awk '
+            /Tagged releases cover the current OpenWrt lines/ { in_matrix = 1 }
+            in_matrix && /^[[:space:]]*- \{ release:/ { count++ }
+            in_matrix && /^[[:space:]]*steps:/ { print count; exit }
+          ' .github/workflows/build.yml)"
+          legacy_matrix="$(awk '
+            /Legacy support intentionally excludes/ { in_matrix = 1 }
+            in_matrix && /^[[:space:]]*- \{ release:/ { count++ }
+            in_matrix && /^[[:space:]]*steps:/ { print count; exit }
+          ' .github/workflows/build-legacy.yml)"
+          test "$current_matrix" = 10
+          test "$legacy_matrix" = 13
+
+          fixture="$(mktemp -d)"
+          trap 'rm -rf "$fixture"' EXIT
+          mkdir -p "$fixture/assets"
+          touch "$fixture/assets/openwrt-24.10.7-ramips-mt7621-Packages"
+          touch "$fixture/assets/openwrt-21.02.7-x86-64-rmm-agent.ipk"
+          bash scripts/unpack-release-package-assets.sh \
+            "$fixture/assets" \
+            .github/openwrt-sdk-lock.tsv \
+            "$fixture/output"
+          test -f "$fixture/output/openwrt-24.10.7-ramips-mt7621/Packages"
+          test -f "$fixture/output/openwrt-21.02.7-x86-64/rmm-agent.ipk"
 
   openwrt-packages:
     name: OpenWrt ${{ matrix.release }} · ${{ matrix.label }}
@@ -67,40 +99,19 @@ jobs:
       max-parallel: 4
       matrix:
         include:
-          # The matrix covers the common CPU families: amd64, mipsel, mips,
-          # ARMv7 and ARM64. Add a target/subtarget row when another device
-          # family needs an architecture-specific package.
-          - { release: "21.02.7", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
-          - { release: "21.02.7", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
-          - { release: "21.02.7", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
-          - { release: "21.02.7", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
-          - { release: "21.02.7", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
-
-          - { release: "22.03.7", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
-          - { release: "22.03.7", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
-          - { release: "22.03.7", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
-          - { release: "22.03.7", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
-          - { release: "22.03.7", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
-
-          - { release: "23.05.5", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
-          - { release: "23.05.5", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
-          - { release: "23.05.5", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
-          - { release: "23.05.5", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
-          - { release: "23.05.5", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
-          - { release: "23.05.5", target: mediatek, subtarget: filogic,    label: mediatek-filogic,     goarch: arm64 }
-
+          # Tagged releases cover the current OpenWrt lines and the common
+          # router CPU families. OpenWrt 21.02-23.05 are built on demand by
+          # build-legacy.yml so a legacy SDK cannot block the main release.
           - { release: "24.10.7", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
           - { release: "24.10.7", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
           - { release: "24.10.7", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
           - { release: "24.10.7", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
-          - { release: "24.10.7", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
           - { release: "24.10.7", target: mediatek, subtarget: filogic,    label: mediatek-filogic,     goarch: arm64 }
 
           - { release: "25.12.4", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
           - { release: "25.12.4", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
           - { release: "25.12.4", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
           - { release: "25.12.4", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
-          - { release: "25.12.4", target: bcm27xx,  subtarget: bcm2711,    label: bcm27xx-bcm2711,      goarch: arm64 }
           - { release: "25.12.4", target: mediatek, subtarget: filogic,    label: mediatek-filogic,     goarch: arm64 }
 
     steps:

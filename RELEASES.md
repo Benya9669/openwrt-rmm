@@ -5,16 +5,16 @@ Versioning.
 
 ## Server releases
 
-Tags use `server-vMAJOR.MINOR.PATCH`, for example `server-v0.8.0`.
+Tags use `server-vMAJOR.MINOR.PATCH`, for example `server-v0.8.1`.
 
 A server release contains the Go API, web interface, database migrations and the coupled
 SSH reverse-tunnel service. The GitHub Actions server workflow tests the server and
 publishes two images with the same version:
 
 ```text
-ghcr.io/benya9669/openwrt-rmm-server:0.8.0
+ghcr.io/benya9669/openwrt-rmm-server:0.8.1
 ghcr.io/benya9669/openwrt-rmm-server:latest
-ghcr.io/benya9669/openwrt-rmm-tunnel:0.8.0
+ghcr.io/benya9669/openwrt-rmm-tunnel:0.8.1
 ghcr.io/benya9669/openwrt-rmm-tunnel:latest
 ```
 
@@ -34,6 +34,14 @@ Tags use `agent-vMAJOR.MINOR.PATCH`, for example `agent-v0.6.6`.
 An agent release contains the Go runtime, LuCI application and OpenWrt IPK/APK packages.
 Before tagging, the tag version must match `agentVersion` in the Go source and
 `PKG_VERSION` in the production Go package. CI rejects a mismatched release tag.
+
+Tagged releases automatically build the current OpenWrt 24.10 and 25.12 package matrix.
+OpenWrt 21.02, 22.03 and 23.05 are a manual legacy tier that extends an existing agent
+release without blocking current packages. Run it after the tagged workflow completes:
+
+```sh
+gh workflow run build-legacy.yml -f agent_tag=agent-v0.6.6
+```
 
 The LuCI application is shipped as part of the router bundle. It can retain its own package
 version for package-manager upgrades, but it does not require a separate GitHub release
@@ -55,8 +63,8 @@ transition period; it should not silently reuse `v1`.
 ## Release commands
 
 ```sh
-git tag -a server-v0.8.0 -m "OpenWrt RMM Server 0.8.0"
-git push origin server-v0.8.0
+git tag -a server-v0.8.1 -m "OpenWrt RMM Server 0.8.1"
+git push origin server-v0.8.1
 
 git tag -a agent-v0.6.6 -m "OpenWrt RMM Agent 0.6.6"
 git push origin agent-v0.6.6

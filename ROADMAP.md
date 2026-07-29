@@ -1,6 +1,6 @@
 # OpenWrt RMM — актуальный roadmap
 
-Актуализировано: 2026-07-23. Текущая стабильная линия агента: `0.6.5`.
+Актуализировано: 2026-07-30. Текущая стабильная линия агента: `0.6.6`.
 
 ## Цель продукта
 
@@ -49,6 +49,8 @@ OpenWrt через исходящее соединение агента. Пол�
 - [x] SMTP STARTTLS/TLS и Telegram bot configuration через environment.
 - [x] Версионированные server/tunnel images в GHCR и production Compose overlay.
 - [x] SBOM/provenance, keyless Cosign и подписанный APK/IPK package repository.
+- [x] Быстрая матрица текущих OpenWrt 24.10/25.12 и отдельная ручная legacy-сборка
+  OpenWrt 21.02/22.03/23.05 без блокировки основного релиза.
 
 ## Следующие этапы
 
@@ -110,6 +112,8 @@ OpenWrt через исходящее соединение агента. Пол�
 
 ## Ближайший приоритет
 
-1. Создать и сохранить ключи package feed, включить GitHub Pages и проверить первый подписанный agent/server release.
+1. Завершить и проверить `agent-v0.6.6`, при необходимости добавить legacy-пакеты,
+   развернуть server `0.8.1` и проверить свежие SSH/LuCI-сессии.
 2. Развернуть и проверить notification release на production.
-3. Добавить webhook и quiet hours, затем начать конфигурационные backup/restore.
+3. Добавить активное подтверждение проводных клиентов, webhook и quiet hours, затем
+   начать конфигурационные backup/restore.

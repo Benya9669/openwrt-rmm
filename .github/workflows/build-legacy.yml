@@ -1,0 +1,256 @@
+name: Build legacy OpenWrt packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent_tag:
+        description: Existing agent release tag to extend (for example agent-v0.6.6)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-packages-${{ inputs.agent_tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate agent release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.agent_tag }}
+      - name: Validate tag and package version
+        env:
+          AGENT_TAG: ${{ inputs.agent_tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$AGENT_TAG" =~ ^agent-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "agent_tag must look like agent-vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          agent_version="${AGENT_TAG#agent-v}"
+          source_version="$(sed -n 's/^const agentVersion = "\([^"]*\)"/\1/p' agent/go/cmd/rmm-agent/main.go)"
+          package_version="$(sed -n 's/^PKG_VERSION:=//p' agent/package/rmm-agent-go-production/Makefile)"
+          test "$source_version" = "$agent_version"
+          test "$package_version" = "$agent_version"
+          gh release view "$AGENT_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          latest_agent_tag="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '[.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("agent-v")))] | first | .tag_name')"
+          if [ "$AGENT_TAG" != "$latest_agent_tag" ]; then
+            echo "legacy packages may extend only the latest agent release: ${latest_agent_tag}" >&2
+            exit 1
+          fi
+
+  legacy-packages:
+    name: OpenWrt ${{ matrix.release }} · ${{ matrix.label }}
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          # Legacy support intentionally excludes bcm27xx/bcm2711. It can be
+          # restored as an on-demand row when a real supported device needs it.
+          - { release: "21.02.7", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
+          - { release: "21.02.7", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
+          - { release: "21.02.7", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
+          - { release: "21.02.7", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
+
+          - { release: "22.03.7", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
+          - { release: "22.03.7", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
+          - { release: "22.03.7", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
+          - { release: "22.03.7", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
+
+          - { release: "23.05.5", target: x86,      subtarget: "64",       label: x86-64,             goarch: amd64 }
+          - { release: "23.05.5", target: ramips,   subtarget: mt7621,     label: ramips-mt7621,       goarch: mipsle, gomips: softfloat }
+          - { release: "23.05.5", target: ath79,    subtarget: generic,    label: ath79-generic,        goarch: mips,   gomips: softfloat }
+          - { release: "23.05.5", target: ipq40xx,  subtarget: generic,    label: ipq40xx-generic,      goarch: arm,    goarm: "7" }
+          - { release: "23.05.5", target: mediatek, subtarget: filogic,    label: mediatek-filogic,     goarch: arm64 }
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.agent_tag }}
+
+      - name: Resolve official OpenWrt SDK
+        id: sdk
+        shell: bash
+        env:
+          RELEASE: ${{ matrix.release }}
+          TARGET: ${{ matrix.target }}
+          SUBTARGET: ${{ matrix.subtarget }}
+        run: |
+          set -euo pipefail
+          record="$(awk -F '\t' \
+            -v release="$RELEASE" \
+            -v target="$TARGET" \
+            -v subtarget="$SUBTARGET" \
+            '$1 == release && $2 == target && $3 == subtarget { print $4 " " $5; exit }' \
+            .github/openwrt-sdk-lock.tsv)"
+          if [ -z "$record" ]; then
+            echo "No locked SDK found for OpenWrt ${RELEASE} ${TARGET}/${SUBTARGET}" >&2
+            exit 1
+          fi
+          read -r sha256 url <<<"$record"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build signed agent and LuCI packages
+        uses: docker/build-push-action@v6
+        env:
+          OPENWRT_USIGN_SECRET_B64: ${{ secrets.OPENWRT_USIGN_SECRET_B64 }}
+        with:
+          context: .
+          file: deploy/luci-builder/Dockerfile
+          target: artifacts
+          push: false
+          outputs: type=local,dest=artifacts
+          build-args: |
+            OPENWRT_SDK_URL=${{ steps.sdk.outputs.url }}
+            OPENWRT_SDK_SHA256=${{ steps.sdk.outputs.sha256 }}
+            RMM_GOARCH=${{ matrix.goarch }}
+            RMM_GOARM=${{ matrix.goarm || '7' }}
+            RMM_GOMIPS=${{ matrix.gomips || 'softfloat' }}
+            RMM_GOAMD64=v1
+            REQUIRE_NATIVE_SIGNATURE=true
+            REPOSITORY_INDEX_REVISION=${{ github.run_id }}
+          secret-envs: |
+            openwrt_usign_secret_b64=OPENWRT_USIGN_SECRET_B64
+          cache-from: type=gha,scope=openwrt-${{ matrix.release }}-${{ matrix.label }}
+          cache-to: type=gha,mode=max,scope=openwrt-${{ matrix.release }}-${{ matrix.label }}
+
+      - name: Verify package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find artifacts -maxdepth 1 -type f -print
+          test -f artifacts/SHA256SUMS
+          (cd artifacts && sha256sum --check SHA256SUMS)
+          find artifacts -maxdepth 1 -type f -name '*.ipk' -print -quit | grep -q .
+          test -f artifacts/Packages
+          test -f artifacts/Packages.gz
+          test -f artifacts/Packages.sig
+          public_key="$(find artifacts -maxdepth 1 -type f -regextype posix-extended \
+            -regex '.*/[0-9a-f]{16}' -print -quit)"
+          test -n "$public_key"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-${{ matrix.release }}-${{ matrix.label }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Extend release and signed package repository
+    needs: [validate, legacy-packages]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      pages: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Repository tooling comes from the default branch so an existing
+      # agent tag can be extended after this workflow itself was introduced.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: openwrt-*
+          path: legacy-artifacts
+
+      - name: Prepare legacy release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir legacy-publish
+          while IFS= read -r file; do
+            artifact="$(basename "$(dirname "$file")")"
+            cp "$file" "legacy-publish/${artifact}-$(basename "$file")"
+          done < <(find legacy-artifacts -type f ! -name 'SHA256SUMS' -print | sort)
+
+      - name: Attest legacy release assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: legacy-publish/*
+
+      - name: Combine and reconstruct all release package artifacts
+        env:
+          AGENT_TAG: ${{ inputs.agent_tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          gh release download "$AGENT_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'openwrt-*' \
+            --dir release-assets
+          cp legacy-publish/* release-assets/
+          bash scripts/unpack-release-package-assets.sh \
+            release-assets \
+            .github/openwrt-sdk-lock.tsv \
+            combined-artifacts
+          bash scripts/prepare-package-repository.sh \
+            combined-artifacts \
+            package-repository \
+            "${AGENT_TAG#agent-v}"
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Prepare combined release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd release-assets
+            sha256sum ./openwrt-* > SHA256SUMS
+          )
+
+      - name: Attest combined release checksums
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-assets/SHA256SUMS
+
+      - name: Sign and upload combined release checksums
+        env:
+          AGENT_TAG: ${{ inputs.agent_tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle release-assets/SHA256SUMS.sigstore.json \
+            release-assets/SHA256SUMS
+          mapfile -t legacy_files < <(find legacy-publish -type f -print | sort)
+          gh release upload "$AGENT_TAG" \
+            "${legacy_files[@]}" \
+            release-assets/SHA256SUMS \
+            release-assets/SHA256SUMS.sigstore.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: package-repository
+
+      - name: Deploy complete package repository to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
