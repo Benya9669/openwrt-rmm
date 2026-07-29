@@ -1401,15 +1401,52 @@ func (a *App) remoteSessionAccessState(session model.RemoteSession) string {
 	if session.Status != "active" || session.LuCIPort <= 0 {
 		return "starting"
 	}
-	connection, err := net.DialTimeout("tcp", net.JoinHostPort(a.tunnelHTTPHost, strconv.Itoa(session.LuCIPort)), 150*time.Millisecond)
-	if err == nil {
-		_ = connection.Close()
+	if a.luciTunnelReachable(session) {
 		return "ready"
 	}
 	if session.StartedAt != nil && time.Since(*session.StartedAt) > 20*time.Second {
 		return "unavailable"
 	}
 	return "starting"
+}
+
+func (a *App) luciTunnelReachable(session model.RemoteSession) bool {
+	scheme := session.LuCIScheme
+	if scheme == "" {
+		scheme = "http"
+	}
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	upstream := scheme + "://" + net.JoinHostPort(a.tunnelHTTPHost, strconv.Itoa(session.LuCIPort)) + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstream, nil)
+	if err != nil {
+		return false
+	}
+	req.Host = "127.0.0.1"
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+	transport.DialContext = (&net.Dialer{Timeout: 500 * time.Millisecond}).DialContext
+	transport.ResponseHeaderTimeout = 1500 * time.Millisecond
+	if scheme == "https" {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // LuCI commonly uses a router-local self-signed certificate.
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   2 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return true
 }
 
 func writeCloudError(w http.ResponseWriter, status int, code, message string) {

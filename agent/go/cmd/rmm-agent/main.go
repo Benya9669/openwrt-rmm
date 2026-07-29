@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -23,7 +24,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.6.5"
+const agentVersion = "0.6.6"
 
 type agentRuntimeHealth struct {
 	StartedAt            time.Time
@@ -1028,21 +1029,56 @@ func remoteSSHTargetReachable(host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	_ = connection.Close()
-	return true
+	defer connection.Close()
+	if err := connection.SetReadDeadline(time.Now().Add(1500 * time.Millisecond)); err != nil {
+		return false
+	}
+	reader := bufio.NewReaderSize(connection, 256)
+	for range 4 {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return false
+		}
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "SSH-2.0-") || strings.HasPrefix(line, "SSH-1.99-") {
+			return true
+		}
+	}
+	return false
 }
 
 func localInterfaceIPv4Candidates() []string {
-	return parseLocalInterfaceIPv4Candidates(commandOutput("ip", "-4", "-o", "addr", "show"))
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var candidates []localInterfaceIPv4
+	for _, networkInterface := range interfaces {
+		addresses, err := networkInterface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err != nil {
+				continue
+			}
+			candidates = append(candidates, localInterfaceIPv4{
+				interfaceName: networkInterface.Name,
+				ip:            ip,
+			})
+		}
+	}
+	return orderLocalInterfaceIPv4Candidates(candidates)
+}
+
+type localInterfaceIPv4 struct {
+	interfaceName string
+	ip            net.IP
 }
 
 func parseLocalInterfaceIPv4Candidates(output string) []string {
-	type candidate struct {
-		host     string
-		priority int
-	}
-	var candidates []candidate
-	seen := map[string]struct{}{}
+	var candidates []localInterfaceIPv4
 	for _, line := range strings.Split(output, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 || fields[2] != "inet" {
@@ -1050,16 +1086,32 @@ func parseLocalInterfaceIPv4Candidates(output string) []string {
 		}
 		interfaceName := strings.TrimSuffix(fields[1], ":")
 		ip, _, err := net.ParseCIDR(fields[3])
-		if err != nil || ip == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+		if err != nil {
 			continue
 		}
-		host := ip.String()
+		candidates = append(candidates, localInterfaceIPv4{interfaceName: interfaceName, ip: ip})
+	}
+	return orderLocalInterfaceIPv4Candidates(candidates)
+}
+
+func orderLocalInterfaceIPv4Candidates(values []localInterfaceIPv4) []string {
+	type candidate struct {
+		host     string
+		priority int
+	}
+	var candidates []candidate
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		if value.ip == nil || value.ip.To4() == nil || value.ip.IsLoopback() || value.ip.IsUnspecified() || value.ip.IsLinkLocalUnicast() {
+			continue
+		}
+		host := value.ip.String()
 		if _, ok := seen[host]; ok {
 			continue
 		}
 		seen[host] = struct{}{}
 		priority := 10
-		if interfaceName == "br-lan" || interfaceName == "lan" {
+		if value.interfaceName == "br-lan" || value.interfaceName == "lan" {
 			priority = 0
 		}
 		candidates = append(candidates, candidate{host: host, priority: priority})

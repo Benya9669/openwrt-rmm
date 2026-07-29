@@ -48,6 +48,13 @@ jobs:
           missing_file="$(grep -L 'PKG_LICENSE_FILES:=LICENSE' agent/package/*/Makefile || true)"
           test -z "$missing_license"
           test -z "$missing_file"
+          for file in \
+            agent/package/rmm-agent/Makefile \
+            agent/package/rmm-agent-go/Makefile \
+            agent/package/rmm-agent-go-production/Makefile; do
+            grep -Eq '^[[:space:]]*DEPENDS:=.*[[:space:]]\+ip([[:space:]]|$)' "$file"
+            ! grep -Eq '\+ip-(tiny|full)' "$file"
+          done
 
   openwrt-packages:
     name: OpenWrt ${{ matrix.release }} · ${{ matrix.label }}

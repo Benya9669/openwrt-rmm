@@ -2,14 +2,17 @@ package main
 
 import (
 	"errors"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.6.5" {
+	if agentVersion != "0.6.6" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
 }
@@ -51,6 +54,46 @@ func TestSelectRemoteSSHLocalHostDoesNotReplaceExplicitHost(t *testing.T) {
 	if _, err := selectRemoteSSHLocalHost("192.0.2.10", 22, []string{"10.10.10.1"}, reachable); err == nil {
 		t.Fatal("explicit unreachable host unexpectedly fell back to another interface")
 	}
+}
+
+func TestRemoteSSHTargetReachableRequiresSSHBanner(t *testing.T) {
+	host, port := startBannerServer(t, "SSH-2.0-dropbear_2025.88\r\n")
+	if !remoteSSHTargetReachable(host, port) {
+		t.Fatal("SSH banner was not accepted")
+	}
+
+	host, port = startBannerServer(t, "HTTP/1.1 200 OK\r\n")
+	if remoteSSHTargetReachable(host, port) {
+		t.Fatal("non-SSH TCP service was accepted")
+	}
+}
+
+func startBannerServer(t *testing.T, banner string) (string, int) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+	})
+	go func() {
+		connection, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		_, _ = io.WriteString(connection, banner)
+	}()
+	host, portText, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return host, port
 }
 
 func TestAgentRuntimeHealthSnapshot(t *testing.T) {

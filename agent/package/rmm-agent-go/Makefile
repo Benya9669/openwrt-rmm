@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent-go
-PKG_VERSION:=0.6.5
+PKG_VERSION:=0.6.6
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=RMM OpenWrt
@@ -15,7 +15,7 @@ define Package/rmm-agent-go
   SECTION:=admin
   CATEGORY:=Administration
   TITLE:=OpenWrt RMM Go agent
-  DEPENDS:=+ca-bundle +ip-tiny +iwinfo +openssh-client +openssh-keygen
+  DEPENDS:=+ca-bundle +ip +iwinfo +openssh-client +openssh-keygen
 endef
 
 define Package/rmm-agent-go/description

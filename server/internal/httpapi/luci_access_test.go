@@ -41,21 +41,21 @@ func TestWriteLuCIErrorRendersSafeBrowserPage(t *testing.T) {
 	}
 }
 
-func TestRemoteSessionAccessStateChecksTunnelPort(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	_, portText, _ := net.SplitHostPort(listener.Addr().String())
+func TestRemoteSessionAccessStateChecksLuCIResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+	hostPort := strings.TrimPrefix(upstream.URL, "http://")
+	host, portText, _ := net.SplitHostPort(hostPort)
 	port, _ := strconv.Atoi(portText)
 	now := time.Now().UTC()
-	app := &App{tunnelHTTPHost: "127.0.0.1"}
+	app := &App{tunnelHTTPHost: host}
 	session := model.RemoteSession{Status: "active", LuCIPort: port, StartedAt: &now, ExpiresAt: now.Add(time.Minute)}
 	if got := app.remoteSessionAccessState(session); got != "ready" {
 		t.Fatalf("access state = %q, want ready", got)
 	}
-	_ = listener.Close()
+	upstream.Close()
 	if got := app.remoteSessionAccessState(session); got != "starting" {
 		t.Fatalf("fresh failed tunnel state = %q, want starting", got)
 	}
@@ -63,6 +63,28 @@ func TestRemoteSessionAccessStateChecksTunnelPort(t *testing.T) {
 	session.StartedAt = &old
 	if got := app.remoteSessionAccessState(session); got != "unavailable" {
 		t.Fatalf("stale failed tunnel state = %q, want unavailable", got)
+	}
+}
+
+func TestRemoteSessionAccessStateRejectsBareTCPListener(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		connection, err := listener.Accept()
+		if err == nil {
+			_ = connection.Close()
+		}
+	}()
+	host, portText, _ := net.SplitHostPort(listener.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	now := time.Now().UTC()
+	app := &App{tunnelHTTPHost: host}
+	session := model.RemoteSession{Status: "active", LuCIPort: port, StartedAt: &now, ExpiresAt: now.Add(time.Minute)}
+	if got := app.remoteSessionAccessState(session); got != "starting" {
+		t.Fatalf("bare TCP listener state = %q, want starting", got)
 	}
 }
 

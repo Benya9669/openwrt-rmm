@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent
 PKG_VERSION:=0.1.1
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 PKG_MAINTAINER:=RMM OpenWrt
 PKG_LICENSE:=MIT
@@ -15,7 +15,7 @@ define Package/rmm-agent
   SECTION:=admin
   CATEGORY:=Administration
   TITLE:=OpenWrt RMM agent
-  DEPENDS:=+uclient-fetch +ubus +ip-tiny
+  DEPENDS:=+uclient-fetch +ubus +ip
   PROVIDES:=rmm-agent-runtime
   PKGARCH:=all
 endef

@@ -34,5 +34,5 @@ opkg install /tmp/rmm-agent-go-production_*.ipk
 
 This package is intended for the final shell-to-Go migration when the router should keep the same RMM object identity.
 
-Version `0.6.5` uses the cloud tunnel exclusively and no longer discovers or publishes the
+Starting with version `0.6.5`, the agent uses the cloud tunnel exclusively and no longer discovers or publishes the
 router's public WAN addresses.

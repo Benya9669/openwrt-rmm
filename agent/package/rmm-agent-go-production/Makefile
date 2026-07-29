@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent-go-production
-PKG_VERSION:=0.6.5
+PKG_VERSION:=0.6.6
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=RMM OpenWrt
@@ -15,7 +15,7 @@ define Package/rmm-agent-go-production
   SECTION:=admin
   CATEGORY:=Administration
   TITLE:=OpenWrt RMM Go agent (production replacement)
-  DEPENDS:=+ca-bundle +ip-tiny +iwinfo +openssh-client +openssh-keygen
+  DEPENDS:=+ca-bundle +ip +iwinfo +openssh-client +openssh-keygen
   PROVIDES:=rmm-agent-runtime
   CONFLICTS:=rmm-agent
 endef
@@ -31,6 +31,13 @@ endef
 define Package/rmm-agent-go-production/conffiles
 /etc/rmm-agent.conf
 /etc/config/rmm-agent
+endef
+
+define Package/rmm-agent-go-production/postinst
+#!/bin/sh
+if [ -z "$${IPKG_INSTROOT:-}" ] && /etc/init.d/rmm-agent running; then
+	/etc/init.d/rmm-agent restart
+fi
 endef
 
 define Package/rmm-agent-go-production/install
