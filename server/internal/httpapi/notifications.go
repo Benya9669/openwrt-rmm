@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,6 +34,190 @@ type notificationSettingsRequest struct {
 	PacketLossPercent      int    `json:"packet_loss_percent"`
 	LatencyThresholdMS     int    `json:"latency_threshold_ms"`
 	RepeatMinutes          int    `json:"repeat_minutes"`
+	Timezone               string `json:"timezone"`
+	QuietHoursEnabled      bool   `json:"quiet_hours_enabled"`
+	QuietHoursStart        string `json:"quiet_hours_start"`
+	QuietHoursEnd          string `json:"quiet_hours_end"`
+	AlertsPausedUntil      string `json:"alerts_paused_until"`
+	WebhookEnabled         bool   `json:"webhook_enabled"`
+	WebhookURL             string `json:"webhook_url"`
+	WebhookSecret          string `json:"webhook_secret"`
+}
+
+type deviceNotificationSettingsRequest struct {
+	Enabled        bool   `json:"enabled"`
+	NotifyWarning  bool   `json:"notify_warning"`
+	NotifyCritical bool   `json:"notify_critical"`
+	NotifyResolved bool   `json:"notify_resolved"`
+	PausedUntil    string `json:"paused_until"`
+}
+
+type contactVerificationRequest struct {
+	Destination string `json:"destination"`
+	Code        string `json:"code"`
+}
+
+func (a *App) handleRequestContactVerification(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	channel := parts[3]
+	if channel != "email" && channel != "telegram" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	var req contactVerificationRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	destination := strings.TrimSpace(req.Destination)
+	var sender NotificationSender
+	if channel == "email" {
+		destination = principal.User.Email
+		sender = a.alertEmailSender
+		if destination == "" || sender == nil {
+			writeError(w, http.StatusConflict, "email verification is unavailable")
+			return
+		}
+	} else {
+		sender = a.telegramSender
+		if sender == nil || !validTelegramChatID(destination) {
+			writeError(w, http.StatusBadRequest, "Telegram chat ID is invalid or unavailable")
+			return
+		}
+	}
+	randomValue, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create verification")
+		return
+	}
+	code := fmt.Sprintf("%06d", randomValue.Int64())
+	codeHash, err := store.VerificationCodeHash(code)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to secure verification")
+		return
+	}
+	if err := a.store.BeginContactVerification(r.Context(), principal.User.ID, channel, destination, codeHash, time.Now().UTC().Add(10*time.Minute)); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save verification")
+		return
+	}
+	if err := sender.SendNotification(r.Context(), destination, "OpenWrt RMM verification", "Verification code: "+code+"\n\nThe code expires in 10 minutes."); err != nil {
+		writeError(w, http.StatusBadGateway, "failed to deliver verification code")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sent": true, "destination": maskVerificationDestination(channel, destination)})
+}
+
+func (a *App) handleConfirmContactVerification(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	channel := parts[3]
+	if channel != "email" && channel != "telegram" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	var req contactVerificationRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if len(strings.TrimSpace(req.Code)) != 6 {
+		writeError(w, http.StatusBadRequest, "verification code is invalid")
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	destination, confirmed, err := a.store.ConfirmContactVerification(r.Context(), principal.User.ID, channel, req.Code)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to confirm verification")
+		return
+	}
+	if !confirmed {
+		writeError(w, http.StatusBadRequest, "verification code is invalid or expired")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"verified": true, "destination": maskVerificationDestination(channel, destination)})
+}
+
+func maskVerificationDestination(channel, destination string) string {
+	if channel == "email" {
+		return maskEmail(destination)
+	}
+	return maskTelegramChatID(destination)
+}
+
+func (a *App) handleListInboxNotifications(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	items, unread, err := a.store.ListInboxNotifications(r.Context(), principal.User.ID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load notification center")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"notifications": items, "unread": unread})
+}
+
+func (a *App) handleInboxNotificationAction(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[3] != "read" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	found, err := a.store.MarkInboxNotificationRead(r.Context(), principal.User.ID, parts[2])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to mark notification read")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "notification not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"read": true})
+}
+
+func (a *App) handleMarkAllInboxNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	principal, _ := principalFromContext(r.Context())
+	if err := a.store.MarkAllInboxNotificationsRead(r.Context(), principal.User.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to mark notifications read")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"read": true})
+}
+
+func (a *App) handleGetDeviceNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	principal, _ := principalFromContext(r.Context())
+	settings, _, err := a.store.GetDeviceNotificationSettings(r.Context(), principal.User.ID, parts[2])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load device notification settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+}
+
+func (a *App) handleUpdateDeviceNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	var req deviceNotificationSettingsRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	var pausedUntil *time.Time
+	if value := strings.TrimSpace(req.PausedUntil); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil || parsed.After(time.Now().UTC().Add(30*24*time.Hour)) {
+			writeError(w, http.StatusBadRequest, "paused_until must be RFC3339 and no more than 30 days")
+			return
+		}
+		parsed = parsed.UTC()
+		pausedUntil = &parsed
+	}
+	principal, _ := principalFromContext(r.Context())
+	settings, err := a.store.UpsertDeviceNotificationSettings(r.Context(), principal.User.ID, model.DeviceNotificationSettings{
+		DeviceID: parts[2], Enabled: req.Enabled, NotifyWarning: req.NotifyWarning,
+		NotifyCritical: req.NotifyCritical, NotifyResolved: req.NotifyResolved, PausedUntil: pausedUntil,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save device notification settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
 }
 
 func (a *App) handleGetNotificationSettings(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +227,7 @@ func (a *App) handleGetNotificationSettings(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to load notification settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.notificationSettingsResponse(settings, principal.User))
+	writeJSON(w, http.StatusOK, a.notificationSettingsResponse(r.Context(), settings, principal.User))
 }
 
 func (a *App) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +236,16 @@ func (a *App) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Re
 		return
 	}
 	principal, _ := principalFromContext(r.Context())
+	var pausedUntil *time.Time
+	if value := strings.TrimSpace(req.AlertsPausedUntil); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "alerts_paused_until must be RFC3339")
+			return
+		}
+		parsed = parsed.UTC()
+		pausedUntil = &parsed
+	}
 	settings := model.NotificationSettings{
 		UserID:                 principal.User.ID,
 		EmailEnabled:           req.EmailEnabled,
@@ -63,8 +259,28 @@ func (a *App) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Re
 		PacketLossPercent:      req.PacketLossPercent,
 		LatencyThresholdMS:     req.LatencyThresholdMS,
 		RepeatMinutes:          req.RepeatMinutes,
+		Timezone:               strings.TrimSpace(req.Timezone),
+		QuietHoursEnabled:      req.QuietHoursEnabled,
+		QuietHoursStart:        strings.TrimSpace(req.QuietHoursStart),
+		QuietHoursEnd:          strings.TrimSpace(req.QuietHoursEnd),
+		AlertsPausedUntil:      pausedUntil,
+		WebhookEnabled:         req.WebhookEnabled,
+		WebhookURL:             strings.TrimSpace(req.WebhookURL),
+		WebhookSecret:          strings.TrimSpace(req.WebhookSecret),
 	}
-	if message := a.validateNotificationSettings(settings, principal.User); message != "" {
+	if settings.Timezone == "" {
+		settings.Timezone = "UTC"
+	}
+	if settings.QuietHoursStart == "" {
+		settings.QuietHoursStart = "22:00"
+	}
+	if settings.QuietHoursEnd == "" {
+		settings.QuietHoursEnd = "08:00"
+	}
+	if current, _, currentErr := a.store.GetNotificationSettings(r.Context(), principal.User.ID); currentErr == nil {
+		settings.WebhookSecretConfigured = current.WebhookSecretConfigured
+	}
+	if message := a.validateNotificationSettings(r.Context(), settings, principal.User); message != "" {
 		writeError(w, http.StatusBadRequest, message)
 		return
 	}
@@ -78,7 +294,7 @@ func (a *App) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Re
 		"telegram_enabled": stored.TelegramEnabled,
 		"request_id":       requestID(r.Context()),
 	}))
-	writeJSON(w, http.StatusOK, a.notificationSettingsResponse(stored, principal.User))
+	writeJSON(w, http.StatusOK, a.notificationSettingsResponse(r.Context(), stored, principal.User))
 }
 
 func (a *App) handleListNotifications(w http.ResponseWriter, r *http.Request) {
@@ -126,28 +342,43 @@ func (a *App) handleTestNotifications(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"notifications": results})
 }
 
-func (a *App) notificationSettingsResponse(settings model.NotificationSettings, user model.User) map[string]any {
+func (a *App) notificationSettingsResponse(ctx context.Context, settings model.NotificationSettings, user model.User) map[string]any {
+	emailVerified, _ := a.store.ContactVerified(ctx, user.ID, "email", user.Email)
+	telegramVerified, _ := a.store.ContactVerified(ctx, user.ID, "telegram", settings.TelegramChatID)
 	return map[string]any{
 		"settings": settings,
 		"channels": map[string]any{
-			"email":    map[string]any{"available": a.alertEmailSender != nil, "destination": maskEmail(user.Email), "profile_email_configured": user.Email != ""},
-			"telegram": map[string]any{"available": a.telegramSender != nil},
+			"email":    map[string]any{"available": a.alertEmailSender != nil, "destination": maskEmail(user.Email), "profile_email_configured": user.Email != "", "verified": emailVerified},
+			"telegram": map[string]any{"available": a.telegramSender != nil, "verified": telegramVerified},
+			"webhook":  map[string]any{"available": true},
 		},
 	}
 }
 
-func (a *App) validateNotificationSettings(settings model.NotificationSettings, user model.User) string {
+func (a *App) validateNotificationSettings(ctx context.Context, settings model.NotificationSettings, user model.User) string {
 	if settings.EmailEnabled && a.alertEmailSender == nil {
 		return "email notifications are not configured on the server"
 	}
 	if settings.EmailEnabled && strings.TrimSpace(user.Email) == "" {
 		return "add an email address to the profile before enabling email notifications"
 	}
+	if settings.EmailEnabled {
+		verified, _ := a.store.ContactVerified(ctx, user.ID, "email", user.Email)
+		if !verified {
+			return "verify the profile email before enabling notifications"
+		}
+	}
 	if settings.TelegramEnabled && a.telegramSender == nil {
 		return "Telegram notifications are not configured on the server"
 	}
 	if settings.TelegramEnabled && !validTelegramChatID(settings.TelegramChatID) {
 		return "Telegram chat ID is invalid"
+	}
+	if settings.TelegramEnabled {
+		verified, _ := a.store.ContactVerified(ctx, user.ID, "telegram", settings.TelegramChatID)
+		if !verified {
+			return "verify Telegram ownership before enabling notifications"
+		}
 	}
 	if settings.MemoryThresholdPercent < 50 || settings.MemoryThresholdPercent > 99 || settings.DiskThresholdPercent < 50 || settings.DiskThresholdPercent > 99 {
 		return "memory and disk thresholds must be between 50 and 99 percent"
@@ -161,7 +392,74 @@ func (a *App) validateNotificationSettings(settings model.NotificationSettings, 
 	if settings.RepeatMinutes != 0 && (settings.RepeatMinutes < 15 || settings.RepeatMinutes > 10080) {
 		return "repeat interval must be 0 or between 15 and 10080 minutes"
 	}
+	if settings.Timezone == "" {
+		settings.Timezone = "UTC"
+	}
+	if _, err := time.LoadLocation(settings.Timezone); err != nil {
+		return "timezone is invalid"
+	}
+	if !validClock(settings.QuietHoursStart) || !validClock(settings.QuietHoursEnd) {
+		return "quiet hours must use HH:MM"
+	}
+	if settings.AlertsPausedUntil != nil && settings.AlertsPausedUntil.After(time.Now().UTC().Add(30*24*time.Hour)) {
+		return "alerts can be paused for at most 30 days"
+	}
+	if settings.WebhookEnabled {
+		if message := validateWebhookEndpoint(settings.WebhookURL); message != "" {
+			return message
+		}
+		if !settings.WebhookSecretConfigured && len(settings.WebhookSecret) < 32 {
+			return "webhook secret must contain at least 32 characters"
+		}
+	}
 	return ""
+}
+
+func validClock(value string) bool {
+	_, err := time.Parse("15:04", value)
+	return err == nil
+}
+
+func notificationQuietNow(settings model.NotificationSettings, now time.Time) bool {
+	if settings.AlertsPausedUntil != nil && now.Before(*settings.AlertsPausedUntil) {
+		return true
+	}
+	if !settings.QuietHoursEnabled {
+		return false
+	}
+	location, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		return false
+	}
+	local := now.In(location)
+	start, startErr := time.Parse("15:04", settings.QuietHoursStart)
+	end, endErr := time.Parse("15:04", settings.QuietHoursEnd)
+	if startErr != nil || endErr != nil {
+		return false
+	}
+	minute := local.Hour()*60 + local.Minute()
+	startMinute := start.Hour()*60 + start.Minute()
+	endMinute := end.Hour()*60 + end.Minute()
+	if startMinute == endMinute {
+		return true
+	}
+	if startMinute < endMinute {
+		return minute >= startMinute && minute < endMinute
+	}
+	return minute >= startMinute || minute < endMinute
+}
+
+func deviceNotificationEnabled(settings model.DeviceNotificationSettings, severity, event string, now time.Time) bool {
+	if !settings.Enabled || (settings.PausedUntil != nil && now.Before(*settings.PausedUntil)) {
+		return false
+	}
+	if event == "resolved" {
+		return settings.NotifyResolved
+	}
+	if severity == "critical" {
+		return settings.NotifyCritical
+	}
+	return settings.NotifyWarning
 }
 
 func validTelegramChatID(value string) bool {
@@ -239,12 +537,30 @@ func (a *App) queueDeviceNotifications(ctx context.Context, deviceID string) ([]
 			continue
 		}
 		title, body := notificationCopy(device, alert, event, a.publicURL)
+		lifecycle := alert.FirstSeenAt.UTC().Format(time.RFC3339Nano)
+		if event == "resolved" && alert.ResolvedAt != nil {
+			lifecycle = alert.ResolvedAt.UTC().Format(time.RFC3339Nano)
+		}
+		incidentID := device.ID + ":" + alert.FirstSeenAt.UTC().Truncate(5*time.Minute).Format("20060102T1504")
+		_, inboxInserted, inboxErr := a.store.CreateInboxNotification(ctx, model.InboxNotification{
+			UserID: user.ID, DeviceID: device.ID, IncidentID: incidentID, Severity: alert.Severity,
+			Event: event, Title: title, Body: body,
+		}, "inbox:"+alert.ID+":"+lifecycle+":"+event)
+		if inboxErr != nil {
+			return nil, inboxErr
+		}
+		if inboxInserted {
+			a.events.publish("notifications")
+		}
+		deviceSettings, _, overrideErr := a.store.GetDeviceNotificationSettings(ctx, user.ID, device.ID)
+		if overrideErr != nil {
+			return nil, overrideErr
+		}
+		if !deviceNotificationEnabled(deviceSettings, alert.Severity, event, now) || notificationQuietNow(settings, now) {
+			continue
+		}
 		candidates := a.notificationDeliveriesForMessage(user, settings, event, device.ID, alert.ID, title, body)
 		for _, candidate := range candidates {
-			lifecycle := alert.FirstSeenAt.UTC().Format(time.RFC3339Nano)
-			if event == "resolved" && alert.ResolvedAt != nil {
-				lifecycle = alert.ResolvedAt.UTC().Format(time.RFC3339Nano)
-			}
 			dedupeKey := alert.ID + ":" + lifecycle + ":" + event + ":" + candidate.Channel
 			created, inserted, createErr := a.store.CreateNotificationDelivery(ctx, candidate, dedupeKey)
 			if createErr != nil {
@@ -287,7 +603,7 @@ func notificationSeverityEnabled(settings model.NotificationSettings, severity s
 }
 
 func (a *App) notificationDeliveriesForMessage(user model.User, settings model.NotificationSettings, event, deviceID, alertID, title, body string) []model.NotificationDelivery {
-	deliveries := make([]model.NotificationDelivery, 0, 2)
+	deliveries := make([]model.NotificationDelivery, 0, 3)
 	base := model.NotificationDelivery{
 		UserID: user.ID, DeviceID: deviceID, AlertID: alertID, Event: event,
 		Title: title, Body: body, MaxAttempts: a.notificationMaxAttempts,
@@ -304,6 +620,13 @@ func (a *App) notificationDeliveriesForMessage(user model.User, settings model.N
 		delivery.Channel = "telegram"
 		delivery.Destination = settings.TelegramChatID
 		delivery.DestinationMasked = maskTelegramChatID(settings.TelegramChatID)
+		deliveries = append(deliveries, delivery)
+	}
+	if settings.WebhookEnabled && settings.WebhookURL != "" && settings.WebhookSecret != "" {
+		delivery := base
+		delivery.Channel = "webhook"
+		delivery.Destination = settings.WebhookURL
+		delivery.DestinationMasked = maskWebhookURL(settings.WebhookURL)
 		deliveries = append(deliveries, delivery)
 	}
 	return deliveries
@@ -333,7 +656,14 @@ func (a *App) deliverNotification(ctx context.Context, delivery model.Notificati
 		sender = a.telegramSender
 	}
 	err := errors.New("notification channel is unavailable")
-	if sender != nil {
+	if delivery.Channel == "webhook" {
+		settings, _, settingsErr := a.store.GetNotificationSettings(ctx, delivery.UserID)
+		if settingsErr != nil {
+			err = settingsErr
+		} else {
+			err = sendSignedWebhook(ctx, settings.WebhookURL, settings.WebhookSecret, delivery)
+		}
+	} else if sender != nil {
 		err = sender.SendNotification(ctx, delivery.Destination, delivery.Title, delivery.Body)
 	}
 	if err != nil {

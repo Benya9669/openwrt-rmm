@@ -29,7 +29,7 @@ production upgrade even when the release is marked compatible.
 
 ## Agent releases
 
-Tags use `agent-vMAJOR.MINOR.PATCH`, for example `agent-v0.6.7`.
+Tags use `agent-vMAJOR.MINOR.PATCH`, for example `agent-v0.6.8`.
 
 An agent release contains the Go runtime, LuCI application and OpenWrt IPK/APK packages.
 Before tagging, the tag version must match `agentVersion` in the Go source and
@@ -40,7 +40,7 @@ OpenWrt 21.02, 22.03 and 23.05 are a manual legacy tier that extends an existing
 release without blocking current packages. Run it after the tagged workflow completes:
 
 ```sh
-gh workflow run build-legacy.yml -f agent_tag=agent-v0.6.7
+gh workflow run build-legacy.yml -f agent_tag=agent-v0.6.8
 ```
 
 The LuCI application is shipped as part of the router bundle. It can retain its own package
@@ -66,8 +66,8 @@ transition period; it should not silently reuse `v1`.
 git tag -a server-v0.8.1 -m "OpenWrt RMM Server 0.8.1"
 git push origin server-v0.8.1
 
-git tag -a agent-v0.6.7 -m "OpenWrt RMM Agent 0.6.7"
-git push origin agent-v0.6.7
+git tag -a agent-v0.6.8 -m "OpenWrt RMM Agent 0.6.8"
+git push origin agent-v0.6.8
 ```
 
 Pushing a server tag publishes the container image and creates a GitHub Release. Pushing

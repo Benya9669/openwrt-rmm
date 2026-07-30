@@ -25,6 +25,9 @@ const state = {
   notificationSettings: null,
   notificationChannels: {},
   notifications: [],
+  inboxNotifications: [],
+  notificationUnread: 0,
+  lanClients: [],
   remoteSessions: [],
   selectedCommand: null,
   presetReview: null,
@@ -38,7 +41,7 @@ const state = {
 let eventSource = null;
 let liveRefreshTimer = null;
 
-const EXPECTED_AGENT_VERSION = "0.6.7";
+const EXPECTED_AGENT_VERSION = "0.6.8";
 
 const els = {
   loginView: document.querySelector("#loginView"),
@@ -235,6 +238,12 @@ const els = {
   notificationTelegramHint: document.querySelector("#notificationTelegramHint"),
   notificationTelegramChatRow: document.querySelector("#notificationTelegramChatRow"),
   notificationTelegramChatId: document.querySelector("#notificationTelegramChatId"),
+  verifyEmailBtn: document.querySelector("#verifyEmailBtn"),
+  verifyTelegramBtn: document.querySelector("#verifyTelegramBtn"),
+  emailVerificationCode: document.querySelector("#emailVerificationCode"),
+  telegramVerificationCode: document.querySelector("#telegramVerificationCode"),
+  confirmEmailBtn: document.querySelector("#confirmEmailBtn"),
+  confirmTelegramBtn: document.querySelector("#confirmTelegramBtn"),
   notificationWarningEnabled: document.querySelector("#notificationWarningEnabled"),
   notificationCriticalEnabled: document.querySelector("#notificationCriticalEnabled"),
   notificationResolvedEnabled: document.querySelector("#notificationResolvedEnabled"),
@@ -243,10 +252,33 @@ const els = {
   notificationPacketLossThreshold: document.querySelector("#notificationPacketLossThreshold"),
   notificationLatencyThreshold: document.querySelector("#notificationLatencyThreshold"),
   notificationRepeatMinutes: document.querySelector("#notificationRepeatMinutes"),
+  notificationTimezone: document.querySelector("#notificationTimezone"),
+  notificationPausedUntil: document.querySelector("#notificationPausedUntil"),
+  notificationQuietEnabled: document.querySelector("#notificationQuietEnabled"),
+  notificationQuietStart: document.querySelector("#notificationQuietStart"),
+  notificationQuietEnd: document.querySelector("#notificationQuietEnd"),
+  notificationWebhookEnabled: document.querySelector("#notificationWebhookEnabled"),
+  notificationWebhookUrl: document.querySelector("#notificationWebhookUrl"),
+  notificationWebhookSecret: document.querySelector("#notificationWebhookSecret"),
+  notificationDeviceSelect: document.querySelector("#notificationDeviceSelect"),
+  notificationDeviceEnabled: document.querySelector("#notificationDeviceEnabled"),
+  notificationDeviceCritical: document.querySelector("#notificationDeviceCritical"),
+  notificationDeviceWarning: document.querySelector("#notificationDeviceWarning"),
+  notificationDeviceResolved: document.querySelector("#notificationDeviceResolved"),
+  notificationDevicePausedUntil: document.querySelector("#notificationDevicePausedUntil"),
+  saveDeviceNotificationSettingsBtn: document.querySelector("#saveDeviceNotificationSettingsBtn"),
   notificationSettingsMessage: document.querySelector("#notificationSettingsMessage"),
   testNotificationsBtn: document.querySelector("#testNotificationsBtn"),
   refreshNotificationsBtn: document.querySelector("#refreshNotificationsBtn"),
   notificationHistory: document.querySelector("#notificationHistory"),
+  notificationCenterBtn: document.querySelector("#notificationCenterBtn"),
+  notificationUnreadCount: document.querySelector("#notificationUnreadCount"),
+  mobileNotificationUnreadCount: document.querySelector("#mobileNotificationUnreadCount"),
+  notificationCenterDialog: document.querySelector("#notificationCenterDialog"),
+  closeNotificationCenterBtn: document.querySelector("#closeNotificationCenterBtn"),
+  markAllNotificationsReadBtn: document.querySelector("#markAllNotificationsReadBtn"),
+  notificationCenterSummary: document.querySelector("#notificationCenterSummary"),
+  notificationCenterList: document.querySelector("#notificationCenterList"),
   logoutAllBtn: document.querySelector("#logoutAllBtn"),
   userManagementSection: document.querySelector("#userManagementSection"),
   userList: document.querySelector("#userList"),
@@ -356,6 +388,9 @@ function connectLiveUpdates() {
     if (document.visibilityState !== "visible") return;
     scheduleLiveRefresh();
   });
+  eventSource.addEventListener("notifications", () => {
+    if (document.visibilityState === "visible") loadNotificationCenter().catch(() => {});
+  });
   eventSource.onerror = () => {
     state.liveConnected = false;
     setLiveState("polling", "Polling · 30 сек.");
@@ -463,6 +498,7 @@ function showApp(user) {
   els.loginError.textContent = "";
   if (location.pathname !== "/app") history.replaceState(null, "", `/app${location.hash}`);
   connectLiveUpdates();
+  loadNotificationCenter().catch(() => {});
 }
 
 function formatLoadAverage(value) {
@@ -1094,6 +1130,18 @@ function formatBytes(value) {
 }
 
 function normalizedClients(device) {
+  if (device && device.id === state.selectedDeviceId && state.lanClients.length) {
+    return state.lanClients.map((client) => ({
+      name: client.hostname || "",
+      ip: client.ip || "-",
+      mac: client.mac || "-",
+      connection: client.connection === "wifi" ? `Wi-Fi ${client.interface || ""}`.trim() : `LAN ${client.interface || ""}`.trim(),
+      type: client.connection === "wifi" ? "wifi" : "wired",
+      online: client.status === "online",
+      presence: client.status || "unconfirmed",
+      lastSeenAt: client.last_seen_at || "",
+    }));
+  }
   const leases = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases : [];
   const wifi = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients : [];
   const neighbors = Array.isArray(device.inventory && device.inventory.neighbors) ? device.inventory.neighbors : [];
@@ -1135,7 +1183,7 @@ function normalizedClients(device) {
       presence: "online",
     });
   }
-  const presenceRank = { online: 0, stale: 1, reserved: 2 };
+  const presenceRank = { online: 0, recent: 1, stale: 1, unconfirmed: 2, reserved: 2 };
   return [...byMac.values()].sort((left, right) => {
     const rank = (presenceRank[left.presence] ?? 3) - (presenceRank[right.presence] ?? 3);
     if (rank !== 0) return rank;
@@ -1162,7 +1210,7 @@ function renderClients(device) {
   }
   for (const client of filtered) {
     const presence = client.presence || (client.online ? "online" : "reserved");
-    const presenceLabel = presence === "online" ? "В сети" : (presence === "stale" ? "Не подтверждён" : "Нет в сети");
+    const presenceLabel = presence === "online" ? "В сети" : (presence === "recent" || presence === "stale" ? "Недавно был в сети" : "Не подтверждён");
     const row = document.createElement("div");
     row.className = "client-row";
     row.innerHTML = `
@@ -1170,7 +1218,7 @@ function renderClients(device) {
       <span>${escapeHtml(client.ip)}</span>
       <code>${escapeHtml(client.mac)}</code>
       <span>${escapeHtml(client.connection)}</span>
-      <span>${escapeHtml([client.signal, client.rate].filter(Boolean).join(" · ") || "-")}</span>
+      <span>${escapeHtml([client.signal, client.rate, client.lastSeenAt ? `был ${formatDate(client.lastSeenAt)}` : ""].filter(Boolean).join(" · ") || "-")}</span>
       <span class="client-online ${presence}"><i></i>${presenceLabel}</span>
     `;
     els.clientList.appendChild(row);
@@ -1341,7 +1389,7 @@ async function loadDevices() {
   renderDevices();
   renderDeviceDetail(currentDevice());
   if (state.selectedDeviceId) {
-    await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
+    await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions(), loadLANClients()]);
   }
   state.lastUpdatedAt = new Date();
   updateLiveStateLabel();
@@ -1356,11 +1404,19 @@ async function selectDevice(id) {
   state.auditOffset = 0;
   state.commands = [];
   state.auditEvents = [];
+  state.lanClients = [];
   renderDevices();
   renderDeviceDetail(currentDevice());
   setMobileRoute("fleet");
   window.scrollTo({ top: 0, behavior: "auto" });
-  await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions()]);
+  await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions(), loadLANClients()]);
+}
+
+async function loadLANClients() {
+  if (!state.selectedDeviceId) return;
+  const response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/clients`);
+  state.lanClients = response.clients || [];
+  renderClients(currentDevice());
 }
 
 function showFleet() {
@@ -1505,7 +1561,7 @@ function showProfile() {
   setFormMessage(els.passwordMessage, "");
   els.passwordForm.reset();
   if (!els.profileDialog.open) els.profileDialog.showModal();
-  loadNotificationCenter().catch((error) => {
+  loadNotificationPreferences().catch((error) => {
     setFormMessage(els.notificationSettingsMessage, `Не удалось загрузить уведомления: ${error.message}`, "error");
   });
   if (state.user && state.user.role === "admin") {
@@ -1535,11 +1591,11 @@ async function saveProfile() {
     }),
   });
   showApp(response.user);
-  await loadNotificationCenter();
+  await loadNotificationPreferences();
   setFormMessage(els.profileMessage, "Профиль сохранён", "success");
 }
 
-async function loadNotificationCenter() {
+async function loadNotificationPreferences() {
   setFormMessage(els.notificationSettingsMessage, "Загружаем настройки…");
   const [settingsResponse, historyResponse] = await Promise.all([
     api("/api/notifications/settings"),
@@ -1559,14 +1615,18 @@ function renderNotificationSettings() {
   const telegram = state.notificationChannels.telegram || {};
   els.notificationEmailEnabled.checked = Boolean(settings.email_enabled);
   els.notificationEmailEnabled.disabled = !email.available || !email.profile_email_configured;
+  els.verifyEmailBtn.disabled = !email.available || !email.profile_email_configured;
+  els.confirmEmailBtn.disabled = !email.available || !email.profile_email_configured;
   els.notificationEmailHint.textContent = !email.available
     ? "SMTP не настроен на сервере"
     : !email.profile_email_configured
       ? "Сначала добавьте e-mail в профиль"
-      : `Получатель: ${email.destination || "e-mail профиля"}`;
+      : `${email.verified ? "Подтверждён" : "Требуется подтверждение"} · ${email.destination || "e-mail профиля"}`;
   els.notificationTelegramEnabled.checked = Boolean(settings.telegram_enabled);
   els.notificationTelegramEnabled.disabled = !telegram.available;
-  els.notificationTelegramHint.textContent = telegram.available ? "Сообщения от RMM-бота" : "Bot token не настроен на сервере";
+  els.verifyTelegramBtn.disabled = !telegram.available;
+  els.confirmTelegramBtn.disabled = !telegram.available;
+  els.notificationTelegramHint.textContent = telegram.available ? (telegram.verified ? "Telegram подтверждён" : "Подтвердите кодом из сообщения") : "Bot token не настроен на сервере";
   els.notificationTelegramChatId.value = settings.telegram_chat_id || "";
   els.notificationTelegramChatId.disabled = !telegram.available;
   els.notificationTelegramChatRow.classList.toggle("is-disabled", !telegram.available);
@@ -1578,6 +1638,16 @@ function renderNotificationSettings() {
   els.notificationPacketLossThreshold.value = settings.packet_loss_percent || 20;
   els.notificationLatencyThreshold.value = settings.latency_threshold_ms || 200;
   els.notificationRepeatMinutes.value = String(settings.repeat_minutes || 0);
+  els.notificationTimezone.value = settings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  els.notificationPausedUntil.value = dateTimeLocalValue(settings.alerts_paused_until);
+  els.notificationQuietEnabled.checked = Boolean(settings.quiet_hours_enabled);
+  els.notificationQuietStart.value = settings.quiet_hours_start || "22:00";
+  els.notificationQuietEnd.value = settings.quiet_hours_end || "08:00";
+  els.notificationWebhookEnabled.checked = Boolean(settings.webhook_enabled);
+  els.notificationWebhookUrl.value = settings.webhook_url || "";
+  els.notificationWebhookSecret.value = "";
+  els.notificationWebhookSecret.placeholder = settings.webhook_secret_configured ? "Секрет уже настроен" : "Не менее 32 символов";
+  renderNotificationDeviceOptions();
 }
 
 async function saveNotificationSettings() {
@@ -1596,6 +1666,14 @@ async function saveNotificationSettings() {
       packet_loss_percent: Number(els.notificationPacketLossThreshold.value),
       latency_threshold_ms: Number(els.notificationLatencyThreshold.value),
       repeat_minutes: Number(els.notificationRepeatMinutes.value),
+      timezone: els.notificationTimezone.value.trim() || "UTC",
+      alerts_paused_until: isoFromDateTimeLocal(els.notificationPausedUntil.value),
+      quiet_hours_enabled: els.notificationQuietEnabled.checked,
+      quiet_hours_start: els.notificationQuietStart.value || "22:00",
+      quiet_hours_end: els.notificationQuietEnd.value || "08:00",
+      webhook_enabled: els.notificationWebhookEnabled.checked,
+      webhook_url: els.notificationWebhookUrl.value.trim(),
+      webhook_secret: els.notificationWebhookSecret.value,
     }),
   });
   state.notificationSettings = response.settings || {};
@@ -1650,6 +1728,150 @@ function renderNotificationHistory() {
     `;
     els.notificationHistory.appendChild(row);
   }
+}
+
+function dateTimeLocalValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+async function requestContactVerification(channel) {
+  const destination = channel === "telegram" ? els.notificationTelegramChatId.value.trim() : "";
+  await api(`/api/notifications/verify/${channel}/request`, {
+    method: "POST",
+    body: JSON.stringify({ destination }),
+  });
+  setFormMessage(els.notificationSettingsMessage, `Код отправлен в ${channel === "email" ? "e-mail" : "Telegram"}`, "success");
+}
+
+async function confirmContactVerification(channel) {
+  const input = channel === "email" ? els.emailVerificationCode : els.telegramVerificationCode;
+  await api(`/api/notifications/verify/${channel}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ code: input.value.trim() }),
+  });
+  input.value = "";
+  await loadNotificationPreferences();
+  setFormMessage(els.notificationSettingsMessage, `${channel === "email" ? "E-mail" : "Telegram"} подтверждён`, "success");
+}
+
+function isoFromDateTimeLocal(value) {
+  return value ? new Date(value).toISOString() : "";
+}
+
+function renderNotificationDeviceOptions() {
+  const current = els.notificationDeviceSelect.value;
+  els.notificationDeviceSelect.innerHTML = '<option value="">Выберите роутер</option>';
+  for (const device of state.devices) {
+    const option = document.createElement("option");
+    option.value = device.id;
+    option.textContent = deviceDisplayName(device);
+    els.notificationDeviceSelect.appendChild(option);
+  }
+  if (state.devices.some((device) => device.id === current)) els.notificationDeviceSelect.value = current;
+  setDeviceNotificationControlsDisabled(!els.notificationDeviceSelect.value);
+}
+
+function setDeviceNotificationControlsDisabled(disabled) {
+  els.notificationDeviceEnabled.disabled = disabled;
+  els.notificationDeviceWarning.disabled = disabled;
+  els.notificationDeviceCritical.disabled = disabled;
+  els.notificationDeviceResolved.disabled = disabled;
+  els.notificationDevicePausedUntil.disabled = disabled;
+  els.saveDeviceNotificationSettingsBtn.disabled = disabled;
+}
+
+async function loadDeviceNotificationSettings() {
+  const deviceId = els.notificationDeviceSelect.value;
+  setDeviceNotificationControlsDisabled(!deviceId);
+  if (!deviceId) return;
+  const response = await api(`/api/devices/${encodeURIComponent(deviceId)}/notification-settings`);
+  const settings = response.settings || {};
+  els.notificationDeviceEnabled.checked = settings.enabled !== false;
+  els.notificationDeviceWarning.checked = settings.notify_warning !== false;
+  els.notificationDeviceCritical.checked = settings.notify_critical !== false;
+  els.notificationDeviceResolved.checked = settings.notify_resolved !== false;
+  els.notificationDevicePausedUntil.value = dateTimeLocalValue(settings.paused_until);
+}
+
+async function saveDeviceNotificationSettings() {
+  const deviceId = els.notificationDeviceSelect.value;
+  if (!deviceId) {
+    setFormMessage(els.notificationSettingsMessage, "Выберите роутер", "error");
+    return;
+  }
+  await api(`/api/devices/${encodeURIComponent(deviceId)}/notification-settings`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      enabled: els.notificationDeviceEnabled.checked,
+      notify_warning: els.notificationDeviceWarning.checked,
+      notify_critical: els.notificationDeviceCritical.checked,
+      notify_resolved: els.notificationDeviceResolved.checked,
+      paused_until: isoFromDateTimeLocal(els.notificationDevicePausedUntil.value),
+    }),
+  });
+  setFormMessage(els.notificationSettingsMessage, "Настройки роутера сохранены", "success");
+}
+
+async function loadNotificationCenter() {
+  const response = await api("/api/notification-center?limit=50");
+  state.inboxNotifications = response.notifications || [];
+  state.notificationUnread = Number(response.unread || 0);
+  renderNotificationCenter();
+}
+
+function renderNotificationCenter() {
+  const unread = state.notificationUnread;
+  els.notificationUnreadCount.textContent = unread > 99 ? "99+" : String(unread);
+  els.notificationUnreadCount.classList.toggle("is-hidden", unread === 0);
+  els.mobileNotificationUnreadCount.textContent = unread > 99 ? "99+" : String(unread);
+  els.mobileNotificationUnreadCount.classList.toggle("is-hidden", unread === 0);
+  els.notificationCenterSummary.textContent = unread ? `${unread} непрочитанных` : "Новых событий нет";
+  els.notificationCenterList.innerHTML = "";
+  if (!state.inboxNotifications.length) {
+    els.notificationCenterList.innerHTML = inlineStateMarkup("Уведомлений пока нет", "Новые проблемы и восстановления появятся здесь.");
+    return;
+  }
+  const groups = new Map();
+  for (const item of state.inboxNotifications) {
+    const key = item.incident_id || item.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  for (const items of groups.values()) {
+    const item = items[0];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `notification-center-item severity-${item.severity || "warning"} ${item.read_at ? "" : "is-unread"}`;
+    button.innerHTML = `
+      <span class="notification-center-dot"></span>
+      <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(items.length > 1 ? `${items.length} связанных событий · ${item.body}` : item.body)}</small></span>
+      <time>${escapeHtml(formatDate(item.created_at))}</time>
+    `;
+    button.addEventListener("click", async () => {
+      for (const current of items.filter((entry) => !entry.read_at)) {
+        await api(`/api/notification-center/${encodeURIComponent(current.id)}/read`, { method: "POST" });
+      }
+      if (item.device_id) {
+        els.notificationCenterDialog.close();
+        await selectDevice(item.device_id);
+      }
+      await loadNotificationCenter();
+    });
+    els.notificationCenterList.appendChild(button);
+  }
+}
+
+async function showNotificationCenter() {
+  await loadNotificationCenter();
+  if (!els.notificationCenterDialog.open) els.notificationCenterDialog.showModal();
+}
+
+async function markAllNotificationsRead() {
+  await api("/api/notification-center/read-all", { method: "POST" });
+  await loadNotificationCenter();
 }
 
 function notificationStatusLabel(status) {
@@ -2616,6 +2838,13 @@ els.fleetNavBtn.addEventListener("click", showFleet);
 els.problemsNavBtn.addEventListener("click", () => openDeviceArea("overview", "#alertList", "problems").catch(reportError));
 els.operationsNavBtn.addEventListener("click", () => openDeviceArea("operations", "#remoteAccessPanel", "operations").catch(reportError));
 els.profileBtn.addEventListener("click", showProfile);
+els.notificationCenterBtn.addEventListener("click", () => showNotificationCenter().catch(reportError));
+els.closeNotificationCenterBtn.addEventListener("click", () => els.notificationCenterDialog.close());
+els.notificationCenterDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  els.notificationCenterDialog.close();
+});
+els.markAllNotificationsReadBtn.addEventListener("click", () => markAllNotificationsRead().catch(reportError));
 
 for (const button of document.querySelectorAll(".mobile-nav-item")) {
   button.addEventListener("click", () => {
@@ -2623,6 +2852,7 @@ for (const button of document.querySelectorAll(".mobile-nav-item")) {
     if (route === "fleet") showFleet();
     if (route === "problems") openDeviceArea("overview", "#alertList", "problems").catch(reportError);
     if (route === "operations") openDeviceArea("operations", "#remoteAccessPanel", "operations").catch(reportError);
+    if (route === "notifications") showNotificationCenter().catch(reportError);
     if (route === "profile") showProfile();
   });
 }
@@ -2654,6 +2884,12 @@ els.testNotificationsBtn.addEventListener("click", () => {
 els.refreshNotificationsBtn.addEventListener("click", () => {
   loadNotificationHistory().catch((error) => setFormMessage(els.notificationSettingsMessage, notificationErrorMessage(error), "error"));
 });
+els.verifyEmailBtn.addEventListener("click", () => requestContactVerification("email").catch(reportError));
+els.verifyTelegramBtn.addEventListener("click", () => requestContactVerification("telegram").catch(reportError));
+els.confirmEmailBtn.addEventListener("click", () => confirmContactVerification("email").catch(reportError));
+els.confirmTelegramBtn.addEventListener("click", () => confirmContactVerification("telegram").catch(reportError));
+els.notificationDeviceSelect.addEventListener("change", () => loadDeviceNotificationSettings().catch(reportError));
+els.saveDeviceNotificationSettingsBtn.addEventListener("click", () => saveDeviceNotificationSettings().catch(reportError));
 els.logoutAllBtn.addEventListener("click", () => logoutAll().catch(reportError));
 
 els.closeLuciStateBtn.addEventListener("click", () => els.luciStateDialog.close());

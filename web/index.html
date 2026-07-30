@@ -127,6 +127,12 @@
         <a class="sidebar-legal-link" href="/legal.html">Лицензия · Исходный код</a>
 
         <div class="operator-row">
+          <button id="notificationCenterBtn" class="icon-button notification-bell" type="button" title="Уведомления" aria-label="Открыть уведомления">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>
+            </svg>
+            <span id="notificationUnreadCount" class="notification-unread is-hidden">0</span>
+          </button>
           <button id="profileBtn" class="operator-profile" type="button" aria-label="Открыть личный кабинет">
             <span class="operator-avatar">О</span>
             <span class="operator-copy">
@@ -781,6 +787,11 @@
         <button class="mobile-nav-item is-active" data-mobile-route="fleet" type="button"><span>◫</span>Объекты</button>
         <button class="mobile-nav-item" data-mobile-route="problems" type="button"><span>!</span>Проблемы</button>
         <button class="mobile-nav-item" data-mobile-route="operations" type="button"><span>⌁</span>Операции</button>
+        <button class="mobile-nav-item mobile-notification-button" data-mobile-route="notifications" type="button">
+          <span aria-hidden="true">🔔</span>
+          Уведомления
+          <span id="mobileNotificationUnreadCount" class="notification-unread is-hidden">0</span>
+        </button>
         <button class="mobile-nav-item" data-mobile-route="profile" type="button"><span>○</span>Профиль</button>
       </nav>
     </div>
@@ -826,6 +837,19 @@
       </form>
     </dialog>
 
+    <dialog id="notificationCenterDialog" class="notification-center-dialog">
+      <section class="notification-center-sheet">
+        <header class="dialog-heading">
+          <div><span class="eyebrow">События</span><h2>Уведомления</h2><span id="notificationCenterSummary">Нет новых событий</span></div>
+          <button id="closeNotificationCenterBtn" class="icon-button" type="button" aria-label="Закрыть">×</button>
+        </header>
+        <div class="notification-center-actions">
+          <button id="markAllNotificationsReadBtn" class="text-button" type="button">Прочитать все</button>
+        </div>
+        <div id="notificationCenterList" class="notification-center-list"></div>
+      </section>
+    </dialog>
+
     <dialog id="profileDialog" class="profile-dialog">
       <div class="profile-sheet">
         <div class="dialog-heading">
@@ -864,6 +888,18 @@
             <label class="notification-toggle"><input id="notificationTelegramEnabled" type="checkbox"><span><strong>Telegram</strong><small id="notificationTelegramHint">Нужен Chat ID</small></span></label>
           </div>
           <label id="notificationTelegramChatRow">Telegram Chat ID<input id="notificationTelegramChatId" type="text" maxlength="32" inputmode="numeric" placeholder="Например, 123456789"></label>
+          <div class="notification-form-actions">
+            <button id="verifyEmailBtn" type="button">Подтвердить e-mail</button>
+            <button id="verifyTelegramBtn" type="button">Привязать Telegram</button>
+          </div>
+          <div class="notification-form-actions">
+            <label>Код e-mail<input id="emailVerificationCode" type="text" inputmode="numeric" maxlength="6"></label>
+            <label>Код Telegram<input id="telegramVerificationCode" type="text" inputmode="numeric" maxlength="6"></label>
+          </div>
+          <div class="notification-form-actions">
+            <button id="confirmEmailBtn" type="button">Проверить e-mail код</button>
+            <button id="confirmTelegramBtn" type="button">Проверить Telegram код</button>
+          </div>
           <div class="notification-toggle-grid">
             <label class="notification-toggle compact"><input id="notificationWarningEnabled" type="checkbox"><span>Предупреждения</span></label>
             <label class="notification-toggle compact"><input id="notificationCriticalEnabled" type="checkbox"><span>Критические</span></label>
@@ -876,6 +912,28 @@
             <label>Задержка, мс<input id="notificationLatencyThreshold" type="number" min="10" max="5000" required></label>
           </div>
           <label>Повторять активную проблему<select id="notificationRepeatMinutes"><option value="0">Не повторять</option><option value="15">Каждые 15 минут</option><option value="60">Каждый час</option><option value="360">Каждые 6 часов</option><option value="1440">Раз в сутки</option></select></label>
+          <div class="notification-threshold-grid">
+            <label>Часовой пояс<input id="notificationTimezone" type="text" maxlength="64" placeholder="Europe/Moscow"></label>
+            <label>Отключить до<input id="notificationPausedUntil" type="datetime-local"></label>
+          </div>
+          <label class="notification-toggle compact"><input id="notificationQuietEnabled" type="checkbox"><span>Тихие часы</span></label>
+          <div class="notification-threshold-grid">
+            <label>Начало<input id="notificationQuietStart" type="time"></label>
+            <label>Окончание<input id="notificationQuietEnd" type="time"></label>
+          </div>
+          <label class="notification-toggle compact"><input id="notificationWebhookEnabled" type="checkbox"><span>Подписанный webhook</span></label>
+          <label>Webhook URL<input id="notificationWebhookUrl" type="url" maxlength="2048" placeholder="https://example.com/rmm-events"></label>
+          <label>Webhook secret<input id="notificationWebhookSecret" type="password" minlength="32" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></label>
+          <div class="profile-section-heading"><strong>Настройки роутера</strong><span>Переопределяют общие настройки</span></div>
+          <label>Роутер<select id="notificationDeviceSelect"><option value="">Выберите роутер</option></select></label>
+          <div class="notification-toggle-grid">
+            <label class="notification-toggle compact"><input id="notificationDeviceEnabled" type="checkbox"><span>Уведомлять</span></label>
+            <label class="notification-toggle compact"><input id="notificationDeviceCritical" type="checkbox"><span>Критические</span></label>
+            <label class="notification-toggle compact"><input id="notificationDeviceWarning" type="checkbox"><span>Предупреждения</span></label>
+          </div>
+          <label class="notification-toggle compact"><input id="notificationDeviceResolved" type="checkbox"><span>Восстановление</span></label>
+          <label>Отключить для роутера до<input id="notificationDevicePausedUntil" type="datetime-local"></label>
+          <button id="saveDeviceNotificationSettingsBtn" type="button">Сохранить настройки роутера</button>
           <div class="notification-form-actions"><button class="primary" type="submit">Сохранить уведомления</button><button id="testNotificationsBtn" type="button">Отправить тест</button></div>
           <p id="notificationSettingsMessage" class="form-message" role="status"></p>
           <div class="notification-history-heading"><strong>Последние отправки</strong><button id="refreshNotificationsBtn" class="text-button" type="button">Обновить</button></div>

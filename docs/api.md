@@ -690,3 +690,26 @@ Authenticated browser sessions can manage their own account without administrato
 - `PATCH /api/auth/profile` accepts `display_name` and `email`.
 - `POST /api/auth/change-password` accepts `current_password` and `new_password`; other sessions are revoked.
 - `POST /api/auth/logout-all` revokes every session for the current user.
+
+## Notification center and delivery policy
+
+- `GET /api/notification-center?limit=50` returns inbox entries and the unread count.
+- `POST /api/notification-center/{id}/read` marks one entry read.
+- `POST /api/notification-center/read-all` marks the current user's inbox read.
+- `POST /api/notifications/verify/email/request|confirm` verifies the profile e-mail with a six-digit code.
+- `POST /api/notifications/verify/telegram/request|confirm` proves ownership of a Telegram chat before it can be enabled.
+- `GET|PUT /api/notifications/settings` includes timezone, quiet hours, maintenance pause and signed webhook settings.
+- `GET|PATCH /api/devices/{id}/notification-settings` controls per-router severity and pause overrides.
+
+Webhook requests use `Content-Type: application/json`, `X-RMM-Timestamp` and
+`X-RMM-Signature: sha256=<hex HMAC-SHA256>`. The signed bytes are
+`timestamp + "." + raw_request_body`. Only public HTTPS endpoints are accepted.
+
+## LAN client presence
+
+`GET /api/devices/{id}/clients` returns persisted clients with `first_seen_at`,
+`last_seen_at`, `last_checked_at` and one of:
+
+- `online`: confirmed by Wi-Fi association, an active neighbour state or a successful safe ICMP probe;
+- `recent`: confirmed within the recent-presence window;
+- `unconfirmed`: known from DHCP or stale neighbour data but not actively confirmed.

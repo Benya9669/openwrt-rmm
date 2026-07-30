@@ -20,22 +20,30 @@ func DefaultNotificationSettings(userID string) model.NotificationSettings {
 		DiskThresholdPercent:   85,
 		PacketLossPercent:      20,
 		LatencyThresholdMS:     200,
+		Timezone:               "UTC",
+		QuietHoursStart:        "22:00",
+		QuietHoursEnd:          "08:00",
 	}
 }
 
 func (s *Store) GetNotificationSettings(ctx context.Context, userID string) (model.NotificationSettings, bool, error) {
 	settings := DefaultNotificationSettings(userID)
 	var emailEnabled, telegramEnabled, notifyWarning, notifyCritical, notifyResolved int
+	var quietHoursEnabled, webhookEnabled int
 	var createdAt, updatedAt string
+	var pausedUntil sql.NullString
 	err := s.db.QueryRowContext(ctx, `
 SELECT email_enabled, telegram_enabled, telegram_chat_id, notify_warning, notify_critical, notify_resolved,
        memory_threshold_percent, disk_threshold_percent, packet_loss_percent, latency_threshold_ms,
-       repeat_minutes, created_at, updated_at
+       repeat_minutes, timezone, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, alerts_paused_until,
+       webhook_enabled, webhook_url, webhook_secret, created_at, updated_at
 FROM notification_settings WHERE user_id = ?
 `, userID).Scan(
 		&emailEnabled, &telegramEnabled, &settings.TelegramChatID, &notifyWarning, &notifyCritical, &notifyResolved,
 		&settings.MemoryThresholdPercent, &settings.DiskThresholdPercent, &settings.PacketLossPercent,
-		&settings.LatencyThresholdMS, &settings.RepeatMinutes, &createdAt, &updatedAt,
+		&settings.LatencyThresholdMS, &settings.RepeatMinutes, &settings.Timezone, &quietHoursEnabled,
+		&settings.QuietHoursStart, &settings.QuietHoursEnd, &pausedUntil, &webhookEnabled,
+		&settings.WebhookURL, &settings.WebhookSecret, &createdAt, &updatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return settings, false, nil
@@ -49,6 +57,13 @@ FROM notification_settings WHERE user_id = ?
 	settings.NotifyWarning = notifyWarning != 0
 	settings.NotifyCritical = notifyCritical != 0
 	settings.NotifyResolved = notifyResolved != 0
+	settings.QuietHoursEnabled = quietHoursEnabled != 0
+	settings.WebhookEnabled = webhookEnabled != 0
+	settings.WebhookSecretConfigured = settings.WebhookSecret != ""
+	if pausedUntil.Valid && pausedUntil.String != "" {
+		value := parseTime(pausedUntil.String)
+		settings.AlertsPausedUntil = &value
+	}
 	settings.CreatedAt = parseTime(createdAt)
 	settings.UpdatedAt = parseTime(updatedAt)
 	return settings, true, nil
@@ -60,8 +75,9 @@ func (s *Store) UpsertNotificationSettings(ctx context.Context, settings model.N
 INSERT INTO notification_settings (
   user_id, email_enabled, telegram_enabled, telegram_chat_id, notify_warning, notify_critical,
   notify_resolved, memory_threshold_percent, disk_threshold_percent, packet_loss_percent,
-  latency_threshold_ms, repeat_minutes, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  latency_threshold_ms, repeat_minutes, timezone, quiet_hours_enabled, quiet_hours_start, quiet_hours_end,
+  alerts_paused_until, webhook_enabled, webhook_url, webhook_secret, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(user_id) DO UPDATE SET
   email_enabled = excluded.email_enabled,
   telegram_enabled = excluded.telegram_enabled,
@@ -74,11 +90,21 @@ ON CONFLICT(user_id) DO UPDATE SET
   packet_loss_percent = excluded.packet_loss_percent,
   latency_threshold_ms = excluded.latency_threshold_ms,
   repeat_minutes = excluded.repeat_minutes,
+  timezone = excluded.timezone,
+  quiet_hours_enabled = excluded.quiet_hours_enabled,
+  quiet_hours_start = excluded.quiet_hours_start,
+  quiet_hours_end = excluded.quiet_hours_end,
+  alerts_paused_until = excluded.alerts_paused_until,
+  webhook_enabled = excluded.webhook_enabled,
+  webhook_url = excluded.webhook_url,
+  webhook_secret = CASE WHEN excluded.webhook_secret != '' THEN excluded.webhook_secret ELSE notification_settings.webhook_secret END,
   updated_at = excluded.updated_at
 `, settings.UserID, boolInt(settings.EmailEnabled), boolInt(settings.TelegramEnabled), strings.TrimSpace(settings.TelegramChatID),
 		boolInt(settings.NotifyWarning), boolInt(settings.NotifyCritical), boolInt(settings.NotifyResolved),
 		settings.MemoryThresholdPercent, settings.DiskThresholdPercent, settings.PacketLossPercent,
-		settings.LatencyThresholdMS, settings.RepeatMinutes, now, now)
+		settings.LatencyThresholdMS, settings.RepeatMinutes, settings.Timezone, boolInt(settings.QuietHoursEnabled),
+		settings.QuietHoursStart, settings.QuietHoursEnd, nullableTime(settings.AlertsPausedUntil),
+		boolInt(settings.WebhookEnabled), strings.TrimSpace(settings.WebhookURL), strings.TrimSpace(settings.WebhookSecret), now, now)
 	if err != nil {
 		return model.NotificationSettings{}, err
 	}
@@ -354,4 +380,11 @@ func boolInt(value bool) int {
 
 func notificationTimeText(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func nullableTime(value *time.Time) any {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	return notificationTimeText(value.UTC())
 }

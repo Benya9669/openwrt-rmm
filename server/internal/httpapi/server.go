@@ -62,6 +62,7 @@ type Store interface {
 	UpdateDeviceFleet(ctx context.Context, deviceID, group string, tags []string) (model.Device, bool, error)
 	DeleteDevice(ctx context.Context, deviceID string) (bool, error)
 	ListMetricSamples(ctx context.Context, deviceID string, opts store.MetricHistoryOptions) ([]model.MetricSample, bool, error)
+	ListLANClients(ctx context.Context, deviceID string, recentFor time.Duration) ([]model.LANClient, bool, error)
 	SyncDeviceAlerts(ctx context.Context, deviceID string, active []model.Alert) ([]model.Alert, bool, error)
 	ListAlerts(ctx context.Context, opts store.AlertListOptions) ([]model.Alert, error)
 	AcknowledgeAlert(ctx context.Context, deviceID, alertID, actor string) (model.Alert, bool, error)
@@ -74,6 +75,15 @@ type Store interface {
 	CompleteNotificationDelivery(ctx context.Context, id, status, errorMessage string, nextAttemptAt *time.Time) error
 	LatestNotificationDelivery(ctx context.Context, userID, alertID, channel string) (model.NotificationDelivery, bool, error)
 	ListNotificationDeliveries(ctx context.Context, opts store.NotificationListOptions) ([]model.NotificationDelivery, error)
+	CreateInboxNotification(ctx context.Context, notification model.InboxNotification, dedupeKey string) (model.InboxNotification, bool, error)
+	ListInboxNotifications(ctx context.Context, userID string, limit int) ([]model.InboxNotification, int, error)
+	MarkInboxNotificationRead(ctx context.Context, userID, id string) (bool, error)
+	MarkAllInboxNotificationsRead(ctx context.Context, userID string) error
+	GetDeviceNotificationSettings(ctx context.Context, userID, deviceID string) (model.DeviceNotificationSettings, bool, error)
+	UpsertDeviceNotificationSettings(ctx context.Context, userID string, settings model.DeviceNotificationSettings) (model.DeviceNotificationSettings, error)
+	BeginContactVerification(ctx context.Context, userID, channel, destination, codeHash string, expiresAt time.Time) error
+	ConfirmContactVerification(ctx context.Context, userID, channel, codeHash string) (string, bool, error)
+	ContactVerified(ctx context.Context, userID, channel, destination string) (bool, error)
 	PurgeNotificationDeliveriesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	CreateCommand(ctx context.Context, deviceID, commandType string, args json.RawMessage) (model.Command, bool, error)
 	ListCommands(ctx context.Context, deviceID string, opts store.CommandListOptions) ([]model.Command, bool, error)
@@ -346,6 +356,11 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("PUT /api/notifications/settings", a.operatorAuth(http.HandlerFunc(a.handleUpdateNotificationSettings)))
 	mux.Handle("GET /api/notifications", a.operatorAuth(http.HandlerFunc(a.handleListNotifications)))
 	mux.Handle("POST /api/notifications/test", a.operatorAuth(http.HandlerFunc(a.handleTestNotifications)))
+	mux.Handle("POST /api/notifications/verify/{channel}/request", a.operatorAuth(http.HandlerFunc(a.handleRequestContactVerification)))
+	mux.Handle("POST /api/notifications/verify/{channel}/confirm", a.operatorAuth(http.HandlerFunc(a.handleConfirmContactVerification)))
+	mux.Handle("GET /api/notification-center", a.operatorAuth(http.HandlerFunc(a.handleListInboxNotifications)))
+	mux.Handle("POST /api/notification-center/read-all", a.operatorAuth(http.HandlerFunc(a.handleMarkAllInboxNotificationsRead)))
+	mux.Handle("POST /api/notification-center/", a.operatorAuth(http.HandlerFunc(a.handleInboxNotificationAction)))
 	mux.Handle("GET /api/users", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleListUsers))))
 	mux.Handle("POST /api/users", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleCreateUser))))
 	mux.Handle("PATCH /api/users/", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleUpdateUser))))
@@ -626,6 +641,18 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 		a.handleListMetricSamples(w, r)
 		return
 	}
+	if len(parts) == 4 && parts[3] == "clients" && r.Method == http.MethodGet {
+		a.handleListLANClients(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "notification-settings" && r.Method == http.MethodGet {
+		a.handleGetDeviceNotificationSettings(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "notification-settings" && r.Method == http.MethodPatch {
+		a.handleUpdateDeviceNotificationSettings(w, r)
+		return
+	}
 	if len(parts) == 4 && parts[3] == "alerts" && r.Method == http.MethodGet {
 		a.handleListAlerts(w, r)
 		return
@@ -683,6 +710,20 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, http.StatusNotFound, "not found")
+}
+
+func (a *App) handleListLANClients(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	clients, found, err := a.store.ListLANClients(r.Context(), parts[2], 30*time.Minute)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load LAN clients")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"clients": clients})
 }
 
 func (a *App) handleUpdateDeviceFleet(w http.ResponseWriter, r *http.Request) {

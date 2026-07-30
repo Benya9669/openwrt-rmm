@@ -213,6 +213,64 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_created ON notification_deliveries(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_created ON notification_deliveries(status, created_at);
 
+CREATE TABLE IF NOT EXISTS device_notification_settings (
+	user_id TEXT NOT NULL,
+	device_id TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	notify_warning INTEGER NOT NULL DEFAULT 1,
+	notify_critical INTEGER NOT NULL DEFAULT 1,
+	notify_resolved INTEGER NOT NULL DEFAULT 1,
+	paused_until TEXT,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY(user_id, device_id),
+	FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+	FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS inbox_notifications (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL,
+	device_id TEXT,
+	incident_id TEXT NOT NULL DEFAULT '',
+	dedupe_key TEXT NOT NULL UNIQUE,
+	severity TEXT NOT NULL,
+	event TEXT NOT NULL,
+	title TEXT NOT NULL,
+	body TEXT NOT NULL,
+	read_at TEXT,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+	FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS contact_verifications (
+	user_id TEXT NOT NULL,
+	channel TEXT NOT NULL,
+	destination TEXT NOT NULL,
+	code_hash TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	verified_at TEXT,
+	created_at TEXT NOT NULL,
+	PRIMARY KEY(user_id, channel),
+	FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS lan_clients (
+	device_id TEXT NOT NULL,
+	client_key TEXT NOT NULL,
+	mac TEXT NOT NULL DEFAULT '',
+	ip TEXT NOT NULL DEFAULT '',
+	hostname TEXT NOT NULL DEFAULT '',
+	interface TEXT NOT NULL DEFAULT '',
+	connection TEXT NOT NULL DEFAULT '',
+	confirmation TEXT NOT NULL DEFAULT '',
+	first_seen_at TEXT NOT NULL,
+	last_seen_at TEXT,
+	last_checked_at TEXT NOT NULL,
+	PRIMARY KEY(device_id, client_key),
+	FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS remote_sessions (
 	id TEXT PRIMARY KEY,
 	device_id TEXT NOT NULL,
@@ -368,6 +426,14 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`ALTER TABLE notification_deliveries ADD COLUMN last_attempt_at TEXT`,
 		`ALTER TABLE notification_deliveries ADD COLUMN next_attempt_at TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE notification_deliveries ADD COLUMN lease_expires_at TEXT`,
+		`ALTER TABLE notification_settings ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'`,
+		`ALTER TABLE notification_settings ADD COLUMN quiet_hours_enabled INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE notification_settings ADD COLUMN quiet_hours_start TEXT NOT NULL DEFAULT '22:00'`,
+		`ALTER TABLE notification_settings ADD COLUMN quiet_hours_end TEXT NOT NULL DEFAULT '08:00'`,
+		`ALTER TABLE notification_settings ADD COLUMN alerts_paused_until TEXT`,
+		`ALTER TABLE notification_settings ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE notification_settings ADD COLUMN webhook_url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE notification_settings ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !isDuplicateColumnError(err) {
 			return err
@@ -387,6 +453,9 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_created ON notification_deliveries(user_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_created ON notification_deliveries(status, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_ready ON notification_deliveries(status, next_attempt_at, lease_expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_inbox_notifications_user_created ON inbox_notifications(user_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_inbox_notifications_user_unread ON inbox_notifications(user_id, read_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_lan_clients_device_seen ON lan_clients(device_id, last_seen_at DESC)`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
@@ -485,6 +554,9 @@ WHERE id = ?
 		return nil, err
 	}
 	if err := s.AddMetricSample(ctx, deviceID, inventory, metrics, now); err != nil {
+		return nil, err
+	}
+	if err := s.SyncLANClients(ctx, deviceID, inventory, parseTime(now)); err != nil {
 		return nil, err
 	}
 

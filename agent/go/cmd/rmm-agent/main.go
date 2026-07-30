@@ -20,11 +20,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
-const agentVersion = "0.6.7"
+const agentVersion = "0.6.8"
 
 type agentRuntimeHealth struct {
 	StartedAt            time.Time
@@ -345,6 +346,7 @@ func buildInventory(cfg config) map[string]any {
 		"dhcp_leases":     dhcpLeases(),
 		"neighbors":       neighbors(),
 		"wifi_clients":    wifiClients(),
+		"client_probes":   clientProbes(),
 	}
 }
 
@@ -1571,6 +1573,50 @@ func dhcpLeases() []map[string]string {
 
 func neighbors() []map[string]string {
 	return parseIPNeighbors(commandOutput("ip", "neigh", "show"))
+}
+
+func clientProbes() []map[string]string {
+	leases := dhcpLeases()
+	type target struct {
+		ip  string
+		mac string
+	}
+	targets := make([]target, 0, len(leases))
+	seen := map[string]bool{}
+	for _, lease := range leases {
+		ip := net.ParseIP(strings.TrimSpace(lease["ip"]))
+		if ip == nil || ip.To4() == nil || !ip.IsPrivate() || seen[ip.String()] {
+			continue
+		}
+		seen[ip.String()] = true
+		targets = append(targets, target{ip: ip.String(), mac: lease["mac"]})
+		if len(targets) == 32 {
+			break
+		}
+	}
+	results := make([]map[string]string, len(targets))
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 6)
+	for index, item := range targets {
+		wg.Add(1)
+		go func(index int, item target) {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+			defer cancel()
+			err := exec.CommandContext(ctx, "ping", "-c", "1", "-W", "1", item.ip).Run()
+			results[index] = map[string]string{
+				"ip": item.ip, "mac": item.mac, "reachable": strconv.FormatBool(err == nil),
+				"checked_at": time.Now().UTC().Format(time.RFC3339Nano),
+			}
+		}(index, item)
+	}
+	wg.Wait()
+	if results == nil {
+		return []map[string]string{}
+	}
+	return results
 }
 
 func parseIPNeighbors(output string) []map[string]string {

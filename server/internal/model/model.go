@@ -96,21 +96,68 @@ type Alert struct {
 }
 
 type NotificationSettings struct {
-	UserID                 string    `json:"user_id,omitempty"`
-	Configured             bool      `json:"configured"`
-	EmailEnabled           bool      `json:"email_enabled"`
-	TelegramEnabled        bool      `json:"telegram_enabled"`
-	TelegramChatID         string    `json:"telegram_chat_id,omitempty"`
-	NotifyWarning          bool      `json:"notify_warning"`
-	NotifyCritical         bool      `json:"notify_critical"`
-	NotifyResolved         bool      `json:"notify_resolved"`
-	MemoryThresholdPercent int       `json:"memory_threshold_percent"`
-	DiskThresholdPercent   int       `json:"disk_threshold_percent"`
-	PacketLossPercent      int       `json:"packet_loss_percent"`
-	LatencyThresholdMS     int       `json:"latency_threshold_ms"`
-	RepeatMinutes          int       `json:"repeat_minutes"`
-	CreatedAt              time.Time `json:"created_at,omitempty"`
-	UpdatedAt              time.Time `json:"updated_at,omitempty"`
+	UserID                  string     `json:"user_id,omitempty"`
+	Configured              bool       `json:"configured"`
+	EmailEnabled            bool       `json:"email_enabled"`
+	TelegramEnabled         bool       `json:"telegram_enabled"`
+	TelegramChatID          string     `json:"telegram_chat_id,omitempty"`
+	NotifyWarning           bool       `json:"notify_warning"`
+	NotifyCritical          bool       `json:"notify_critical"`
+	NotifyResolved          bool       `json:"notify_resolved"`
+	MemoryThresholdPercent  int        `json:"memory_threshold_percent"`
+	DiskThresholdPercent    int        `json:"disk_threshold_percent"`
+	PacketLossPercent       int        `json:"packet_loss_percent"`
+	LatencyThresholdMS      int        `json:"latency_threshold_ms"`
+	RepeatMinutes           int        `json:"repeat_minutes"`
+	Timezone                string     `json:"timezone"`
+	QuietHoursEnabled       bool       `json:"quiet_hours_enabled"`
+	QuietHoursStart         string     `json:"quiet_hours_start"`
+	QuietHoursEnd           string     `json:"quiet_hours_end"`
+	AlertsPausedUntil       *time.Time `json:"alerts_paused_until,omitempty"`
+	WebhookEnabled          bool       `json:"webhook_enabled"`
+	WebhookURL              string     `json:"webhook_url,omitempty"`
+	WebhookSecret           string     `json:"-"`
+	WebhookSecretConfigured bool       `json:"webhook_secret_configured"`
+	CreatedAt               time.Time  `json:"created_at,omitempty"`
+	UpdatedAt               time.Time  `json:"updated_at,omitempty"`
+}
+
+type DeviceNotificationSettings struct {
+	DeviceID       string     `json:"device_id"`
+	Enabled        bool       `json:"enabled"`
+	NotifyWarning  bool       `json:"notify_warning"`
+	NotifyCritical bool       `json:"notify_critical"`
+	NotifyResolved bool       `json:"notify_resolved"`
+	PausedUntil    *time.Time `json:"paused_until,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at,omitempty"`
+}
+
+type InboxNotification struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"-"`
+	DeviceID   string     `json:"device_id,omitempty"`
+	IncidentID string     `json:"incident_id,omitempty"`
+	Severity   string     `json:"severity"`
+	Event      string     `json:"event"`
+	Title      string     `json:"title"`
+	Body       string     `json:"body"`
+	ReadAt     *time.Time `json:"read_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+type LANClient struct {
+	DeviceID      string     `json:"device_id,omitempty"`
+	Key           string     `json:"key"`
+	MAC           string     `json:"mac,omitempty"`
+	IP            string     `json:"ip,omitempty"`
+	Hostname      string     `json:"hostname,omitempty"`
+	Interface     string     `json:"interface,omitempty"`
+	Connection    string     `json:"connection"`
+	Status        string     `json:"status"`
+	Confirmation  string     `json:"confirmation,omitempty"`
+	FirstSeenAt   time.Time  `json:"first_seen_at"`
+	LastSeenAt    *time.Time `json:"last_seen_at,omitempty"`
+	LastCheckedAt time.Time  `json:"last_checked_at"`
 }
 
 type NotificationDelivery struct {

@@ -24,6 +24,24 @@ type capturedNotification struct {
 	body        string
 }
 
+func verifyEmailForTest(t *testing.T, st *store.Store, username, email string) {
+	t.Helper()
+	user, _, found, err := st.GetUserByUsername(context.Background(), username)
+	if err != nil || !found {
+		t.Fatalf("load verification user: found=%v err=%v", found, err)
+	}
+	hash, err := store.VerificationCodeHash("123456")
+	if err != nil {
+		t.Fatalf("hash verification code: %v", err)
+	}
+	if err := st.BeginContactVerification(context.Background(), user.ID, "email", email, hash, time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, confirmed, err := st.ConfirmContactVerification(context.Background(), user.ID, "email", "123456"); err != nil || !confirmed {
+		t.Fatalf("confirm test email: confirmed=%v err=%v", confirmed, err)
+	}
+}
+
 type captureNotificationSender struct {
 	messages chan capturedNotification
 }
@@ -58,6 +76,7 @@ func TestNotificationSettingsTestAndAlertLifecycle(t *testing.T) {
 	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
 		"display_name": "Owner", "email": "owner@example.test",
 	}, http.StatusOK, nil)
+	verifyEmailForTest(t, st, "admin", "owner@example.test")
 
 	var defaults struct {
 		Settings model.NotificationSettings `json:"settings"`
@@ -199,6 +218,7 @@ func TestNotificationFailureIsRetriedWithoutLeakingProviderError(t *testing.T) {
 	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
 		"display_name": "Owner", "email": "owner@example.test",
 	}, http.StatusOK, nil)
+	verifyEmailForTest(t, st, "admin", "owner@example.test")
 	authRequestJSON(t, client, http.MethodPut, srv.URL+"/api/notifications/settings", map[string]any{
 		"email_enabled": true, "notify_warning": true, "notify_critical": true, "notify_resolved": true,
 		"memory_threshold_percent": 85, "disk_threshold_percent": 85, "packet_loss_percent": 20,

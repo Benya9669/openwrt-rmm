@@ -66,6 +66,10 @@ Operator API:
 - `GET|PUT /api/notifications/settings`
 - `GET /api/notifications`
 - `POST /api/notifications/test`
+- `POST /api/notifications/verify/{email|telegram}/{request|confirm}`
+- `GET /api/notification-center`
+- `POST /api/notification-center/{id}/read`
+- `POST /api/notification-center/read-all`
 - `GET|POST /api/users` (administrator only)
 - `PATCH /api/users/{id}` (administrator only)
 - `POST /api/enrollment-grants`
@@ -73,6 +77,8 @@ Operator API:
 - `GET /api/devices`
 - `GET /api/events` (authenticated SSE stream; the client reloads user-scoped data on change)
 - `GET /api/devices/{id}`
+- `GET /api/devices/{id}/clients`
+- `GET|PATCH /api/devices/{id}/notification-settings`
 - `POST /api/devices/{id}/transfer`
 - `POST /api/devices/{id}/commands`
 - `GET /api/devices/{id}/commands`
