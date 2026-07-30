@@ -162,7 +162,7 @@ RUN printf '%s\n' \
     && mv .config.packages-pruned .config \
     && grep -q '^CONFIG_PACKAGE_luci-app-rmm-agent=m$' .config \
     && grep -q '^CONFIG_LUCI_LANG_ru=y$' .config \
-    && grep -q '^CONFIG_PACKAGE_luci-i18n-rmm-agent-ru=m$' .config
+    && grep -Eq '^CONFIG_PACKAGE_luci-i18n-rmm-agent-ru=[my]$' .config
 
 RUN make -j1 package/luci-app-rmm-agent/compile V=s
 
