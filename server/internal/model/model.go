@@ -166,6 +166,7 @@ type NotificationDelivery struct {
 	DeviceID          string     `json:"device_id,omitempty"`
 	AlertID           string     `json:"alert_id,omitempty"`
 	Event             string     `json:"event"`
+	Severity          string     `json:"severity,omitempty"`
 	Channel           string     `json:"channel"`
 	Status            string     `json:"status"`
 	Title             string     `json:"title"`
@@ -179,6 +180,24 @@ type NotificationDelivery struct {
 	LastAttemptAt     *time.Time `json:"last_attempt_at,omitempty"`
 	NextAttemptAt     *time.Time `json:"next_attempt_at,omitempty"`
 	SentAt            *time.Time `json:"sent_at,omitempty"`
+}
+
+type NotificationChannelMetrics struct {
+	Channel         string     `json:"channel"`
+	LastSuccessAt   *time.Time `json:"last_success_at,omitempty"`
+	LastErrorAt     *time.Time `json:"last_error_at,omitempty"`
+	LastError       string     `json:"last_error,omitempty"`
+	LastErrorStatus string     `json:"last_error_status,omitempty"`
+}
+
+type NotificationDeliveryMetrics struct {
+	Queued                int                          `json:"queued"`
+	Sent                  int                          `json:"sent"`
+	Failed                int                          `json:"failed"`
+	DeadLetter            int                          `json:"dead_letter"`
+	OldestQueuedAt        *time.Time                   `json:"oldest_queued_at,omitempty"`
+	OldestQueueAgeSeconds int64                        `json:"oldest_queue_age_seconds"`
+	Channels              []NotificationChannelMetrics `json:"channels"`
 }
 
 type RemoteSession struct {

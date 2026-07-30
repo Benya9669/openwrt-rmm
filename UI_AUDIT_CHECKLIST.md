@@ -24,7 +24,8 @@
 - [x] Notification center, unread/read, incident grouping и SSE refresh реализованы в `main`.
 - [x] E-mail/Telegram verification, webhook, quiet hours и per-device overrides реализованы в `main`.
 - [x] LAN clients online/recent/unconfirmed и `last_seen` реализованы в `main`.
-- [ ] Эти изменения выпущены в новом server release после `server-v0.8.1`.
+- [x] Основной UI-аудит выпущен в `server-v0.9.0`.
+- [ ] Стабилизация notification operations и profile tabs выпущена в `server-v0.9.1`.
 - [ ] Полная browser matrix повторена на опубликованном server release.
 - [ ] Реальная SMTP/Telegram/webhook доставка проверена на production.
 - [ ] Retry/dead-letter и длинный provider error проверены в production history.

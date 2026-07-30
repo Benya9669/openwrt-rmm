@@ -75,6 +75,7 @@ type Store interface {
 	CompleteNotificationDelivery(ctx context.Context, id, status, errorMessage string, nextAttemptAt *time.Time) error
 	LatestNotificationDelivery(ctx context.Context, userID, alertID, channel string) (model.NotificationDelivery, bool, error)
 	ListNotificationDeliveries(ctx context.Context, opts store.NotificationListOptions) ([]model.NotificationDelivery, error)
+	NotificationDeliveryMetrics(ctx context.Context, userID string, now time.Time) (model.NotificationDeliveryMetrics, error)
 	CreateInboxNotification(ctx context.Context, notification model.InboxNotification, dedupeKey string) (model.InboxNotification, bool, error)
 	ListInboxNotifications(ctx context.Context, userID string, limit int) ([]model.InboxNotification, int, error)
 	MarkInboxNotificationRead(ctx context.Context, userID, id string) (bool, error)

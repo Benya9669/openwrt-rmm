@@ -8,6 +8,8 @@
 - [x] Go agent source и production package имеют версию `0.6.8`.
 - [x] LuCI package `0.2.2` и отдельный `luci-i18n-rmm-agent-ru`.
 - [x] Notification center, verification, quiet hours, webhook, per-device overrides и incidents.
+- [x] Delivery metrics, channel diagnostics и server-side notification history filters.
+- [x] Profile/Security/Notifications tabs и admin-only Users tab.
 - [x] LAN client persistence с online/recent/unconfirmed.
 - [x] Current OpenWrt 24.10/25.12 matrix и отдельная manual legacy matrix.
 - [x] Подписанные IPK/APK repositories, SBOM/provenance и Cosign для server images.
@@ -16,10 +18,11 @@
 
 ## Текущее состояние релизов
 
-- [x] `server-v0.8.1` опубликован, но не содержит последних notification/client изменений.
+- [x] `server-v0.9.0` опубликован с notification center и LAN client persistence.
 - [x] `agent-v0.6.8` создан как подписанный tag.
 - [x] Все jobs `agent-v0.6.8` завершены успешно и package feed опубликован.
-- [ ] Следующий server tag создан с GPG-подписью и содержит текущий `main`.
+- [ ] `server-v0.9.1` создан с GPG-подписью и содержит notification operations,
+  profile tabs и LAN neighbour cleanup.
 - [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
 ## Перед `agent-v*`
@@ -76,7 +79,7 @@
 
 ## Последняя подтверждённая проверка
 
-Commit: `a343963`.
+Commit: `f492782` (`server-v0.9.0`).
 
 - [x] `go test ./...`.
 - [x] `go vet ./...`.

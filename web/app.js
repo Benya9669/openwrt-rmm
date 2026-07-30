@@ -25,6 +25,8 @@ const state = {
   notificationSettings: null,
   notificationChannels: {},
   notifications: [],
+  notificationMetrics: {},
+  profileTab: "account",
   inboxNotifications: [],
   notificationUnread: 0,
   lanClients: [],
@@ -226,6 +228,9 @@ const els = {
   profileDisplayName: document.querySelector("#profileDisplayName"),
   profileEmail: document.querySelector("#profileEmail"),
   profileMessage: document.querySelector("#profileMessage"),
+  profileAdminTab: document.querySelector("#profileAdminTab"),
+  profileTabs: [...document.querySelectorAll("[data-profile-tab]")],
+  profilePanels: [...document.querySelectorAll("[data-profile-panel]")],
   passwordForm: document.querySelector("#passwordForm"),
   currentPassword: document.querySelector("#currentPassword"),
   newPassword: document.querySelector("#newPassword"),
@@ -270,6 +275,14 @@ const els = {
   notificationSettingsMessage: document.querySelector("#notificationSettingsMessage"),
   testNotificationsBtn: document.querySelector("#testNotificationsBtn"),
   refreshNotificationsBtn: document.querySelector("#refreshNotificationsBtn"),
+  notificationMetrics: document.querySelector("#notificationMetrics"),
+  notificationChannelDiagnostics: document.querySelector("#notificationChannelDiagnostics"),
+  notificationFilterDevice: document.querySelector("#notificationFilterDevice"),
+  notificationFilterSeverity: document.querySelector("#notificationFilterSeverity"),
+  notificationFilterEvent: document.querySelector("#notificationFilterEvent"),
+  notificationFilterChannel: document.querySelector("#notificationFilterChannel"),
+  notificationFilterStatus: document.querySelector("#notificationFilterStatus"),
+  clearNotificationFiltersBtn: document.querySelector("#clearNotificationFiltersBtn"),
   notificationHistory: document.querySelector("#notificationHistory"),
   notificationCenterBtn: document.querySelector("#notificationCenterBtn"),
   notificationUnreadCount: document.querySelector("#notificationUnreadCount"),
@@ -389,7 +402,11 @@ function connectLiveUpdates() {
     scheduleLiveRefresh();
   });
   eventSource.addEventListener("notifications", () => {
-    if (document.visibilityState === "visible") loadNotificationCenter().catch(() => {});
+    if (document.visibilityState !== "visible") return;
+    loadNotificationCenter().catch(() => {});
+    if (els.profileDialog.open && state.profileTab === "notifications") {
+      loadNotificationHistory().catch(() => {});
+    }
   });
   eventSource.onerror = () => {
     state.liveConnected = false;
@@ -488,7 +505,7 @@ function showApp(user) {
   els.profileAvatar.textContent = initial;
   document.querySelector(".operator-avatar").textContent = initial;
   els.addUserBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
-  els.userManagementSection.classList.toggle("is-hidden", !user || user.role !== "admin");
+  els.profileAdminTab.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.loginView.classList.add("is-hidden");
   els.loginView.hidden = true;
   els.loginView.setAttribute("aria-hidden", "true");
@@ -1590,10 +1607,28 @@ function showProfile() {
   setFormMessage(els.passwordMessage, "");
   els.passwordForm.reset();
   if (!els.profileDialog.open) els.profileDialog.showModal();
-  loadNotificationPreferences().catch((error) => {
-    setFormMessage(els.notificationSettingsMessage, `Не удалось загрузить уведомления: ${error.message}`, "error");
-  });
-  if (state.user && state.user.role === "admin") {
+  selectProfileTab("account");
+}
+
+function selectProfileTab(requestedTab) {
+  const isAdmin = state.user && state.user.role === "admin";
+  const tab = requestedTab === "admin" && !isAdmin ? "account" : requestedTab;
+  state.profileTab = tab;
+  for (const button of els.profileTabs) {
+    const selected = button.dataset.profileTab === tab;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  }
+  for (const panel of els.profilePanels) {
+    panel.classList.toggle("is-hidden", panel.dataset.profilePanel !== tab);
+  }
+  if (tab === "notifications") {
+    loadNotificationPreferences().catch((error) => {
+      setFormMessage(els.notificationSettingsMessage, `Не удалось загрузить уведомления: ${error.message}`, "error");
+    });
+  }
+  if (tab === "admin" && isAdmin) {
     loadUsers().catch((error) => {
       els.userList.innerHTML = inlineStateMarkup("Не удалось загрузить пользователей", error.message);
     });
@@ -1628,12 +1663,16 @@ async function loadNotificationPreferences() {
   setFormMessage(els.notificationSettingsMessage, "Загружаем настройки…");
   const [settingsResponse, historyResponse] = await Promise.all([
     api("/api/notifications/settings"),
-    api("/api/notifications?limit=30"),
+    fetchNotificationHistory(),
   ]);
   state.notificationSettings = settingsResponse.settings || {};
   state.notificationChannels = settingsResponse.channels || {};
   state.notifications = historyResponse.notifications || [];
+  state.notificationMetrics = historyResponse.metrics || {};
   renderNotificationSettings();
+  renderNotificationDeviceFilters();
+  renderNotificationMetrics();
+  renderNotificationChannelDiagnostics();
   renderNotificationHistory();
   setFormMessage(els.notificationSettingsMessage, state.notificationSettings.configured ? "Настройки загружены" : "Каналы пока выключены");
 }
@@ -1731,9 +1770,86 @@ async function testNotifications() {
 }
 
 async function loadNotificationHistory() {
-  const response = await api("/api/notifications?limit=30");
+  const response = await fetchNotificationHistory();
   state.notifications = response.notifications || [];
+  state.notificationMetrics = response.metrics || {};
+  renderNotificationMetrics();
+  renderNotificationChannelDiagnostics();
   renderNotificationHistory();
+}
+
+function fetchNotificationHistory() {
+  const query = new URLSearchParams({ limit: "100" });
+  const filters = [
+    ["device_id", els.notificationFilterDevice.value],
+    ["severity", els.notificationFilterSeverity.value],
+    ["event", els.notificationFilterEvent.value],
+    ["channel", els.notificationFilterChannel.value],
+    ["status", els.notificationFilterStatus.value],
+  ];
+  for (const [name, value] of filters) {
+    if (value) query.set(name, value);
+  }
+  return api(`/api/notifications?${query.toString()}`);
+}
+
+function renderNotificationDeviceFilters() {
+  const current = els.notificationFilterDevice.value;
+  els.notificationFilterDevice.innerHTML = '<option value="">Все роутеры</option>';
+  for (const device of state.devices) {
+    const option = document.createElement("option");
+    option.value = device.id;
+    option.textContent = deviceDisplayName(device);
+    els.notificationFilterDevice.appendChild(option);
+  }
+  if (state.devices.some((device) => device.id === current)) {
+    els.notificationFilterDevice.value = current;
+  }
+}
+
+function renderNotificationMetrics() {
+  const metrics = state.notificationMetrics || {};
+  const queueAge = Number(metrics.oldest_queue_age_seconds || 0);
+  const cards = [
+    ["В очереди", Number(metrics.queued || 0), queueAge > 0 ? `старейшая ${formatDurationSeconds(queueAge)}` : "очередь пуста", "queued"],
+    ["Доставлено", Number(metrics.sent || 0), "за период хранения", "sent"],
+    ["С ошибкой", Number(metrics.failed || 0), "ожидают повтора", "failed"],
+    ["Dead letter", Number(metrics.dead_letter || 0), "требуют внимания", "dead-letter"],
+  ];
+  els.notificationMetrics.innerHTML = cards.map(([label, value, note, tone]) => `
+    <article class="notification-metric is-${tone}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${value}</strong>
+      <small>${escapeHtml(note)}</small>
+    </article>
+  `).join("");
+}
+
+function formatDurationSeconds(value) {
+  const seconds = Math.max(0, Number(value || 0));
+  if (seconds < 60) return `${Math.round(seconds)} сек`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} мин`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} ч`;
+  return `${Math.round(seconds / 86400)} дн`;
+}
+
+function renderNotificationChannelDiagnostics() {
+  const channelNames = { email: "E-mail / SMTP", telegram: "Telegram", webhook: "Webhook" };
+  const latestMetrics = new Map((state.notificationMetrics.channels || []).map((item) => [item.channel, item]));
+  els.notificationChannelDiagnostics.innerHTML = Object.entries(channelNames).map(([channel, name]) => {
+    const diagnostic = state.notificationChannels[channel] || {};
+    const delivery = latestMetrics.get(channel) || diagnostic.delivery || {};
+    const details = [];
+    if (delivery.last_success_at) details.push(`Последняя доставка: ${formatDate(delivery.last_success_at)}`);
+    if (delivery.last_error_at) details.push(`Последняя ошибка: ${formatDate(delivery.last_error_at)}`);
+    if (delivery.last_error) details.push(delivery.last_error);
+    return `
+      <article class="notification-channel-diagnostic is-${escapeHtml(diagnostic.status || "disabled")}">
+        <div><strong>${escapeHtml(name)}</strong><span>${escapeHtml(diagnostic.message || "Состояние неизвестно")}</span></div>
+        <small>${escapeHtml(details.join(" · ") || "Истории доставки пока нет")}</small>
+      </article>
+    `;
+  }).join("");
 }
 
 function renderNotificationHistory() {
@@ -1749,14 +1865,30 @@ function renderNotificationHistory() {
     const retryAt = delivery.status === "retry" && delivery.next_attempt_at
       ? ` · повтор ${formatDate(delivery.next_attempt_at)}`
       : "";
+    const device = state.devices.find((item) => item.id === delivery.device_id);
+    const channelLabel = { email: "E-mail", telegram: "Telegram", webhook: "Webhook" }[delivery.channel] || delivery.channel;
+    const context = [
+      device ? deviceDisplayName(device) : "",
+      delivery.severity === "critical" ? "Критическое" : delivery.severity === "warning" ? "Предупреждение" : "",
+      notificationEventLabel(delivery.event),
+    ].filter(Boolean).join(" · ");
     row.innerHTML = `
-      <span class="notification-channel">${delivery.channel === "telegram" ? "Telegram" : "E-mail"}</span>
-      <div><strong>${escapeHtml(delivery.title || "Уведомление")}</strong><small>${escapeHtml(delivery.destination || "")}${delivery.error ? ` · ${escapeHtml(delivery.error)}` : ""}${escapeHtml(attempts)}${escapeHtml(retryAt)}</small></div>
+      <span class="notification-channel">${escapeHtml(channelLabel)}</span>
+      <div><strong>${escapeHtml(delivery.title || "Уведомление")}</strong><small>${escapeHtml([context, delivery.destination || ""].filter(Boolean).join(" · "))}${delivery.error ? ` · ${escapeHtml(delivery.error)}` : ""}${escapeHtml(attempts)}${escapeHtml(retryAt)}</small></div>
       <span class="notification-delivery-status">${escapeHtml(notificationStatusLabel(delivery.status))}</span>
       <time>${escapeHtml(formatDate(delivery.sent_at || delivery.created_at))}</time>
     `;
     els.notificationHistory.appendChild(row);
   }
+}
+
+function notificationEventLabel(event) {
+  return {
+    active: "Возникло",
+    repeat: "Повтор",
+    resolved: "Восстановлено",
+    test: "Тест",
+  }[event] || event || "";
 }
 
 function dateTimeLocalValue(value) {
@@ -2274,7 +2406,7 @@ function prepareCloudAccessPopup(popup) {
   if (!popup) return;
   try {
     popup.document.open();
-    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=26"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
+    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=27"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
     popup.document.close();
     popup.opener = null;
   } catch {
@@ -2887,6 +3019,19 @@ for (const button of document.querySelectorAll(".mobile-nav-item")) {
 }
 
 els.closeProfileBtn.addEventListener("click", closeProfile);
+for (const button of els.profileTabs) {
+  button.addEventListener("click", () => selectProfileTab(button.dataset.profileTab));
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const available = els.profileTabs.filter((item) => !item.classList.contains("is-hidden"));
+    const current = available.indexOf(button);
+    let next = event.key === "Home" ? 0 : event.key === "End" ? available.length - 1 : current + (event.key === "ArrowRight" ? 1 : -1);
+    next = (next + available.length) % available.length;
+    selectProfileTab(available[next].dataset.profileTab);
+    available[next].focus();
+  });
+}
 els.profileDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   closeProfile();
@@ -2911,6 +3056,25 @@ els.testNotificationsBtn.addEventListener("click", () => {
   testNotifications().catch((error) => setFormMessage(els.notificationSettingsMessage, notificationErrorMessage(error), "error"));
 });
 els.refreshNotificationsBtn.addEventListener("click", () => {
+  loadNotificationHistory().catch((error) => setFormMessage(els.notificationSettingsMessage, notificationErrorMessage(error), "error"));
+});
+for (const filter of [
+  els.notificationFilterDevice,
+  els.notificationFilterSeverity,
+  els.notificationFilterEvent,
+  els.notificationFilterChannel,
+  els.notificationFilterStatus,
+]) {
+  filter.addEventListener("change", () => {
+    loadNotificationHistory().catch((error) => setFormMessage(els.notificationSettingsMessage, notificationErrorMessage(error), "error"));
+  });
+}
+els.clearNotificationFiltersBtn.addEventListener("click", () => {
+  els.notificationFilterDevice.value = "";
+  els.notificationFilterSeverity.value = "";
+  els.notificationFilterEvent.value = "";
+  els.notificationFilterChannel.value = "";
+  els.notificationFilterStatus.value = "";
   loadNotificationHistory().catch((error) => setFormMessage(els.notificationSettingsMessage, notificationErrorMessage(error), "error"));
 });
 els.verifyEmailBtn.addEventListener("click", () => requestContactVerification("email").catch(reportError));

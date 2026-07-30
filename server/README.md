@@ -70,7 +70,8 @@ Operator API:
 - `POST /api/auth/logout-all`
 - `GET /api/meta`
 - `GET|PUT /api/notifications/settings`
-- `GET /api/notifications`
+- `GET /api/notifications` - delivery history with optional device, severity, event,
+  channel and status filters plus queue/channel metrics
 - `POST /api/notifications/test`
 - `POST /api/notifications/verify/{email|telegram}/{request|confirm}`
 - `GET /api/notification-center`

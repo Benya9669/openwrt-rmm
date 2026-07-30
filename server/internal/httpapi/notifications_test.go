@@ -80,10 +80,17 @@ func TestNotificationSettingsTestAndAlertLifecycle(t *testing.T) {
 
 	var defaults struct {
 		Settings model.NotificationSettings `json:"settings"`
+		Channels map[string]struct {
+			Status  string `json:"status"`
+			Message string `json:"message"`
+		} `json:"channels"`
 	}
 	authRequestJSON(t, client, http.MethodGet, srv.URL+"/api/notifications/settings", nil, http.StatusOK, &defaults)
 	if defaults.Settings.Configured || defaults.Settings.MemoryThresholdPercent != 85 {
 		t.Fatalf("unexpected defaults: %#v", defaults.Settings)
+	}
+	if defaults.Channels["email"].Status != "disabled" || defaults.Channels["telegram"].Status != "unavailable" {
+		t.Fatalf("unexpected channel diagnostics: %#v", defaults.Channels)
 	}
 
 	var saved struct {
@@ -149,17 +156,34 @@ func TestNotificationSettingsTestAndAlertLifecycle(t *testing.T) {
 	}
 
 	var history struct {
-		Notifications []model.NotificationDelivery `json:"notifications"`
+		Notifications []model.NotificationDelivery      `json:"notifications"`
+		Metrics       model.NotificationDeliveryMetrics `json:"metrics"`
 	}
 	authRequestJSON(t, client, http.MethodGet, srv.URL+"/api/notifications", nil, http.StatusOK, &history)
 	if len(history.Notifications) < 4 {
 		t.Fatalf("expected test, active, repeat and resolved deliveries, got %#v", history.Notifications)
+	}
+	if history.Metrics.Sent < 4 {
+		t.Fatalf("notification metrics did not include sent deliveries: %#v", history.Metrics)
 	}
 	for _, delivery := range history.Notifications {
 		if delivery.Destination != "" {
 			t.Fatal("raw notification destination leaked through API")
 		}
 	}
+	var filtered struct {
+		Notifications []model.NotificationDelivery `json:"notifications"`
+	}
+	authRequestJSON(t, client, http.MethodGet, srv.URL+"/api/notifications?device_id="+enrolled.DeviceID+"&severity=critical&channel=email&status=sent", nil, http.StatusOK, &filtered)
+	if len(filtered.Notifications) < 3 {
+		t.Fatalf("expected filtered active lifecycle, got %#v", filtered.Notifications)
+	}
+	for _, delivery := range filtered.Notifications {
+		if delivery.DeviceID != enrolled.DeviceID || delivery.Severity != "critical" || delivery.Channel != "email" || delivery.Status != "sent" {
+			t.Fatalf("delivery escaped filters: %#v", delivery)
+		}
+	}
+	authRequestJSON(t, client, http.MethodGet, srv.URL+"/api/notifications?channel=carrier-pigeon", nil, http.StatusBadRequest, nil)
 }
 
 func waitNotificationDelivery(t *testing.T, client *http.Client, serverURL, event, status string) model.NotificationDelivery {

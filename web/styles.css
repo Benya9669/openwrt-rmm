@@ -329,7 +329,40 @@
 }
 
 .profile-dialog { max-height: min(820px, calc(100dvh - 32px)); overflow-y: auto; }
+.profile-dialog { width: min(780px, calc(100vw - 24px)); }
+.profile-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  scrollbar-width: none;
+}
+.profile-tabs::-webkit-scrollbar { display: none; }
+.profile-tab {
+  flex: 0 0 auto;
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  font-weight: 750;
+}
+.profile-tab:hover { border-color: var(--line); color: var(--text); }
+.profile-tab.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface-raised));
+  color: var(--accent);
+}
+.profile-tab-panel { animation: profile-panel-in .2s ease both; }
+@keyframes profile-panel-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .profile-form { display: grid; gap: 12px; border-top: 1px solid var(--line); padding-top: 18px; }
+.profile-tabs + .profile-form,
+.profile-tab-panel { border-top: 0; padding-top: 0; }
 .profile-form label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
 .profile-section-heading { display: grid; gap: 3px; }
 .profile-section-heading span { color: var(--muted); font-size: 12px; }
@@ -367,7 +400,54 @@
 .notification-toggle span { display: grid; min-width: 0; gap: 2px; color: var(--text); }
 .notification-toggle small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .notification-settings-form label.is-disabled { opacity: .6; }
+.notification-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+.notification-metric {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-raised);
+  padding: 12px;
+}
+.notification-metric span,
+.notification-metric small { color: var(--muted); font-size: 11px; }
+.notification-metric strong { font-size: 24px; line-height: 1; }
+.notification-metric.is-sent strong { color: var(--good); }
+.notification-metric.is-failed strong,
+.notification-metric.is-dead-letter strong { color: var(--bad); }
+.notification-channel-diagnostics { display: grid; gap: 8px; }
+.notification-channel-diagnostic {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, .8fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  padding: 11px 12px;
+}
+.notification-channel-diagnostic > div { display: grid; gap: 3px; }
+.notification-channel-diagnostic span,
+.notification-channel-diagnostic small { color: var(--muted); font-size: 11px; }
+.notification-channel-diagnostic.is-ready { border-left-color: var(--good); }
+.notification-channel-diagnostic.is-attention { border-left-color: var(--warn); }
+.notification-channel-diagnostic.is-unavailable { border-left-color: var(--bad); }
 .notification-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); padding-top: 16px; }
+.notification-history-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+}
+.notification-history-filters label { min-width: 0; }
+.notification-history-filters select { min-width: 0; width: 100%; }
+.notification-history-filters button { min-height: 42px; }
 .notification-history { display: grid; gap: 8px; }
 .notification-history-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); padding: 11px 12px; }
 .notification-history-row > div { display: grid; min-width: 0; gap: 3px; }
@@ -4067,6 +4147,40 @@ dialog[open]::backdrop {
 }
 
 @media (max-width: 720px) {
+  .profile-tabs {
+    margin-inline: -4px;
+    padding-inline: 4px;
+  }
+
+  .notification-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .notification-channel-diagnostic,
+  .notification-history-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .notification-history-filters button {
+    width: 100%;
+  }
+
+  .notification-history-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .notification-history-row .notification-channel {
+    grid-column: 1;
+  }
+
+  .notification-history-row > div {
+    grid-column: 1 / -1;
+  }
+
+  .notification-history-row time {
+    grid-column: 1 / -1;
+  }
+
   .device-transfer-form,
   .user-row {
     grid-template-columns: 1fr;

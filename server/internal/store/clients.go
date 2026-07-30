@@ -44,14 +44,21 @@ func (s *Store) SyncLANClients(ctx context.Context, deviceID string, inventory j
 		if key == "" {
 			continue
 		}
+		state := strings.ToUpper(strings.TrimSpace(neighbor["state"]))
 		item := byKey[key]
 		if item == nil {
+			// Kernel neighbour tables retain failed and stale probes for a while.
+			// They are useful for enriching a DHCP lease, but must not create a
+			// standalone LAN client until the kernel has actively confirmed it.
+			if mac == "" || !activeNeighborState(state) {
+				continue
+			}
 			item = &observed{key: key, mac: mac, ip: ip}
 			byKey[key] = item
 		}
+		item.ip = preferredClientIP(item.ip, ip)
 		item.iface = strings.TrimSpace(neighbor["interface"])
-		state := strings.ToUpper(strings.TrimSpace(neighbor["state"]))
-		if state == "REACHABLE" || state == "DELAY" || state == "PROBE" {
+		if activeNeighborState(state) {
 			item.confirmed = true
 			item.confirmation = "neighbor:" + strings.ToLower(state)
 			item.connection = "wired"
@@ -95,6 +102,14 @@ func (s *Store) SyncLANClients(ctx context.Context, deviceID string, inventory j
 		}
 	}
 	now := notificationTimeText(checkedAt.UTC())
+	if _, err := s.db.ExecContext(ctx, `
+DELETE FROM lan_clients
+WHERE device_id = ?
+  AND last_seen_at IS NULL
+  AND confirmation != 'lease'
+`, deviceID); err != nil {
+		return err
+	}
 	for _, item := range byKey {
 		var lastSeen any
 		if item.confirmed {
@@ -118,6 +133,15 @@ ON CONFLICT(device_id, client_key) DO UPDATE SET
 		if err != nil {
 			return err
 		}
+	}
+	unconfirmedCutoff := notificationTimeText(checkedAt.UTC().Add(-24 * time.Hour))
+	if _, err := s.db.ExecContext(ctx, `
+DELETE FROM lan_clients
+WHERE device_id = ?
+  AND last_seen_at IS NULL
+  AND last_checked_at < ?
+`, deviceID, unconfirmedCutoff); err != nil {
+		return err
 	}
 	return nil
 }
@@ -173,6 +197,29 @@ func clientKey(mac, ip string) string {
 		return "ip:" + parsed.String()
 	}
 	return ""
+}
+
+func activeNeighborState(state string) bool {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "REACHABLE", "DELAY", "PROBE":
+		return true
+	default:
+		return false
+	}
+}
+
+func preferredClientIP(current, candidate string) string {
+	current = strings.TrimSpace(current)
+	candidate = strings.TrimSpace(candidate)
+	if current == "" {
+		return candidate
+	}
+	currentIP := net.ParseIP(current)
+	candidateIP := net.ParseIP(candidate)
+	if currentIP != nil && currentIP.To4() == nil && candidateIP != nil && candidateIP.To4() != nil {
+		return candidateIP.String()
+	}
+	return current
 }
 
 func normalizeMAC(value string) string {

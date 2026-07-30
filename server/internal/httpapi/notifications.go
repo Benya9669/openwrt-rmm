@@ -300,12 +300,44 @@ func (a *App) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Re
 func (a *App) handleListNotifications(w http.ResponseWriter, r *http.Request) {
 	principal, _ := principalFromContext(r.Context())
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	deliveries, err := a.store.ListNotificationDeliveries(r.Context(), store.NotificationListOptions{UserID: principal.User.ID, Limit: limit})
+	query := r.URL.Query()
+	opts := store.NotificationListOptions{
+		UserID:   principal.User.ID,
+		DeviceID: strings.TrimSpace(query.Get("device_id")),
+		Severity: strings.TrimSpace(query.Get("severity")),
+		Event:    strings.TrimSpace(query.Get("event")),
+		Channel:  strings.TrimSpace(query.Get("channel")),
+		Status:   strings.TrimSpace(query.Get("status")),
+		Limit:    limit,
+	}
+	if !allowedNotificationFilter(opts.Severity, "", "warning", "critical") ||
+		!allowedNotificationFilter(opts.Event, "", "active", "repeat", "resolved", "test") ||
+		!allowedNotificationFilter(opts.Channel, "", "email", "telegram", "webhook") ||
+		!allowedNotificationFilter(opts.Status, "", "queued", "sending", "retry", "sent", "failed", "dead_letter") {
+		writeError(w, http.StatusBadRequest, "invalid notification filter")
+		return
+	}
+	deliveries, err := a.store.ListNotificationDeliveries(r.Context(), opts)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load notifications")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"notifications": deliveries})
+	metrics, err := a.store.NotificationDeliveryMetrics(r.Context(), principal.User.ID, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load notification metrics")
+		return
+	}
+	sanitizeNotificationMetrics(&metrics)
+	writeJSON(w, http.StatusOK, map[string]any{"notifications": deliveries, "metrics": metrics})
+}
+
+func allowedNotificationFilter(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) handleTestNotifications(w http.ResponseWriter, r *http.Request) {
@@ -345,13 +377,86 @@ func (a *App) handleTestNotifications(w http.ResponseWriter, r *http.Request) {
 func (a *App) notificationSettingsResponse(ctx context.Context, settings model.NotificationSettings, user model.User) map[string]any {
 	emailVerified, _ := a.store.ContactVerified(ctx, user.ID, "email", user.Email)
 	telegramVerified, _ := a.store.ContactVerified(ctx, user.ID, "telegram", settings.TelegramChatID)
+	metrics, _ := a.store.NotificationDeliveryMetrics(ctx, user.ID, time.Now().UTC())
+	sanitizeNotificationMetrics(&metrics)
+	channelMetrics := map[string]model.NotificationChannelMetrics{}
+	for _, item := range metrics.Channels {
+		channelMetrics[item.Channel] = item
+	}
+	emailStatus, emailMessage := notificationChannelDiagnostic(
+		a.alertEmailSender != nil,
+		user.Email != "",
+		emailVerified,
+		settings.EmailEnabled,
+		"SMTP не настроен на сервере",
+		"Добавьте e-mail в профиле",
+		"Подтвердите e-mail кодом",
+	)
+	telegramStatus, telegramMessage := notificationChannelDiagnostic(
+		a.telegramSender != nil,
+		validTelegramChatID(settings.TelegramChatID),
+		telegramVerified,
+		settings.TelegramEnabled,
+		"Telegram Bot Token не настроен на сервере",
+		"Укажите Telegram Chat ID",
+		"Подтвердите Telegram кодом",
+	)
+	webhookConfigured := settings.WebhookURL != "" && settings.WebhookSecretConfigured
+	webhookStatus, webhookMessage := notificationChannelDiagnostic(
+		true,
+		webhookConfigured,
+		webhookConfigured,
+		settings.WebhookEnabled,
+		"",
+		"Укажите HTTPS URL и секрет не короче 32 символов",
+		"",
+	)
 	return map[string]any{
 		"settings": settings,
 		"channels": map[string]any{
-			"email":    map[string]any{"available": a.alertEmailSender != nil, "destination": maskEmail(user.Email), "profile_email_configured": user.Email != "", "verified": emailVerified},
-			"telegram": map[string]any{"available": a.telegramSender != nil, "verified": telegramVerified},
-			"webhook":  map[string]any{"available": true},
+			"email": map[string]any{
+				"available": a.alertEmailSender != nil, "destination": maskEmail(user.Email),
+				"profile_email_configured": user.Email != "", "verified": emailVerified,
+				"status": emailStatus, "message": emailMessage, "delivery": channelMetrics["email"],
+			},
+			"telegram": map[string]any{
+				"available": a.telegramSender != nil, "verified": telegramVerified,
+				"status": telegramStatus, "message": telegramMessage, "delivery": channelMetrics["telegram"],
+			},
+			"webhook": map[string]any{
+				"available": true, "configured": webhookConfigured,
+				"status": webhookStatus, "message": webhookMessage, "delivery": channelMetrics["webhook"],
+			},
 		},
+	}
+}
+
+func sanitizeNotificationMetrics(metrics *model.NotificationDeliveryMetrics) {
+	if metrics == nil {
+		return
+	}
+	for index := range metrics.Channels {
+		if metrics.Channels[index].LastError != "" {
+			metrics.Channels[index].LastError = "Канал не подтвердил доставку. Проверьте настройки и отправьте тест."
+		}
+	}
+}
+
+func notificationChannelDiagnostic(available, configured, verified, enabled bool, unavailableMessage, configureMessage, verifyMessage string) (string, string) {
+	switch {
+	case !available:
+		return "unavailable", unavailableMessage
+	case !enabled:
+		if configured && verified {
+			return "disabled", "Канал настроен, но выключен"
+		}
+		return "disabled", "Канал выключен"
+	case !configured:
+		return "attention", configureMessage
+	case !verified:
+		return "attention", verifyMessage
+	default:
+		return "ready", "Канал готов к отправке"
 	}
 }
 

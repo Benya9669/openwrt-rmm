@@ -17,3 +17,8 @@ secrets/
 release-keys/
 router_tunnel_key
 router_tunnel_key.pub
+/.codex-remote-attachments/
+/.tmp-docker-config/
+/.tmp-go-cache/
+/.tmp-ui-091.err.log
+/.tmp-ui-091.out.log

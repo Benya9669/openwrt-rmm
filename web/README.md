@@ -39,6 +39,8 @@ Current MVP features:
 - live device refresh over authenticated Server-Sent Events (SSE), with 30-second polling fallback and refresh when the tab becomes visible;
 - friendly LuCI access states for expired, unavailable, and timed-out sessions;
 - separate online, recently seen, and DHCP-only client presence states.
+- separate account tabs for profile, security, notifications, and administrator users;
+- notification queue metrics, channel diagnostics, and filtered delivery history.
 
 ## Check
 

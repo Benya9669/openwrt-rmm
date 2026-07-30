@@ -11,7 +11,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=26">
+    <link rel="stylesheet" href="/styles.css?v=27">
   </head>
   <body class="account-page">
     <main id="loginView" class="landing-view">
@@ -866,14 +866,20 @@
             <span id="profileRole">Пользователь</span>
           </div>
         </div>
-        <form id="profileForm" class="profile-form">
+        <nav class="profile-tabs" aria-label="Разделы личного кабинета" role="tablist">
+          <button class="profile-tab is-active" data-profile-tab="account" type="button" role="tab" aria-controls="profileForm" aria-selected="true">Профиль</button>
+          <button class="profile-tab" data-profile-tab="security" type="button" role="tab" aria-controls="passwordForm" aria-selected="false">Безопасность</button>
+          <button class="profile-tab" data-profile-tab="notifications" type="button" role="tab" aria-controls="notificationSettingsForm" aria-selected="false">Уведомления</button>
+          <button id="profileAdminTab" class="profile-tab is-hidden" data-profile-tab="admin" type="button" role="tab" aria-controls="userManagementSection" aria-selected="false">Пользователи</button>
+        </nav>
+        <form id="profileForm" class="profile-form profile-tab-panel" data-profile-panel="account" role="tabpanel">
           <div class="profile-section-heading"><strong>Контактные данные</strong><span>Используются только в вашем аккаунте</span></div>
           <label>Отображаемое имя<input id="profileDisplayName" type="text" maxlength="80" autocomplete="name" placeholder="Как к вам обращаться"></label>
           <label>E-mail<input id="profileEmail" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com"></label>
           <button class="primary" type="submit">Сохранить профиль</button>
           <p id="profileMessage" class="form-message" role="status"></p>
         </form>
-        <form id="passwordForm" class="profile-form profile-security-form">
+        <form id="passwordForm" class="profile-form profile-security-form profile-tab-panel is-hidden" data-profile-panel="security" role="tabpanel">
           <div class="profile-section-heading"><strong>Смена пароля</strong><span>Остальные активные сессии будут завершены</span></div>
           <label>Текущий пароль<input id="currentPassword" type="password" autocomplete="current-password" required></label>
           <label>Новый пароль<input id="newPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
@@ -881,7 +887,7 @@
           <button type="submit">Изменить пароль</button>
           <p id="passwordMessage" class="form-message" role="status"></p>
         </form>
-        <form id="notificationSettingsForm" class="profile-form notification-settings-form">
+        <form id="notificationSettingsForm" class="profile-form notification-settings-form profile-tab-panel is-hidden" data-profile-panel="notifications" role="tabpanel">
           <div class="profile-section-heading"><strong>Уведомления и пороги</strong><span>Настройки применяются к вашим роутерам</span></div>
           <div class="notification-channel-grid">
             <label class="notification-toggle"><input id="notificationEmailEnabled" type="checkbox"><span><strong>E-mail</strong><small id="notificationEmailHint">Используется e-mail из профиля</small></span></label>
@@ -936,14 +942,25 @@
           <button id="saveDeviceNotificationSettingsBtn" type="button">Сохранить настройки роутера</button>
           <div class="notification-form-actions"><button class="primary" type="submit">Сохранить уведомления</button><button id="testNotificationsBtn" type="button">Отправить тест</button></div>
           <p id="notificationSettingsMessage" class="form-message" role="status"></p>
+          <div class="profile-section-heading"><strong>Состояние доставки</strong><span>Текущая очередь и результаты работы каналов</span></div>
+          <div id="notificationMetrics" class="notification-metrics" aria-live="polite"></div>
+          <div id="notificationChannelDiagnostics" class="notification-channel-diagnostics"></div>
           <div class="notification-history-heading"><strong>Последние отправки</strong><button id="refreshNotificationsBtn" class="text-button" type="button">Обновить</button></div>
+          <div class="notification-history-filters" aria-label="Фильтры истории уведомлений">
+            <label>Роутер<select id="notificationFilterDevice"><option value="">Все роутеры</option></select></label>
+            <label>Важность<select id="notificationFilterSeverity"><option value="">Любая</option><option value="critical">Критическая</option><option value="warning">Предупреждение</option></select></label>
+            <label>Событие<select id="notificationFilterEvent"><option value="">Любое</option><option value="active">Возникло</option><option value="repeat">Повтор</option><option value="resolved">Восстановлено</option><option value="test">Тест</option></select></label>
+            <label>Канал<select id="notificationFilterChannel"><option value="">Все</option><option value="email">E-mail</option><option value="telegram">Telegram</option><option value="webhook">Webhook</option></select></label>
+            <label>Статус<select id="notificationFilterStatus"><option value="">Любой</option><option value="queued">В очереди</option><option value="sending">Отправляется</option><option value="retry">Ожидает повтора</option><option value="sent">Доставлено</option><option value="dead_letter">Не доставлено</option></select></label>
+            <button id="clearNotificationFiltersBtn" class="text-button" type="button">Сбросить</button>
+          </div>
           <div id="notificationHistory" class="notification-history"></div>
         </form>
-        <section id="userManagementSection" class="profile-form user-management is-hidden">
+        <section id="userManagementSection" class="profile-form user-management profile-tab-panel is-hidden" data-profile-panel="admin" role="tabpanel">
           <div class="profile-section-heading"><strong>Пользователи</strong><span>Роли и доступы всех аккаунтов</span></div>
           <div id="userList" class="user-list"></div>
         </section>
-        <div class="profile-session-actions">
+        <div class="profile-session-actions profile-tab-panel is-hidden" data-profile-panel="security">
           <button id="logoutAllBtn" class="danger" type="button">Завершить все сессии</button>
           <button id="profileLogoutBtn" type="button">Выйти на этом устройстве</button>
         </div>
@@ -994,6 +1011,6 @@
 
     <script src="/landing-motion.js?v=2" defer></script>
     <script src="/version.js?v=1" defer></script>
-    <script src="/app.js?v=29" defer></script>
+    <script src="/app.js?v=30" defer></script>
   </body>
 </html>

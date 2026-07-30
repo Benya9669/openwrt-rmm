@@ -165,3 +165,88 @@ func TestNotificationQueueDeadLetterLeaseRecoveryAndRetention(t *testing.T) {
 		t.Fatalf("purge removed non-terminal delivery: %#v err=%v", history, err)
 	}
 }
+
+func TestNotificationDeliveryFiltersAndMetrics(t *testing.T) {
+	ctx := context.Background()
+	st, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "notification-metrics.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	user, err := st.EnsureBootstrapUser(ctx, "admin", "test-password-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, err := st.EnrollDevice(ctx, "router", "OpenWrt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alerts, _, err := st.SyncDeviceAlerts(ctx, device.DeviceID, []model.Alert{{
+		Type: "offline", Severity: "critical", Status: "active", Message: "offline",
+	}})
+	if err != nil || len(alerts) != 1 {
+		t.Fatalf("create alert: %#v err=%v", alerts, err)
+	}
+	now := time.Now().UTC()
+	create := func(channel, key string) model.NotificationDelivery {
+		t.Helper()
+		delivery, inserted, createErr := st.CreateNotificationDelivery(ctx, model.NotificationDelivery{
+			UserID: user.ID, DeviceID: device.DeviceID, AlertID: alerts[0].ID,
+			Event: "active", Channel: channel, Title: channel, Body: "body",
+			Destination: channel + "@example.test", DestinationMasked: "***",
+		}, key)
+		if createErr != nil || !inserted {
+			t.Fatalf("create %s delivery: inserted=%v err=%v", channel, inserted, createErr)
+		}
+		return delivery
+	}
+	email := create("email", "metrics-email")
+	telegram := create("telegram", "metrics-telegram")
+	webhook := create("webhook", "metrics-webhook")
+	otherUser, err := st.CreateUser(ctx, "other", "Other", "other@example.test", "test-password-hash", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, inserted, err := st.CreateNotificationDelivery(ctx, model.NotificationDelivery{
+		UserID: otherUser.ID, Event: "test", Channel: "email", Title: "other", Body: "body",
+		Destination: "other@example.test", DestinationMasked: "o***@example.test",
+	}, "metrics-other-user"); err != nil || !inserted {
+		t.Fatalf("create other-user delivery: inserted=%v err=%v", inserted, err)
+	}
+	oldest := notificationTimeText(now.Add(-5 * time.Minute))
+	sentAt := notificationTimeText(now.Add(-time.Minute))
+	if _, err := st.db.ExecContext(ctx, `UPDATE notification_deliveries SET created_at = ?, updated_at = ? WHERE id = ?`, oldest, oldest, email.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE notification_deliveries SET status = 'sent', sent_at = ?, updated_at = ? WHERE id = ?`, sentAt, sentAt, telegram.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE notification_deliveries SET status = 'dead_letter', error = 'delivery failed', updated_at = ? WHERE id = ?`, sentAt, webhook.ID); err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := st.ListNotificationDeliveries(ctx, NotificationListOptions{
+		UserID: user.ID, DeviceID: device.DeviceID, Severity: "critical", Event: "active", Channel: "telegram", Status: "sent",
+	})
+	if err != nil || len(filtered) != 1 || filtered[0].ID != telegram.ID || filtered[0].Severity != "critical" {
+		t.Fatalf("unexpected filtered deliveries: %#v err=%v", filtered, err)
+	}
+	metrics, err := st.NotificationDeliveryMetrics(ctx, user.ID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.Queued != 1 || metrics.Sent != 1 || metrics.Failed != 0 || metrics.DeadLetter != 1 {
+		t.Fatalf("unexpected metrics: %#v", metrics)
+	}
+	if metrics.OldestQueuedAt == nil || metrics.OldestQueueAgeSeconds < 299 {
+		t.Fatalf("oldest queue age was not calculated: %#v", metrics)
+	}
+	var webhookMetrics *model.NotificationChannelMetrics
+	for index := range metrics.Channels {
+		if metrics.Channels[index].Channel == "webhook" {
+			webhookMetrics = &metrics.Channels[index]
+		}
+	}
+	if webhookMetrics == nil || webhookMetrics.LastError != "delivery failed" || webhookMetrics.LastErrorAt == nil {
+		t.Fatalf("webhook error metrics missing: %#v", metrics.Channels)
+	}
+}

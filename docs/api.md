@@ -87,7 +87,7 @@ Authorization: Bearer <operator-api-token>
 
 ```json
 {
-  "server_version": "0.9.0",
+  "server_version": "0.9.1",
   "server_revision": "0123456789abcdef",
   "stable_agent_version": "0.6.8",
   "update_manifest_url": "https://benya9669.github.io/openwrt-rmm/update-manifest.json"
@@ -351,8 +351,40 @@ accounts.
 ```http
 GET /api/notifications/settings
 PUT /api/notifications/settings
-GET /api/notifications?limit=50
+GET /api/notifications?limit=50&device_id=dev_...&severity=critical&event=active&channel=email&status=sent
 POST /api/notifications/test
+```
+
+All history filters are optional. Accepted values are:
+
+- `severity`: `warning`, `critical`;
+- `event`: `active`, `repeat`, `resolved`, `test`;
+- `channel`: `email`, `telegram`, `webhook`;
+- `status`: `queued`, `sending`, `retry`, `sent`, `failed`, `dead_letter`.
+
+The history response also contains operational metrics:
+
+```json
+{
+  "notifications": [],
+  "metrics": {
+    "queued": 1,
+    "sent": 42,
+    "failed": 1,
+    "dead_letter": 0,
+    "oldest_queued_at": "2026-07-31T01:00:00Z",
+    "oldest_queue_age_seconds": 73,
+    "channels": [
+      {
+        "channel": "email",
+        "last_success_at": "2026-07-31T00:58:00Z",
+        "last_error_at": "2026-07-30T23:40:00Z",
+        "last_error_status": "retry",
+        "last_error": "Channel did not confirm delivery."
+      }
+    ]
+  }
+}
 ```
 
 The update request accepts:
@@ -380,6 +412,10 @@ status. History also includes `attempt_count`, `max_attempts`, `last_attempt_at`
 `next_attempt_at`. Raw destinations and server-side credentials are not returned by the
 API. Active and resolved events use lifecycle deduplication; an optional repeat interval
 can remind the user about an open problem.
+
+`GET /api/notifications/settings` additionally returns a safe diagnostic for each
+channel: `ready`, `disabled`, `attention`, or `unavailable`, together with the most recent
+delivery timestamps and a sanitized error message.
 
 The worker claims a delivery with a time-limited lease before contacting a provider. A
 temporary failure uses exponential backoff starting at 30 seconds and capped at 30

@@ -3,6 +3,50 @@
 This file contains user-facing release notes. Every section must match its Git tag;
 the release workflow fails when notes for a new tag have not been prepared.
 
+## server-v0.9.1
+
+Stabilization release for notification operations, account navigation, and LAN client
+inventory quality.
+
+### Added
+
+- Delivery metrics for queued, sent, retrying, and dead-letter notifications.
+- Oldest queue age plus the latest successful delivery and latest safe error for each
+  e-mail, Telegram, and webhook channel.
+- Server-side notification history filters for router, severity, event, channel, and
+  delivery status.
+- Human-readable channel diagnostics that distinguish unavailable server configuration,
+  missing destinations, unverified contacts, disabled channels, and ready channels.
+- Separate Profile, Security, Notifications, and administrator-only Users tabs in the
+  account dialog.
+- Responsive metric cards, channel health summaries, and delivery-history filters in the
+  Notifications tab.
+
+### Fixed
+
+- Failed and stale kernel neighbour entries no longer create standalone LAN clients.
+- Historical unconfirmed neighbour noise is removed after the next heartbeat.
+- DHCP-only records remain explicitly unconfirmed, while active neighbour, Wi-Fi, and
+  probe evidence controls online presence.
+- IPv4 is preferred over a link-local IPv6 address when both belong to the same MAC.
+- Webhook deliveries are labelled correctly in notification history.
+
+### Security and privacy
+
+- Notification filters remain scoped to the authenticated user.
+- Raw destinations, provider exceptions, secrets, and server credentials are not exposed
+  through metrics or diagnostics.
+- The Users tab is rendered only for administrators and existing server-side role checks
+  remain authoritative.
+
+### Compatibility and upgrade
+
+- The agent protocol remains `v1`; no agent upgrade is required.
+- No new SQLite schema migration is required. Metrics are calculated from the existing
+  durable delivery queue.
+- Back up the production database, set `RMM_RELEASE_VERSION=0.9.1`, and run the
+  notification and LAN-client smoke checks before completing the deployment.
+
 ## server-v0.9.0
 
 Feature release for reliable notifications, LAN client presence, and release metadata.

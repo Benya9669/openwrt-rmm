@@ -43,8 +43,13 @@ type AlertListOptions struct {
 }
 
 type NotificationListOptions struct {
-	UserID string
-	Limit  int
+	UserID   string
+	DeviceID string
+	Severity string
+	Event    string
+	Channel  string
+	Status   string
+	Limit    int
 }
 
 type PurgeOptions struct {

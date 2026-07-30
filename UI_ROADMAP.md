@@ -16,13 +16,15 @@
 - [x] Notification center, unread counter, incident grouping и переход к роутеру.
 - [x] Quiet hours/timezone, maintenance pause, webhook и per-device overrides.
 - [x] LAN clients со статусами «В сети», «Недавно был в сети» и «Не подтверждён».
+- [x] Личный кабинет разделён на Profile, Security, Notifications и admin-only Users.
+- [x] Метрики очереди, диагностика каналов и фильтры истории доставки.
 
 ## Следующие UI-этапы
 
 ### 1. Стабилизация текущего интерфейса
 
-- [ ] Фильтры notification center/history по роутеру, severity, event, channel и delivery status.
-- [ ] Состояние каналов: последняя успешная доставка, последняя ошибка и queue age.
+- [x] Фильтры notification center/history по роутеру, severity, event, channel и delivery status.
+- [x] Состояние каналов: последняя успешная доставка, последняя ошибка и queue age.
 - [ ] Production regression для notification, LAN clients и cloud access.
 - [ ] Автоматический browser smoke и responsive/accessibility matrix.
 

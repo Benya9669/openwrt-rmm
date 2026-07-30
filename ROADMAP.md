@@ -67,13 +67,15 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 - [ ] Проверить установку и обновление `rmm-agent-go-production`,
   `luci-app-rmm-agent` и `luci-i18n-rmm-agent-ru` из подписанного feed на реальном
   OpenWrt 24.10/25.12.
-- [ ] Подготовить и выпустить подписанный `server-v0.9.0` с notification center,
+- [x] Подготовить и выпустить подписанный `server-v0.9.0` с notification center,
   verification, per-device settings и LAN client presence.
+- [ ] Выпустить `server-v0.9.1` с операционными метриками уведомлений, фильтрами,
+  вкладками личного кабинета и очисткой шума LAN-клиентов.
 - [ ] Проверить миграцию копии production SQLite, сделать backup и только затем обновить
   production.
 - [ ] Выполнить production-проверки SMTP, Telegram, webhook, active → repeat → resolved,
   retry → dead-letter, SSE и online → recent → unconfirmed.
-- [ ] Добавить операционные метрики уведомлений: queued/sent/failed, queue age,
+- [x] Добавить операционные метрики уведомлений: queued/sent/failed, queue age,
   последняя ошибка и последняя успешная доставка по каналу.
 
 ### 1. Изоляция туннелей и защита управляющих команд

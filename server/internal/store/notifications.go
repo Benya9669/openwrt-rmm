@@ -319,23 +319,111 @@ func (s *Store) ListNotificationDeliveries(ctx context.Context, opts Notificatio
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, notificationDeliverySelect+`
-WHERE user_id = ?
-ORDER BY created_at DESC LIMIT ?
-`, opts.UserID, limit)
+	query := `
+SELECT nd.id, nd.user_id, COALESCE(nd.device_id, ''), nd.alert_id, nd.event, nd.channel, nd.status,
+       nd.title, nd.body, nd.destination, nd.destination_masked, nd.error, nd.attempt_count,
+       nd.max_attempts, nd.created_at, nd.last_attempt_at, nd.next_attempt_at, nd.sent_at,
+       COALESCE(a.severity, '')
+FROM notification_deliveries nd
+LEFT JOIN alerts a ON a.id = nd.alert_id
+WHERE nd.user_id = ?`
+	args := []any{opts.UserID}
+	if opts.DeviceID != "" {
+		query += ` AND nd.device_id = ?`
+		args = append(args, opts.DeviceID)
+	}
+	if opts.Severity != "" {
+		query += ` AND a.severity = ?`
+		args = append(args, opts.Severity)
+	}
+	if opts.Event != "" {
+		query += ` AND nd.event = ?`
+		args = append(args, opts.Event)
+	}
+	if opts.Channel != "" {
+		query += ` AND nd.channel = ?`
+		args = append(args, opts.Channel)
+	}
+	if opts.Status != "" {
+		query += ` AND nd.status = ?`
+		args = append(args, opts.Status)
+	}
+	query += ` ORDER BY nd.created_at DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	deliveries := make([]model.NotificationDelivery, 0)
 	for rows.Next() {
-		delivery, err := scanNotificationDelivery(rows)
+		delivery, err := scanNotificationDeliveryWithSeverity(rows)
 		if err != nil {
 			return nil, err
 		}
 		deliveries = append(deliveries, delivery)
 	}
 	return deliveries, rows.Err()
+}
+
+func (s *Store) NotificationDeliveryMetrics(ctx context.Context, userID string, now time.Time) (model.NotificationDeliveryMetrics, error) {
+	metrics := model.NotificationDeliveryMetrics{
+		Channels: make([]model.NotificationChannelMetrics, 0, 3),
+	}
+	var oldestQueued sql.NullString
+	if err := s.db.QueryRowContext(ctx, `
+SELECT
+  COALESCE(SUM(CASE WHEN status IN ('queued', 'sending') THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN status IN ('retry', 'failed') THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN status = 'dead_letter' THEN 1 ELSE 0 END), 0),
+  MIN(CASE WHEN status IN ('queued', 'sending', 'retry') THEN created_at END)
+FROM notification_deliveries
+WHERE user_id = ?
+`, userID).Scan(&metrics.Queued, &metrics.Sent, &metrics.Failed, &metrics.DeadLetter, &oldestQueued); err != nil {
+		return model.NotificationDeliveryMetrics{}, err
+	}
+	now = now.UTC()
+	if oldestQueued.Valid && oldestQueued.String != "" {
+		value := parseTime(oldestQueued.String)
+		metrics.OldestQueuedAt = &value
+		if age := now.Sub(value); age > 0 {
+			metrics.OldestQueueAgeSeconds = int64(age / time.Second)
+		}
+	}
+	for _, channel := range []string{"email", "telegram", "webhook"} {
+		channelMetrics := model.NotificationChannelMetrics{Channel: channel}
+		var lastSuccess sql.NullString
+		err := s.db.QueryRowContext(ctx, `
+SELECT sent_at
+FROM notification_deliveries
+WHERE user_id = ? AND channel = ? AND status = 'sent' AND sent_at IS NOT NULL
+ORDER BY sent_at DESC LIMIT 1
+`, userID, channel).Scan(&lastSuccess)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return model.NotificationDeliveryMetrics{}, err
+		}
+		if lastSuccess.Valid && lastSuccess.String != "" {
+			value := parseTime(lastSuccess.String)
+			channelMetrics.LastSuccessAt = &value
+		}
+		var lastErrorAt sql.NullString
+		err = s.db.QueryRowContext(ctx, `
+SELECT error, status, updated_at
+FROM notification_deliveries
+WHERE user_id = ? AND channel = ? AND status IN ('retry', 'failed', 'dead_letter')
+ORDER BY updated_at DESC LIMIT 1
+`, userID, channel).Scan(&channelMetrics.LastError, &channelMetrics.LastErrorStatus, &lastErrorAt)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return model.NotificationDeliveryMetrics{}, err
+		}
+		if lastErrorAt.Valid && lastErrorAt.String != "" {
+			value := parseTime(lastErrorAt.String)
+			channelMetrics.LastErrorAt = &value
+		}
+		metrics.Channels = append(metrics.Channels, channelMetrics)
+	}
+	return metrics, nil
 }
 
 type notificationScanner interface {
@@ -365,6 +453,35 @@ func scanNotificationDelivery(scanner notificationScanner) (model.NotificationDe
 		delivery.NextAttemptAt = &value
 	}
 	if sentAt.Valid {
+		value := parseTime(sentAt.String)
+		delivery.SentAt = &value
+	}
+	return delivery, nil
+}
+
+func scanNotificationDeliveryWithSeverity(scanner notificationScanner) (model.NotificationDelivery, error) {
+	var delivery model.NotificationDelivery
+	var createdAt string
+	var lastAttemptAt, nextAttemptAt, sentAt sql.NullString
+	err := scanner.Scan(
+		&delivery.ID, &delivery.UserID, &delivery.DeviceID, &delivery.AlertID, &delivery.Event,
+		&delivery.Channel, &delivery.Status, &delivery.Title, &delivery.Body, &delivery.Destination,
+		&delivery.DestinationMasked, &delivery.Error, &delivery.AttemptCount, &delivery.MaxAttempts,
+		&createdAt, &lastAttemptAt, &nextAttemptAt, &sentAt, &delivery.Severity,
+	)
+	if err != nil {
+		return model.NotificationDelivery{}, err
+	}
+	delivery.CreatedAt = parseTime(createdAt)
+	if lastAttemptAt.Valid && lastAttemptAt.String != "" {
+		value := parseTime(lastAttemptAt.String)
+		delivery.LastAttemptAt = &value
+	}
+	if nextAttemptAt.Valid && nextAttemptAt.String != "" {
+		value := parseTime(nextAttemptAt.String)
+		delivery.NextAttemptAt = &value
+	}
+	if sentAt.Valid && sentAt.String != "" {
 		value := parseTime(sentAt.String)
 		delivery.SentAt = &value
 	}
