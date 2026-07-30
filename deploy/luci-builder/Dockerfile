@@ -143,7 +143,7 @@ RUN rm -rf tmp/info \
 
 RUN printf '%s\n' \
         'CONFIG_PACKAGE_luci-app-rmm-agent=m' \
-        'CONFIG_LUCI_LANG_ru=m' \
+        'CONFIG_LUCI_LANG_ru=y' \
         >> .config \
     && make defconfig \
     && awk ' \
@@ -160,7 +160,7 @@ RUN printf '%s\n' \
        ' .config > .config.packages-pruned \
     && mv .config.packages-pruned .config \
     && grep -q '^CONFIG_PACKAGE_luci-app-rmm-agent=m$' .config \
-    && grep -q '^CONFIG_LUCI_LANG_ru=m$' .config \
+    && grep -q '^CONFIG_LUCI_LANG_ru=y$' .config \
     && grep -q '^CONFIG_PACKAGE_luci-i18n-rmm-agent-ru=m$' .config
 
 RUN make -j1 package/luci-app-rmm-agent/compile V=s
