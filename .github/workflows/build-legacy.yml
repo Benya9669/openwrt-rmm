@@ -230,6 +230,49 @@ jobs:
             package-repository \
             "${AGENT_TAG#agent-v}"
 
+      - name: Sign stable update manifest with the package key
+        env:
+          OPENWRT_APK_SECRET_B64: ${{ secrets.OPENWRT_APK_SECRET_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENWRT_APK_SECRET_B64"
+          umask 077
+          trap 'rm -f manifest-signing.pem' EXIT
+          printf '%s' "$OPENWRT_APK_SECRET_B64" | base64 --decode > manifest-signing.pem
+          openssl dgst -sha256 \
+            -sign manifest-signing.pem \
+            -out package-repository/update-manifest.sig \
+            package-repository/update-manifest.json
+          openssl dgst -sha256 \
+            -verify keys/openwrt/apk/rmm-openwrt.pem \
+            -signature package-repository/update-manifest.sig \
+            package-repository/update-manifest.json
+          rm -f manifest-signing.pem
+          trap - EXIT
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign and verify stable update manifest
+        env:
+          AGENT_TAG: ${{ inputs.agent_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle package-repository/update-manifest.sigstore.json \
+            package-repository/update-manifest.json
+          cosign verify-blob \
+            --bundle package-repository/update-manifest.sigstore.json \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\\.github/workflows/build-legacy\\.yml@refs/heads/" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            package-repository/update-manifest.json
+
+      - name: Attest stable update manifest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: package-repository/update-manifest.json
+
       - name: Upload legacy packages
         env:
           AGENT_TAG: ${{ inputs.agent_tag }}

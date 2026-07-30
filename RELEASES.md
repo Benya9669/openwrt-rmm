@@ -86,3 +86,9 @@ Server and tunnel images are published with SBOM/provenance attestations bound t
 release workflow identity. Agent packages receive GitHub build-provenance attestations.
 IPK and APK feeds additionally use their native OpenWrt repository signatures so `opkg`
 and `apk` can enforce trust on the router.
+
+The package repository also contains `update-manifest.json`, a detached ECDSA signature,
+and its Sigstore bundle. The server verifies the detached signature before adopting a
+version from the manifest, then exposes the trusted stable version through authenticated
+release metadata. The dashboard compares versions with Semantic Versioning and never
+recommends downgrading an agent newer than the stable channel.

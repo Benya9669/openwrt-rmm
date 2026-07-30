@@ -1,59 +1,61 @@
-# UI/UX roadmap — актуальный статус
+# UI/UX roadmap
 
-Актуализировано: 2026-07-22.
+Актуализировано: 2026-07-31. Общий порядок разработки находится в `ROADMAP.md`.
+Здесь перечислены только UI-результаты, зависящие от соответствующих backend-этапов.
 
-## Завершённая основа
+## Реализовано в `main`
 
 - [x] Общие design tokens, типографика, focus и motion/reduced-motion.
-- [x] Лендинг с адаптивным hero, scroll reveal и партнёрами.
-- [x] Рабочий layout: sidebar, tablet header и mobile bottom navigation.
-- [x] Полноширинный список объектов, фильтры, сортировка и состояния.
-- [x] Карточка объекта с вкладками «Обзор», «Клиенты», «Сеть», «Операции»,
-  «Сведения» и «Эксперт».
-- [x] Графики, alerts, диагностика, cloud LuCI и экспертные операции.
+- [x] Адаптивный landing, partners, app shell и mobile navigation.
+- [x] Fleet, фильтры, сортировка и состояния online/offline/problem.
+- [x] Карточка роутера, локально прокручиваемые таблицы и mobile layout.
+- [x] Метрики, alerts, диагностика, UCI, пакеты и audit.
+- [x] Cloud LuCI waiting/error flow.
 - [x] Профиль, e-mail, пароль, пользователи и сессии.
-- [x] Единые LuCI 401/403/404/409/429/502/503/504 состояния.
-- [x] Проверка 1920, 1366, 1024×768, 768×1024, 390 и 360 px.
+- [x] Notification settings, verification, delivery history и test send.
+- [x] Notification center, unread counter, incident grouping и переход к роутеру.
+- [x] Quiet hours/timezone, maintenance pause, webhook и per-device overrides.
+- [x] LAN clients со статусами «В сети», «Недавно был в сети» и «Не подтверждён».
 
-## Текущий этап — уведомления
+## Следующие UI-этапы
 
-- [x] Настройки каналов e-mail/Telegram в личном кабинете.
-- [x] Пороги memory/disk/packet loss/latency.
-- [x] Warning/critical/resolved и период повтора.
-- [x] Тестовая отправка и история queued/sending/retry/sent/dead-letter.
-- [x] Retry/dead-letter состояния, номер попытки и время следующей доставки.
-- [x] Недоступный серверный канал объясняется и блокируется.
-- [ ] Quiet hours и выбор timezone.
-- [ ] Per-device overrides в карточке объекта.
-- [ ] Webhook channel и masked secret editor.
+### 1. Стабилизация текущего интерфейса
 
-## Следующие UI-блоки
+- [ ] Фильтры notification center/history по роутеру, severity, event, channel и delivery status.
+- [ ] Состояние каналов: последняя успешная доставка, последняя ошибка и queue age.
+- [ ] Production regression для notification, LAN clients и cloud access.
+- [ ] Автоматический browser smoke и responsive/accessibility matrix.
 
-### Backup/restore
+### 2. Безопасный remote access
 
-- [ ] Список конфигурационных архивов с датой, версией и размером.
-- [ ] Создание/скачивание backup и политика retention.
-- [ ] Diff конфигурации без отображения секретов по умолчанию.
-- [ ] Пошаговый restore с проверкой совместимости и rollback warning.
+- [ ] Показ tunnel identity/health без раскрытия credentials.
+- [ ] Понятные состояния port allocation, access denied, expired и revoked.
+- [ ] Browser terminal с ограниченной сессией, предупреждениями и audit trail.
+- [ ] Экран активных сессий и административных лимитов.
 
-### Обновления
+### 3. Backup/restore
 
-- [ ] Доступная/установленная версия агента и LuCI package.
-- [ ] Update preview, progress, reconnect state и результат.
-- [ ] Выбор группы/canary и остановка rollout при ошибке.
+- [ ] Список архивов с device/version/date/size/status.
+- [ ] Создание, скачивание и retention.
+- [ ] Безопасный diff с секретами, скрытыми по умолчанию.
+- [ ] Restore wizard с compatibility check, повторным подтверждением и rollback warning.
 
-### Управление доступом
+### 4. Обновления
 
-- [ ] Workspace/organization switcher.
+- [ ] Установленная и доступная версии agent/LuCI.
+- [ ] Update preview, progress, reconnect и итоговый health result.
+- [ ] Canary/group rollout и автоматическая остановка при ошибке.
+- [ ] История обновлений и rollback.
+
+### 5. Organizations и безопасность
+
+- [ ] Workspace switcher и приглашения.
 - [ ] Роли owner/admin/operator/viewer.
-- [ ] Матрица доступа к группам и отдельным устройствам.
+- [ ] Матрица прав групп и устройств.
+- [ ] MFA/WebAuthn, recovery codes и управление device credentials.
 
-## Постоянные критерии приёмки
+### 6. Доступность и локализация
 
-- Основное действие доступно без перехода в «Эксперт».
-- Опасное действие объясняет последствия и требует подтверждения.
-- Каждая операция имеет loading, success, empty, offline и error состояния.
-- Request ID доступен для серверной ошибки.
-- Нет горизонтального overflow страницы; широкий контент прокручивается локально.
-- Touch target ключевых действий не меньше 42 px.
-- Keyboard focus видим, `prefers-reduced-motion` соблюдается.
+- [ ] Web UI i18n без жёстко заданного русского текста.
+- [ ] Проверка keyboard-only, screen reader, contrast и zoom 200% в CI.
+- [ ] Полные loading/empty/offline/error состояния для каждого нового wizard.

@@ -36,12 +36,12 @@ const state = {
   previousMobileRoute: "fleet",
   liveConnected: false,
   lastUpdatedAt: null,
+  releaseMetadata: null,
+  releaseMetadataCheckedAt: 0,
 };
 
 let eventSource = null;
 let liveRefreshTimer = null;
-
-const EXPECTED_AGENT_VERSION = "0.6.8";
 
 const els = {
   loginView: document.querySelector("#loginView"),
@@ -522,6 +522,7 @@ async function checkSession() {
   try {
     const me = await api("/api/auth/me");
     showApp(me.user || { username: me.username, role: "user" });
+    await loadReleaseMetadata();
     await loadDevices();
   } catch {
     showLogin();
@@ -538,6 +539,7 @@ async function login() {
     }),
   });
   showApp(response.user || { username: response.username, role: "user" });
+  await loadReleaseMetadata();
   await loadDevices();
 }
 
@@ -701,10 +703,35 @@ function deviceAgentVersion(device) {
   return device && device.inventory && device.inventory.agent_version ? String(device.inventory.agent_version) : "";
 }
 
+function stableAgentVersion() {
+  return state.releaseMetadata && state.releaseMetadata.stable_agent_version
+    ? String(state.releaseMetadata.stable_agent_version)
+    : "";
+}
+
+function agentVersionState(version) {
+  const stable = stableAgentVersion();
+  if (!version || !stable || !globalThis.RMMVersions) return { comparison: null, stable };
+  return { comparison: globalThis.RMMVersions.compareSemVer(version, stable), stable };
+}
+
 function agentVersionLabel(version) {
   if (!version) return "Версия не определена";
-  if (version === EXPECTED_AGENT_VERSION) return `${version} · актуальная`;
-  return `${version} · доступна ${EXPECTED_AGENT_VERSION}`;
+  const versionState = agentVersionState(version);
+  if (versionState.comparison === -1) return `${version} · доступна ${versionState.stable}`;
+  if (versionState.comparison === 0) return `${version} · актуальная`;
+  if (versionState.comparison === 1) return `${version} · новее стабильной ${versionState.stable}`;
+  return `${version} · стабильная версия не определена`;
+}
+
+async function loadReleaseMetadata(force = false) {
+  if (!force && Date.now() - state.releaseMetadataCheckedAt < 5 * 60 * 1000) return;
+  state.releaseMetadataCheckedAt = Date.now();
+  try {
+    state.releaseMetadata = await api("/api/meta");
+  } catch {
+    state.releaseMetadata = null;
+  }
 }
 
 function deviceClientCount(device) {
@@ -1052,10 +1079,11 @@ function renderDeviceStatus(device) {
     title = "Роутер требует внимания";
     description = `Активных проблем: ${device.active_alerts}. Подробности находятся ниже в журнале проблем.`;
     icon = "!";
-  } else if (version && version !== EXPECTED_AGENT_VERSION) {
+  } else if (agentVersionState(version).comparison === -1) {
+    const stable = stableAgentVersion();
     tone = "warn";
     title = "Работает, доступно обновление агента";
-    description = `Установлена версия ${version}; актуальная стабильная версия — ${EXPECTED_AGENT_VERSION}.`;
+    description = `Установлена версия ${version}; актуальная стабильная версия — ${stable}.`;
     icon = "↻";
   }
 
@@ -1071,7 +1099,7 @@ function renderDeviceStatus(device) {
     ? (lastError
       ? `${failures ? "Последняя ошибка" : "Последний восстановленный сбой"}: ${humanizeAgentError(lastError)} · ${formatRelativeTime(errorAt)}`
       : "Ошибок обмена не зафиксировано")
-    : `Расширенная диагностика появится после обновления агента до ${EXPECTED_AGENT_VERSION}`;
+    : "Расширенная диагностика недоступна в данных последнего heartbeat.";
   els.agentHealthSummary.innerHTML = `
     <div><span>Агент</span><strong>${escapeHtml(agentVersionLabel(version))}</strong></div>
     <div><span>Runtime</span><strong>${escapeHtml(device.inventory && device.inventory.agent_runtime || "неизвестно")}</strong></div>
@@ -1381,6 +1409,7 @@ function renderAlerts(alerts) {
 
 async function loadDevices() {
   setStatus("Обновление");
+  await loadReleaseMetadata();
   const data = await api("/api/devices");
   state.devices = data.devices || [];
   if (state.selectedDeviceId && !currentDevice()) {
@@ -2245,7 +2274,7 @@ function prepareCloudAccessPopup(popup) {
   if (!popup) return;
   try {
     popup.document.open();
-    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=24"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
+    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=26"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
     popup.document.close();
     popup.opener = null;
   } catch {

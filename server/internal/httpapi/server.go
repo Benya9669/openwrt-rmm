@@ -123,6 +123,11 @@ type Config struct {
 	NotificationMaxAttempts    int
 	NotificationWorkerInterval time.Duration
 	StaticDir                  string
+	ServerVersion              string
+	ServerRevision             string
+	StableAgentVersion         string
+	StableAgentVersionProvider func() string
+	UpdateManifestURL          string
 }
 
 type App struct {
@@ -144,6 +149,11 @@ type App struct {
 	telegramSender             NotificationSender
 	notificationMaxAttempts    int
 	notificationWorkerInterval time.Duration
+	serverVersion              string
+	serverRevision             string
+	stableAgentVersion         string
+	stableAgentVersionProvider func() string
+	updateManifestURL          string
 	loginLimiter               *loginRateLimiter
 	passwordResetLimiter       *loginRateLimiter
 	loginSlots                 chan struct{}
@@ -313,6 +323,11 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		telegramSender:             cfg.TelegramSender,
 		notificationMaxAttempts:    cfg.NotificationMaxAttempts,
 		notificationWorkerInterval: cfg.NotificationWorkerInterval,
+		serverVersion:              strings.TrimSpace(cfg.ServerVersion),
+		serverRevision:             strings.TrimSpace(cfg.ServerRevision),
+		stableAgentVersion:         strings.TrimSpace(cfg.StableAgentVersion),
+		stableAgentVersionProvider: cfg.StableAgentVersionProvider,
+		updateManifestURL:          strings.TrimSpace(cfg.UpdateManifestURL),
 		loginLimiter:               newLoginRateLimiter(5, 5*time.Minute),
 		passwordResetLimiter:       newLoginRateLimiter(3, time.Hour),
 		loginSlots:                 make(chan struct{}, 4),
@@ -323,6 +338,12 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	}
 	if a.notificationWorkerInterval <= 0 {
 		a.notificationWorkerInterval = 30 * time.Second
+	}
+	if a.serverVersion == "" {
+		a.serverVersion = "dev"
+	}
+	if a.serverRevision == "" {
+		a.serverRevision = "unknown"
 	}
 	if a.tunnelHTTPHost == "" {
 		a.tunnelHTTPHost = "tunnel-ssh"
@@ -352,6 +373,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("PATCH /api/auth/profile", a.operatorAuth(http.HandlerFunc(a.handleUpdateProfile)))
 	mux.Handle("POST /api/auth/change-password", a.operatorAuth(http.HandlerFunc(a.handleChangePassword)))
 	mux.Handle("POST /api/auth/logout-all", a.operatorAuth(http.HandlerFunc(a.handleLogoutAll)))
+	mux.Handle("GET /api/meta", a.operatorAuth(http.HandlerFunc(a.handleReleaseMetadata)))
 	mux.Handle("GET /api/notifications/settings", a.operatorAuth(http.HandlerFunc(a.handleGetNotificationSettings)))
 	mux.Handle("PUT /api/notifications/settings", a.operatorAuth(http.HandlerFunc(a.handleUpdateNotificationSettings)))
 	mux.Handle("GET /api/notifications", a.operatorAuth(http.HandlerFunc(a.handleListNotifications)))
@@ -428,6 +450,22 @@ func (a *App) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	}))
 
 	writeJSON(w, http.StatusCreated, enrollResponse{DeviceID: enrolled.DeviceID, DeviceToken: enrolled.DeviceToken})
+}
+
+func (a *App) handleReleaseMetadata(w http.ResponseWriter, r *http.Request) {
+	stableVersion := a.stableAgentVersion
+	if a.stableAgentVersionProvider != nil {
+		if resolved := strings.TrimSpace(a.stableAgentVersionProvider()); resolved != "" {
+			stableVersion = resolved
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{
+		"server_version":       a.serverVersion,
+		"server_revision":      a.serverRevision,
+		"stable_agent_version": stableVersion,
+		"update_manifest_url":  a.updateManifestURL,
+	})
 }
 
 func (a *App) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
@@ -2311,9 +2349,13 @@ func staticHandler(dir string) http.Handler {
 		fullPath := filepath.Join(dir, filepath.FromSlash(assetPath))
 		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
 			if strings.HasSuffix(assetPath, ".html") {
-				w.Header().Set("Cache-Control", "no-cache")
+				w.Header().Set("Cache-Control", "no-store")
 				http.ServeFile(w, r, fullPath)
 			} else {
+				switch strings.ToLower(filepath.Ext(assetPath)) {
+				case ".js", ".css", ".json":
+					w.Header().Set("Cache-Control", "no-cache")
+				}
 				fs.ServeHTTP(w, r)
 			}
 			return

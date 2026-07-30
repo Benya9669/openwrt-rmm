@@ -13,6 +13,38 @@ manual legacy workflow described below. The default public base URL is:
 https://benya9669.github.io/openwrt-rmm/feeds/stable/openwrt
 ```
 
+The same Pages deployment publishes the stable update metadata:
+
+```text
+https://benya9669.github.io/openwrt-rmm/update-manifest.json
+https://benya9669.github.io/openwrt-rmm/update-manifest.sig
+https://benya9669.github.io/openwrt-rmm/update-manifest.sigstore.json
+```
+
+The manifest declares the stable agent version and compatible OpenWrt feed directories.
+Both current and legacy workflows sign it with the existing APK package key for runtime
+server verification and keylessly with Sigstore for workflow identity/provenance. Both
+signatures are verified before deploying Pages.
+
+Verify the package-key signature:
+
+```sh
+openssl dgst -sha256 \
+  -verify rmm-openwrt.pem \
+  -signature update-manifest.sig \
+  update-manifest.json
+```
+
+Verify the Sigstore identity:
+
+```sh
+cosign verify-blob \
+  --bundle update-manifest.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/Benya9669/openwrt-rmm/\.github/workflows/build(-legacy)?\.yml@refs/(tags/agent-v|heads/)' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  update-manifest.json
+```
+
 Before the first release, open **Repository settings → Pages** and select **GitHub
 Actions** as the deployment source. A custom domain such as `packages.daemonlord.ru`
 can be attached later in the same Pages settings; keep the GitHub Pages URL available

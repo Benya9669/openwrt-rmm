@@ -1,82 +1,88 @@
-# Актуальный инженерный checklist
+# Инженерный и release checklist
 
-Синхронизировано с кодом 2026-07-30. Источник продуктового порядка — `ROADMAP.md`.
+Актуализировано: 2026-07-31. Порядок продуктовой разработки задаёт `ROADMAP.md`.
+Этот файл содержит только критерии готовности к merge/release/deploy.
 
-## Работает сейчас
+## Состояние ветки `main`
 
-- [x] Go server, SQLite/WAL, Docker/Compose и `/healthz`.
-- [x] Go agent 0.6.7, heartbeat, команды, backoff и OpenWrt init integration.
-- [x] APK/IPK и LuCI-пакет: OpenWrt 24.10/25.12 в основном релизе,
-  OpenWrt 21.02/22.03/23.05 в ручном legacy workflow.
-- [x] Multi-user, роли admin/user, владение и передача роутеров.
-- [x] Профиль, e-mail, смена/сброс пароля и управление сессиями.
-- [x] Одноразовый secure enrollment; reusable token secrets хранятся как hash.
-- [x] Alerts: offline, WAN, memory, disk, packet loss, latency, WAN IP, commands.
-- [x] Acknowledge/resolved lifecycle и audit events.
-- [x] E-mail/Telegram notifications, пользовательские пороги, repeat и delivery history.
-- [x] Durable notification queue: leased claims, restart recovery, exponential retry, dead-letter и retention.
-- [x] Reverse tunnel, cloud LuCI и wildcard router domain.
-- [x] DirectDNS удалён из продукта; адресация роутеров работает только через cloud/wildcard-домен и исходящий туннель.
-- [x] UCI preview/apply/commit/revert/backup/restore operations.
-- [x] Fleet filters, bulk commands, metrics history и SSE auto-refresh.
-- [x] Адаптивный UI и согласованные error/loading/empty состояния.
+- [x] Go agent source и production package имеют версию `0.6.8`.
+- [x] LuCI package `0.2.2` и отдельный `luci-i18n-rmm-agent-ru`.
+- [x] Notification center, verification, quiet hours, webhook, per-device overrides и incidents.
+- [x] LAN client persistence с online/recent/unconfirmed.
+- [x] Current OpenWrt 24.10/25.12 matrix и отдельная manual legacy matrix.
+- [x] Подписанные IPK/APK repositories, SBOM/provenance и Cosign для server images.
+- [x] Stable update manifest с package compatibility, ECDSA signature и Sigstore bundle.
+- [x] DirectDNS удалён; cloud access использует wildcard domain и исходящий tunnel.
 
-## Обязательное перед следующим production-релизом
+## Текущее состояние релизов
 
-- [x] Сгенерировать ключи `usign`/APK и зафиксировать проверяемые публичные ключи.
-- [ ] Сохранить приватные ключи в зашифрованной офлайн-копии и добавить два base64-значения в GitHub Actions Secrets.
-- [ ] Включить GitHub Pages из Actions и проверить первый подписанный package feed на реальном роутере.
-- [ ] Выпустить первый `server-v*`, проверить Cosign/provenance и закрепить `RMM_RELEASE_VERSION` в production `.env`.
-- [ ] Настроить SMTP и/или `RMM_TELEGRAM_BOT_TOKEN` в production environment.
-- [ ] Выполнить тестовую отправку из реального пользовательского профиля.
-- [ ] Проверить active → repeat → resolved на тестовом роутере.
-- [ ] Проверить миграцию существующей production SQLite базы на копии.
-- [ ] Сделать backup базы перед обновлением контейнера.
-- [ ] Проверить `docker compose config --quiet` и healthcheck после deploy.
+- [x] `server-v0.8.1` опубликован, но не содержит последних notification/client изменений.
+- [x] `agent-v0.6.8` создан как подписанный tag.
+- [x] Все jobs `agent-v0.6.8` завершены успешно и package feed опубликован.
+- [ ] Следующий server tag создан с GPG-подписью и содержит текущий `main`.
+- [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
-## Следующая разработка
+## Перед `agent-v*`
 
-- [x] Добавить подтверждение e-mail и безопасную привязку Telegram-чата перед включением канала.
-- [x] Сделать встроенный центр уведомлений: unread/read, счётчик, переход к роутеру и обновление через SSE.
-- [x] Настройки по типам событий, maintenance/snooze и временное подавление алертов на период работ.
-- [ ] Добавить операционные метрики уведомлений: queued/sent/failed, возраст очереди и последняя ошибка канала.
-- [x] Активная проверка проводных клиентов и `last_seen`, чтобы flow offload не оставлял реально работающий ПК в состоянии `STALE`.
-- [x] Подписанный webhook channel.
-- [x] Quiet hours/timezone и per-device notification overrides.
-- [ ] Конфигурационные backup artifacts и retention.
-- [x] CI для тестов, Docker, текущей multi-architecture APK/IPK-матрицы и отдельной
-  legacy-сборки без блокировки основного релиза.
-- [x] Keyless Cosign, provenance/SBOM контейнеров и подписанные checksum релизов.
-- [x] Нативные подписанные `Packages.sig`/`packages.adb` и публикация package feed.
-- [ ] Signed update manifest и безопасное обновление агента из кабинета.
-- [ ] Per-device tunnel credentials.
-- [ ] Organizations и расширенный RBAC.
-- [ ] MFA, command signatures и replay protection.
-- [ ] Graceful shutdown, readiness, server metrics и load tests.
+- [ ] Версия совпадает в Go source и production package.
+- [ ] В `CHANGELOG.md` есть английский раздел для точного tag.
+- [ ] Tag подписан GPG и ранее не публиковался.
+- [ ] Основная OpenWrt matrix собрана без ошибок.
+- [ ] Release содержит только устанавливаемые `.ipk`/`.apk`.
+- [ ] Feed содержит подписанные indexes и публичные ключи.
+- [ ] Update manifest и Sigstore bundle опубликованы и независимо проверены.
+- [ ] Установлены agent, LuCI и optional Russian i18n из опубликованного feed.
+- [ ] Проверены install, upgrade, restart, stop и удаление runtime lock/state.
+- [ ] При необходимости manual legacy workflow добавляет пакеты без перемещения tag.
 
-## Постоянная проверка изменений
+## Перед `server-v*`
 
-Это повторяемый шаблон для каждого следующего изменения. Результат последнего проверенного коммита фиксируется отдельно ниже.
+- [ ] В `CHANGELOG.md` есть английский раздел для точного tag.
+- [ ] Tag подписан GPG и ранее не публиковался.
+- [ ] `go test ./...`, `go vet ./...`, web checks и Docker build прошли.
+- [ ] Compose base/release/NPMplus configurations валидны.
+- [ ] Server и tunnel images имеют один version tag, digest, SBOM, provenance и Cosign signature.
+- [ ] Миграция проверена на копии актуальной production SQLite.
+- [ ] Подготовлен rollback на предыдущий image tag.
 
+## Перед production deploy
+
+- [ ] Приватные package/tunnel keys имеют зашифрованную офлайн-копию.
+- [ ] GitHub Actions secrets настроены; секреты отсутствуют в repository и build artifacts.
+- [ ] Сделан согласованный backup SQLite и проверено его чтение в отдельном окружении.
+- [ ] `.env` использует точный release, production URL/domain и secure cookie.
+- [ ] Legacy enrollment/LuCI proxy и insecure dev mode выключены.
+- [ ] `docker compose config --quiet`, pull/up и service healthcheck прошли.
+- [ ] Проверены login, profile, password reset, enrollment и user isolation.
+- [ ] Проверены свежие SSH/LuCI sessions, timeout, close и error states.
+- [ ] Проверены SMTP/Telegram/webhook test sends без раскрытия секретов.
+- [ ] Проверены active → repeat → resolved и retry → dead-letter.
+- [ ] Проверены notification center/SSE и quiet hours/maintenance.
+- [ ] Проверены LAN client online → recent → unconfirmed.
+- [ ] Проверены desktop, 4:3, tablet и mobile.
+
+## Для каждого изменения
+
+- [ ] Diff ограничен задачей и не содержит generated/production/secret файлов.
 - [ ] `gofmt` и `go test ./...`.
 - [ ] `go vet ./...`.
-- [ ] `node --check web/app.js` и `web/landing-motion.js`.
-- [ ] `docker compose config --quiet`.
-- [ ] Docker build.
-- [ ] Desktop 1366/1920, 4:3 1024, tablet 768 и mobile 390/360.
-- [ ] Отсутствие секретов и случайных production-файлов в diff.
+- [ ] `npm run check:web`.
+- [ ] `docker compose config --quiet`, если затронут deployment.
+- [ ] Docker build, если затронут server image или runtime.
+- [ ] OpenWrt package smoke, если затронут agent/LuCI/builder/workflow.
+- [ ] Добавлены или обновлены тесты для изменённой логики.
+- [ ] Обновлены API/config/deployment docs, если изменился контракт.
+- [ ] `ROADMAP.md` меняется только при изменении фактического статуса или порядка работ.
 
-## Последняя верификация — `6a03061`
+## Последняя подтверждённая проверка
 
-- [x] `gofmt`, `go test ./...` и `go vet ./...`.
-- [x] `node --check web/app.js` и `web/landing-motion.js`.
-- [x] `docker compose config --quiet` и Docker build.
-- [x] Notification profile: 768×1024, 390×844 и 360×800 без горизонтального overflow.
-- [x] Недоступные SMTP/Telegram-каналы блокируются с понятной подсказкой.
-- [x] Ошибки тестовой отправки локализованы и сохраняют request ID.
-- [x] Проверены diff и отсутствие реальных секретов; присутствуют только безопасные example-placeholder значения.
+Commit: `a343963`.
 
-## Документация при изменении API и конфигурации
-
-- [ ] Синхронизировать `server/README.md`, `docs/api.md` и `.env.example` с endpoint и переменными окружения.
-- [ ] Обновить `docs/recent-progress.md`, checklist и roadmap без противоречащих статусов.
+- [x] `go test ./...`.
+- [x] `go vet ./...`.
+- [x] `npm run check:web`.
+- [x] `docker compose config --quiet`.
+- [x] Main CI завершён успешно.
+- [x] Локальная OpenWrt 24.10.7 ramips/mt7621 сборка создала agent, LuCI и Russian i18n.
+- [x] Полная tagged matrix `agent-v0.6.8` и GitHub Pages deployment завершены.
+- [ ] Production smoke выполнен на release, содержащем текущий `main`.

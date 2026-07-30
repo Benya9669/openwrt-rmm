@@ -1,40 +1,51 @@
-# UI checklist
+# UI acceptance checklist
 
-Синхронизировано: 2026-07-22. Детальный последний аудит находится в
-`UI_AUDIT_CHECKLIST.md`.
+Актуализировано: 2026-07-31. Реализованные возможности перечислены в `UI_ROADMAP.md`,
+результаты последнего ручного аудита — в `UI_AUDIT_CHECKLIST.md`.
 
-## Проверено и реализовано
+Этот checklist применяется к каждому изменённому экрану и не дублирует продуктовый roadmap.
 
-- [x] Вход, восстановление, профиль, пароль и управление пользователями.
-- [x] Fleet list, поиск, фильтры, сортировка, offline/online/problem states.
-- [x] Все вкладки роутера и длинные hostname/ID/IPv6.
-- [x] DHCP/Wi-Fi-клиенты не считаются online только из-за static lease.
-- [x] Metrics charts, alerts, acknowledge и operator diagnostics.
-- [x] Cloud LuCI button, waiting page и согласованные ошибки.
-- [x] Landing motion и reduced-motion fallback.
-- [x] Desktop, 4:3, tablet и mobile без page-level overflow.
-- [x] Notification settings, thresholds, test send и delivery history.
-- [x] История различает queued/sending/retry/sent/dead-letter и показывает номер попытки и время повтора.
+## Функциональные состояния
 
-## Проверить перед выпуском notification UI
+- [ ] Основное действие доступно без перехода в «Эксперт».
+- [ ] Есть loading, empty, success, offline и server error.
+- [ ] Опасное действие объясняет последствия и требует подтверждения.
+- [ ] Повторное нажатие не создаёт дублирующую операцию.
+- [ ] Ошибка показывает безопасный текст и request ID.
+- [ ] Секреты, токены и полные notification destinations не отображаются.
 
-- [ ] Профиль без e-mail: e-mail channel выключен с понятной подсказкой.
-- [x] SMTP отсутствует: e-mail channel недоступен, остальные настройки сохраняются.
-- [x] Telegram token отсутствует: Telegram channel недоступен.
-- [ ] Неверный Chat ID и пороги показывают ошибку формы.
-- [ ] Test send показывает sent/retry/dead-letter без раскрытия секретов.
-- [ ] История корректна при пустом списке и длинной ошибке доставки.
-- [ ] Profile dialog прокручивается внутри 390×844 и 360×800.
-- [ ] Keyboard navigation и zoom 200%.
+## Responsive layout
 
-## Следующие элементы
+- [ ] 1920×1080 и 1366×768.
+- [ ] 1024×768 без page-level overflow.
+- [ ] 768×1024.
+- [ ] 390×844 и 360×800.
+- [ ] Широкий контент прокручивается только внутри локального контейнера.
+- [ ] Диалоги помещаются во viewport и прокручиваются внутри.
+- [ ] Ключевые touch targets не меньше 42 px.
 
-- [ ] Встроенный notification center: колокольчик, unread/read, счётчик и переход к источнику события.
-- [ ] Фильтры уведомлений по роутеру, типу, severity, каналу и статусу доставки.
-- [ ] Настройки отдельных типов событий и maintenance/snooze для роутера.
-- [ ] Экран состояния каналов: последняя успешная отправка, последняя ошибка и тест соединения.
-- [ ] Quiet hours/timezone.
-- [ ] Webhook editor с ротацией секрета.
-- [ ] Per-device notification override.
-- [ ] Backup/restore wizard.
-- [ ] Agent update/rollout wizard.
+## Доступность и motion
+
+- [ ] Видимый keyboard focus и логичный tab order.
+- [ ] Управление доступно без мыши.
+- [ ] Zoom 200% не скрывает действия и сообщения.
+- [ ] Текст не передаёт смысл только цветом.
+- [ ] `prefers-reduced-motion` отключает декоративную анимацию.
+- [ ] Контент остаётся доступным при ошибке или отключении animation script.
+
+## Данные и обновление
+
+- [ ] SSE обновляет экран без потери выбранного объекта/фильтра/вкладки.
+- [ ] Polling fallback не создаёт скачков и повторных toast.
+- [ ] Длинные hostname, ID, IPv6 и provider errors не ломают сетку.
+- [ ] Даты используют выбранную timezone и однозначный формат.
+- [ ] Stale/recent/offline статусы имеют понятный текст.
+
+## Неподтверждённые regression-сценарии
+
+- [ ] Профиль без e-mail корректно блокирует e-mail notifications.
+- [ ] Неверный Telegram Chat ID и пороги показывают ошибку поля.
+- [ ] Test send проверен для sent/retry/dead-letter.
+- [ ] Пустая история и длинная ошибка доставки проверены на mobile.
+- [ ] Production SMTP, Telegram и webhook проверены из профиля.
+- [ ] Notification/client/cloud-access flow покрыты browser E2E.

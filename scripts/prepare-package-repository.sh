@@ -27,6 +27,8 @@ if [ -e "$output_dir" ] && [ -n "$(find "$output_dir" -mindepth 1 -maxdepth 1 -p
   exit 1
 fi
 mkdir -p "$output_dir/feeds/$agent_version/openwrt" "$output_dir/keys/usign" "$output_dir/keys/apk"
+manifest_entries="$output_dir/.update-manifest-entries"
+: > "$manifest_entries"
 
 artifact_count=0
 for artifact_dir in "$source_dir"/openwrt-*; do
@@ -40,10 +42,29 @@ for artifact_dir in "$source_dir"/openwrt-*; do
     echo "cannot parse artifact name: $artifact_name" >&2
     exit 1
   fi
+  case "$openwrt_release:$target_label" in
+    *[!0-9A-Za-z._:-]*)
+      echo "artifact name contains unsupported manifest characters: $artifact_name" >&2
+      exit 1
+      ;;
+  esac
 
   destination="$output_dir/feeds/$agent_version/openwrt/$openwrt_release/$target_label"
   mkdir -p "$destination"
   cp "$artifact_dir"/* "$destination/"
+  package_format="ipk"
+  if find "$artifact_dir" -maxdepth 1 -type f -name '*.apk' -print -quit | grep -q .; then
+    package_format="apk"
+  fi
+  if [ -s "$manifest_entries" ]; then
+    printf ',\n' >> "$manifest_entries"
+  fi
+  printf '    {"openwrt_release":"%s","target":"%s","format":"%s","feed_url":"%s"}' \
+    "$openwrt_release" \
+    "$target_label" \
+    "$package_format" \
+    "https://benya9669.github.io/openwrt-rmm/feeds/stable/openwrt/$openwrt_release/$target_label" \
+    >> "$manifest_entries"
 
   while IFS= read -r public_key; do
     cp "$public_key" "$output_dir/keys/usign/$(basename "$public_key")"
@@ -64,6 +85,25 @@ fi
 mkdir -p "$output_dir/feeds/stable"
 cp -a "$output_dir/feeds/$agent_version/." "$output_dir/feeds/stable/"
 touch "$output_dir/.nojekyll"
+
+cat > "$output_dir/update-manifest.json" <<EOF
+{
+  "schema": 1,
+  "channel": "stable",
+  "agent": {
+    "version": "${agent_version}",
+    "release_url": "https://github.com/Benya9669/openwrt-rmm/releases/tag/agent-v${agent_version}",
+    "feed_base_url": "https://benya9669.github.io/openwrt-rmm/feeds/stable/openwrt"
+  },
+  "packages": [
+EOF
+cat "$manifest_entries" >> "$output_dir/update-manifest.json"
+printf '\n' >> "$output_dir/update-manifest.json"
+cat >> "$output_dir/update-manifest.json" <<EOF
+  ]
+}
+EOF
+rm -f "$manifest_entries"
 
 cat > "$output_dir/index.html" <<EOF
 <!doctype html>

@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -27,6 +29,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Validate immutable signed agent release
+        if: startsWith(github.ref, 'refs/tags/agent-v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -p "$GITHUB_REF_NAME" | grep -q -- '-----BEGIN PGP SIGNATURE-----'
+          bash scripts/extract-release-notes.sh \
+            "$GITHUB_REF_NAME" \
+            CHANGELOG.md \
+            release-notes.md
       - run: go test ./...
       - run: go vet ./...
       - run: npm run check:web
@@ -87,6 +99,18 @@ jobs:
             "$fixture/output"
           test -f "$fixture/output/openwrt-24.10.7-ramips-mt7621/Packages"
           test -f "$fixture/output/openwrt-21.02.7-x86-64/rmm-agent.ipk"
+
+          mkdir -p "$fixture/repository-input/openwrt-24.10.7-ramips-mt7621"
+          touch "$fixture/repository-input/openwrt-24.10.7-ramips-mt7621/rmm-agent.ipk"
+          bash scripts/prepare-package-repository.sh \
+            "$fixture/repository-input" \
+            "$fixture/repository" \
+            "0.6.8"
+          node -e '
+            const fs = require("node:fs");
+            const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            if (manifest.agent.version !== "0.6.8" || manifest.packages.length !== 1) process.exit(1);
+          ' "$fixture/repository/update-manifest.json"
 
   openwrt-packages:
     name: OpenWrt ${{ matrix.release }} · ${{ matrix.label }}
@@ -254,6 +278,42 @@ jobs:
             package-repository \
             "${GITHUB_REF_NAME#agent-v}"
 
+      - name: Sign stable update manifest with the package key
+        env:
+          OPENWRT_APK_SECRET_B64: ${{ secrets.OPENWRT_APK_SECRET_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENWRT_APK_SECRET_B64"
+          umask 077
+          trap 'rm -f manifest-signing.pem' EXIT
+          printf '%s' "$OPENWRT_APK_SECRET_B64" | base64 --decode > manifest-signing.pem
+          openssl dgst -sha256 \
+            -sign manifest-signing.pem \
+            -out package-repository/update-manifest.sig \
+            package-repository/update-manifest.json
+          openssl dgst -sha256 \
+            -verify keys/openwrt/apk/rmm-openwrt.pem \
+            -signature package-repository/update-manifest.sig \
+            package-repository/update-manifest.json
+          rm -f manifest-signing.pem
+          trap - EXIT
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign and verify stable update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle package-repository/update-manifest.sigstore.json \
+            package-repository/update-manifest.json
+          cosign verify-blob \
+            --bundle package-repository/update-manifest.sigstore.json \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\\.github/workflows/build\\.yml@refs/tags/agent-v" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            package-repository/update-manifest.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: package-repository-site
@@ -266,6 +326,11 @@ jobs:
         with:
           subject-path: publish/*
 
+      - name: Attest stable update manifest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: package-repository/update-manifest.json
+
       - name: Create release and upload packages
         env:
           GH_TOKEN: ${{ github.token }}
@@ -274,18 +339,13 @@ jobs:
           set -euo pipefail
           mapfile -t files < <(find publish -type f -print | sort)
           if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" "${files[@]}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --clobber
-            gh release edit "${GITHUB_REF_NAME}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --notes-file release-notes.md
-          else
-            gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --notes-file release-notes.md \
-              --title "OpenWrt RMM Agent ${GITHUB_REF_NAME#agent-v}"
+            echo "release already exists; published agent tags are immutable" >&2
+            exit 1
           fi
+          gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --notes-file release-notes.md \
+            --title "OpenWrt RMM Agent ${GITHUB_REF_NAME#agent-v}"
 
   package-repository:
     name: Publish signed package repository

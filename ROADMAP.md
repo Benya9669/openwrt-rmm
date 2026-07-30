@@ -1,119 +1,149 @@
-# OpenWrt RMM — актуальный roadmap
+# OpenWrt RMM — roadmap
 
-Актуализировано: 2026-07-30. Текущая стабильная линия агента: `0.6.7`.
+Актуализировано: 2026-07-31.
 
-## Цель продукта
+Этот файл — единственный источник порядка продуктовой разработки. Инженерные и
+production-проверки находятся в `CHECKLIST.md`, UI-критерии — в `UI_CHECKLIST.md`.
 
-OpenWrt RMM — self-hosted платформа для мониторинга и безопасного управления роутерами
-OpenWrt через исходящее соединение агента. Пользователь видит только свои устройства,
-получает предупреждения и открывает LuCI через облако без публичного порта на роутере.
+Статусы в этом документе означают:
 
-## Реализовано
+- `[x]` — функция реализована в ветке `main` и покрыта базовыми проверками;
+- `[ ]` — функция ещё не реализована полностью;
+- наличие функции в `main` не означает, что она уже вошла в опубликованный server/agent
+  release или развёрнута на production.
 
-### Агент и пакеты
+## Текущее состояние
 
-- [x] Go-агент с enrollment, heartbeat, inventory, метриками и очередью команд.
-- [x] Allowlist операций, backoff, восстановление связи и очистка lock-файла при остановке.
-- [x] Сбор WAN, интерфейсов, DHCP/Wi-Fi-клиентов, памяти, диска и connectivity checks.
+### Агент и OpenWrt-пакеты
+
+- [x] Go-агент `0.6.8`: enrollment, heartbeat, inventory, метрики и очередь команд.
+- [x] Allowlist операций, backoff, восстановление связи и очистка lock-файла.
+- [x] WAN, интерфейсы, DHCP/Wi-Fi-клиенты, память, диск и connectivity checks.
+- [x] Безопасная активная проверка до 32 IPv4 DHCP-клиентов и передача результатов серверу.
 - [x] Reverse SSH/LuCI tunnel через облачный сервер.
-- [x] APK и IPK для OpenWrt, включая `mipsel`/`ramips/mt7621`.
-- [x] LuCI-приложение настройки агента.
+- [x] IPK/APK для основной OpenWrt-матрицы и ручной legacy workflow.
+- [x] LuCI-приложение с английским интерфейсом по умолчанию.
+- [x] Отдельный пакет `luci-i18n-rmm-agent-ru`.
 
-### Server и безопасность
+### Сервер и аккаунты
 
-- [x] Go API, SQLite/WAL, автоматические совместимые миграции и retention метрик.
-- [x] Multi-user аккаунты, профиль, e-mail, смена/сброс пароля и отзыв сессий.
-- [x] Владение устройствами, передача другому пользователю и изоляция API.
+- [x] Go API, SQLite/WAL, совместимые startup-migrations и retention метрик.
+- [x] Multi-user аккаунты, admin/user роли, профиль, e-mail, пароль и отзыв сессий.
+- [x] Владение роутерами, передача устройства и изоляция пользовательского API.
 - [x] Одноразовый enrollment grant; legacy shared token выключен по умолчанию.
-- [x] Хеширование паролей, browser sessions, enrollment/device/access token.
-- [x] Rate limit входа и восстановления пароля, CSRF/origin checks, audit log.
-- [x] Облачные поддомены роутеров и одноразовый LuCI access grant.
-- [x] Persistent alerts: active, acknowledged, resolved.
-- [x] Пользовательские пороги и уведомления e-mail/Telegram с дедупликацией, повторами и историей.
+- [x] Хеширование паролей и reusable access tokens.
+- [x] Rate limiting авторизации, CSRF/origin checks и audit log.
+- [x] Wildcard device domains и одноразовый LuCI access grant.
+- [x] Alerts с состояниями active, acknowledged и resolved.
 
-### Web UI
+### Уведомления и LAN-клиенты
 
-- [x] Лендинг, favicon/бренд, партнёры и адаптивная motion-система.
-- [x] Полноширинный список объектов, поиск, фильтры, сортировка и автообновление.
-- [x] Карточка роутера: обзор, клиенты, сеть, операции, сведения, эксперт.
-- [x] Графики метрик, диагностика, команды, UCI, пакеты и аудит.
-- [x] Облачный LuCI с состояниями starting/offline/timeout/error и единым дизайном ошибок.
-- [x] Mobile/tablet/4:3 layout без случайного горизонтального overflow.
-- [x] Личный кабинет и настройки уведомлений.
+- [x] E-mail, Telegram и подписанный webhook.
+- [x] Подтверждение e-mail и безопасная привязка Telegram.
+- [x] Пользовательские пороги, repeat, quiet hours/timezone и maintenance pause.
+- [x] Per-device notification overrides.
+- [x] Durable queue с lease, retry, dead-letter и retention истории.
+- [x] Центр уведомлений: unread/read, счётчик, переход к роутеру и SSE-обновление.
+- [x] Группировка связанных событий по incident.
+- [x] Хранение `last_seen` LAN-клиентов и статусы online/recent/unconfirmed.
 
-### Deployment
+### Web UI и deployment
 
-- [x] Hardened Docker image и Compose.
-- [x] NPMplus overlay и wildcard device domain.
-- [x] Healthcheck, ограничение capabilities/resources и persistent volumes.
-- [x] SMTP STARTTLS/TLS и Telegram bot configuration через environment.
-- [x] Версионированные server/tunnel images в GHCR и production Compose overlay.
-- [x] SBOM/provenance, keyless Cosign и подписанный APK/IPK package repository.
-- [x] Быстрая матрица текущих OpenWrt 24.10/25.12 и отдельная ручная legacy-сборка
-  OpenWrt 21.02/22.03/23.05 без блокировки основного релиза.
+- [x] Лендинг, favicon, партнёры и motion/reduced-motion.
+- [x] Fleet, поиск, фильтры, сортировка и автообновление.
+- [x] Карточка роутера, графики, alerts, диагностика, UCI, пакеты и аудит.
+- [x] Cloud LuCI со сценариями starting/offline/timeout/error.
+- [x] Адаптивный desktop/tablet/4:3/mobile layout.
+- [x] Hardened Docker image, Compose, NPMplus и wildcard overlay.
+- [x] Версионированные server/tunnel images, SBOM/provenance и Cosign.
+- [x] Подписанный IPK/APK feed через GitHub Pages.
 
-## Следующие этапы
+## Порядок дальнейшей разработки
 
-### Этап 1 — завершение notification platform
+### 0. Стабилизация и выпуск текущего `main`
 
-- [x] E-mail и Telegram для warning/critical/resolved.
-- [x] Пользовательские пороги памяти, диска, потерь и latency.
-- [x] Lifecycle deduplication, повтор открытой проблемы и журнал доставки.
-- [x] Тестовая отправка из профиля.
-- [x] Перезапускаемая очередь с lease, exponential retry, dead-letter и retention терминальной истории.
-- [x] Webhook-канал с подписанным payload и ротацией секрета.
-- [x] Per-device override и расписание тишины.
-- [x] Группировка нескольких событий в incident.
+- [x] Дождаться полного успешного release workflow `agent-v0.6.8`, включая все текущие
+  OpenWrt jobs и публикацию GitHub Pages.
+- [ ] Проверить установку и обновление `rmm-agent-go-production`,
+  `luci-app-rmm-agent` и `luci-i18n-rmm-agent-ru` из подписанного feed на реальном
+  OpenWrt 24.10/25.12.
+- [ ] Подготовить и выпустить подписанный `server-v0.9.0` с notification center,
+  verification, per-device settings и LAN client presence.
+- [ ] Проверить миграцию копии production SQLite, сделать backup и только затем обновить
+  production.
+- [ ] Выполнить production-проверки SMTP, Telegram, webhook, active → repeat → resolved,
+  retry → dead-letter, SSE и online → recent → unconfirmed.
+- [ ] Добавить операционные метрики уведомлений: queued/sent/failed, queue age,
+  последняя ошибка и последняя успешная доставка по каналу.
 
-### Уточнение присутствия проводных клиентов
+### 1. Изоляция туннелей и защита управляющих команд
 
-- [x] Дополнить пассивный `ip neigh` безопасной активной проверкой LAN-клиентов.
-- [x] Хранить время последнего подтверждения и показывать `STALE` как «Недавно был в сети».
+- [ ] Персональные SSH credentials или короткоживущие сертификаты для каждого устройства.
+- [ ] Ротация/отзыв tunnel credentials при transfer, delete и компрометации.
+- [ ] Авторизованное выделение портов без возможности pre-bind/hijack другой сессии.
+- [ ] Проверка полной цепочки agent → SSH → LuCI HTTP → wildcard TLS.
+- [ ] Лимиты одновременных сессий, rate limit и административная политика remote access.
+- [ ] Device token rotation и явный отзыв device credentials.
+- [ ] Подписанные команды, срок действия, nonce и replay protection.
+- [ ] Шифрование webhook secrets и чувствительных полей notification queue в SQLite.
 
-### Этап 2 — backup и безопасное восстановление
+### 2. Автоматические проверки и наблюдаемость
+
+- [ ] Интеграционные тесты notification center, contact verification, per-device
+  overrides, incident grouping и quiet hours/timezone.
+- [ ] Тесты активной проверки LAN-клиентов, лимита адресов, ICMP-blocked и IPv6-сценариев.
+- [ ] E2E reverse tunnel и cloud LuCI с проверкой ошибок и истечения сессии.
+- [ ] Playwright smoke для login, fleet, router, profile, notifications и LuCI errors.
+- [ ] Автоматическая responsive/accessibility матрица 1920/1366/1024/768/390/360.
+- [ ] Package install/upgrade/remove smoke для IPK/APK и проверка LuCI i18n.
+- [ ] Prometheus metrics, readiness, queue/tunnel metrics и структурированные логи.
+- [ ] `govulncheck`, SAST, container/dependency/secret scanning.
+- [ ] Pin GitHub Actions и базовых container images на проверяемые immutable revisions.
+
+### 3. Backup и безопасное восстановление
 
 - [ ] Получение `sysupgrade -b` архива через агент.
-- [ ] Зашифрованное хранение и retention версий.
-- [ ] Скачивание, сравнение и проверка совместимости.
-- [ ] Restore с preview, подтверждением и планом отката.
-- [ ] Backup/restore самой SQLite базы RMM.
+- [ ] Шифрованное хранение, retention и контроль доступа к backup.
+- [ ] Скачивание, безопасный diff и проверка совместимости с target/device/version.
+- [ ] Restore preview, повторное подтверждение и план отката.
+- [ ] Backup/restore SQLite через согласованный snapshot, а не копирование активного файла.
+- [ ] Disaster recovery runbook и регулярный restore drill.
 
-### Этап 3 — обновления и release pipeline
+### 4. Обновления агента и LuCI
 
-- [x] Автосборка APK/IPK и multi-architecture artifacts в CI.
-- [x] Нативная подпись IPK/APK feed, Cosign checksums и публикация репозитория.
-- [ ] Подписанный update manifest агента и LuCI-приложения.
-- [ ] Обновление одного роутера из кабинета.
-- [ ] Canary/поэтапный rollout с остановкой при потере связи.
-- [ ] История и безопасный rollback версии агента.
+- [x] Подписанный stable update manifest с версиями, target/feed compatibility и Sigstore bundle.
+- [x] Проверка detached manifest signature сервером перед публикацией stable version в UI.
+- [ ] Проверка manifest signature агентом перед выполнением обновления.
+- [ ] Проверка свободного места, feed signature и package health до обновления.
+- [ ] Обновление одного роутера из кабинета с progress/reconnect/result.
+- [ ] Canary и поэтапный rollout с автоматической остановкой при ошибках.
+- [ ] История версий и rollback, если агент не вернулся после обновления.
+- [ ] Stable/candidate release channels без перемещения опубликованных тегов.
 
-### Этап 4 — усиление cloud access
-
-- [ ] Персональные ключи туннеля для каждого устройства и их ротация.
-- [ ] Browser terminal с ограниченной сессией и аудитом.
-- [ ] Детальная проверка цепочки agent → SSH → HTTP LuCI → TLS.
-- [ ] Лимиты одновременных сессий и административная политика доступа.
-
-### Этап 5 — организации и расширенная безопасность
+### 5. Организации и расширенная безопасность
 
 - [ ] Organizations/workspaces и приглашения.
-- [ ] Роли owner/admin/operator/viewer и права на отдельные группы устройств.
-- [ ] MFA/WebAuthn.
-- [ ] Device token rotation, signed commands и replay protection.
-- [ ] mTLS как дополнительный режим agent transport.
+- [ ] Роли owner/admin/operator/viewer.
+- [ ] Доступ к группам и отдельным устройствам без передачи владельца.
+- [ ] MFA/WebAuthn и recovery codes.
+- [ ] Audit retention/export и журнал административных изменений.
+- [ ] Удаление аккаунта, экспорт данных и отзыв связанных credentials.
+- [ ] Опциональный mTLS для agent transport.
 
-### Этап 6 — production hardening
+### 6. Расширение cloud DNS и fleet management
 
-- [ ] Версионированные migrations с отдельным migration log.
-- [ ] Graceful shutdown фоновых задач и HTTP server.
-- [ ] Server Prometheus metrics и расширенные health/readiness checks.
-- [ ] E2E agent-server, browser smoke и load tests в CI.
-- [ ] Disaster recovery runbook и регулярная проверка восстановления.
+- [ ] Безопасное переименование, резервирование и освобождение router DNS names.
+- [ ] Проверка wildcard DNS/TLS/tunnel health в интерфейсе.
+- [ ] Защита от повторного захвата недавно освобождённого имени и пользовательские квоты.
+- [ ] Опциональные пользовательские домены.
+- [ ] Конфигурационные шаблоны, группы, config drift и плановые команды.
+- [ ] Диагностический архив агента и безопасная выгрузка логов.
+- [ ] Интернационализация web UI и правила добавления языков LuCI.
 
-## Ближайший приоритет
+### 7. Масштабирование и долговременный hardening
 
-1. Завершить и проверить `agent-v0.6.7`, при необходимости добавить legacy-пакеты,
-   развернуть server `0.8.1` и проверить свежие SSH/LuCI-сессии.
-2. Развернуть и проверить notification release на production.
-3. Добавить активное подтверждение проводных клиентов, webhook и quiet hours, затем
-   начать конфигурационные backup/restore.
+- [ ] Версионированные migrations и отдельный migration log.
+- [ ] Graceful shutdown HTTP server, workers и активных lease.
+- [ ] Distributed rate limiting и worker coordination для нескольких server instances.
+- [ ] Load/soak tests, SLO и алерты состояния самой RMM-платформы.
+- [ ] Политика хранения audit, metrics, notifications и client history.

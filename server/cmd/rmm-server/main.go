@@ -12,6 +12,13 @@ import (
 
 	"rmm-openwrt/server/internal/httpapi"
 	"rmm-openwrt/server/internal/store"
+	"rmm-openwrt/server/internal/updateinfo"
+)
+
+var (
+	serverVersion      = "dev"
+	serverRevision     = "unknown"
+	stableAgentVersion = "0.6.8"
 )
 
 func main() {
@@ -81,6 +88,33 @@ func main() {
 		}
 		telegramSender = sender
 	}
+	manifestURL := env("RMM_UPDATE_MANIFEST_URL", "https://benya9669.github.io/openwrt-rmm/update-manifest.json")
+	manifestSignatureURL := env("RMM_UPDATE_MANIFEST_SIGNATURE_URL", "https://benya9669.github.io/openwrt-rmm/update-manifest.sig")
+	stableAgentFallback := env("RMM_STABLE_AGENT_VERSION", stableAgentVersion)
+	var stableAgentVersionProvider func() string
+	manifestPublicKey := strings.TrimSpace(os.Getenv("RMM_UPDATE_MANIFEST_PUBLIC_KEY"))
+	if manifestPublicKey != "" {
+		resolver, resolverErr := updateinfo.NewResolver(
+			manifestURL,
+			manifestSignatureURL,
+			manifestPublicKey,
+			stableAgentFallback,
+		)
+		if resolverErr != nil {
+			log.Fatalf("invalid update manifest configuration: %v", resolverErr)
+		}
+		go func() {
+			refreshContext, cancelRefresh := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancelRefresh()
+			if refreshErr := resolver.Refresh(refreshContext); refreshErr != nil {
+				log.Printf("using stable agent fallback %s: %v", stableAgentFallback, refreshErr)
+			}
+		}()
+		go resolver.Run(context.Background(), 15*time.Minute, func(refreshErr error) {
+			log.Printf("update manifest refresh failed: %v", refreshErr)
+		})
+		stableAgentVersionProvider = resolver.Version
+	}
 
 	st, err := store.OpenSQLite(context.Background(), dbPath)
 	if err != nil {
@@ -93,25 +127,30 @@ func main() {
 	go maintenanceLoop(st)
 
 	handler := httpapi.NewHandler(st, httpapi.Config{
-		EnrollmentToken:         enrollmentToken,
-		AllowLegacyEnrollment:   allowLegacyEnrollment,
-		AllowLegacyLuCIProxy:    envBool("RMM_ALLOW_LEGACY_LUCI_PROXY", false),
-		OperatorToken:           operatorToken,
-		OperatorUsername:        env("RMM_OPERATOR_USERNAME", "admin"),
-		OperatorPassword:        operatorPassword,
-		CookieSecure:            envBool("RMM_COOKIE_SECURE", !insecureDevMode),
-		TunnelHTTPHost:          env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
-		TunnelPublicHost:        strings.TrimSpace(os.Getenv("RMM_TUNNEL_PUBLIC_HOST")),
-		TunnelPublicPort:        envInt("RMM_TUNNEL_PUBLIC_PORT", 2222, 1, 65535),
-		DeviceDomain:            strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
-		PublicScheme:            env("RMM_PUBLIC_SCHEME", "https"),
-		PublicURL:               publicURL,
-		PasswordResetSender:     passwordResetSender,
-		AlertEmailSender:        alertEmailSender,
-		TelegramSender:          telegramSender,
-		BackgroundTasks:         true,
-		NotificationMaxAttempts: envInt("RMM_NOTIFICATION_MAX_ATTEMPTS", 5, 1, 20),
-		StaticDir:               env("RMM_WEB_DIR", "web"),
+		EnrollmentToken:            enrollmentToken,
+		AllowLegacyEnrollment:      allowLegacyEnrollment,
+		AllowLegacyLuCIProxy:       envBool("RMM_ALLOW_LEGACY_LUCI_PROXY", false),
+		OperatorToken:              operatorToken,
+		OperatorUsername:           env("RMM_OPERATOR_USERNAME", "admin"),
+		OperatorPassword:           operatorPassword,
+		CookieSecure:               envBool("RMM_COOKIE_SECURE", !insecureDevMode),
+		TunnelHTTPHost:             env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
+		TunnelPublicHost:           strings.TrimSpace(os.Getenv("RMM_TUNNEL_PUBLIC_HOST")),
+		TunnelPublicPort:           envInt("RMM_TUNNEL_PUBLIC_PORT", 2222, 1, 65535),
+		DeviceDomain:               strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
+		PublicScheme:               env("RMM_PUBLIC_SCHEME", "https"),
+		PublicURL:                  publicURL,
+		PasswordResetSender:        passwordResetSender,
+		AlertEmailSender:           alertEmailSender,
+		TelegramSender:             telegramSender,
+		BackgroundTasks:            true,
+		NotificationMaxAttempts:    envInt("RMM_NOTIFICATION_MAX_ATTEMPTS", 5, 1, 20),
+		StaticDir:                  env("RMM_WEB_DIR", "web"),
+		ServerVersion:              serverVersion,
+		ServerRevision:             serverRevision,
+		StableAgentVersion:         stableAgentFallback,
+		StableAgentVersionProvider: stableAgentVersionProvider,
+		UpdateManifestURL:          manifestURL,
 	})
 
 	srv := &http.Server{

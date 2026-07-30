@@ -38,6 +38,10 @@ Core tables:
 - `remote_sessions`
 - `notification_settings`
 - `notification_deliveries`
+- `device_notification_settings`
+- `inbox_notifications`
+- `contact_verifications`
+- `lan_clients`
 
 Notification delivery uses a persistent SQLite queue. Workers atomically claim ready rows
 with a lease, increment the attempt counter, and finish them as `sent`, `retry`, or
@@ -46,14 +50,14 @@ an independent retention period; queued, retrying, and in-flight rows are preser
 
 ## Agent
 
-The agent is a small Go binary and uses tools normally available on OpenWrt for platform
-operations:
+The production agent is a small Go binary with a native HTTPS client. It uses tools
+normally available on OpenWrt only for platform operations:
 
 - `ubus`
 - `ip`
 - `opkg`
 - `/etc/init.d/*`
-- `curl` or `wget`
+- `ping`, `uci`, and the active package manager
 
 The agent does not accept inbound connections. It polls the server and executes only allowlisted command types.
 
@@ -91,3 +95,8 @@ The agent uses outbound HTTPS polling:
 
 Server-Sent Events update the browser dashboard; agent transport remains HTTPS polling.
 WebSocket or MQTT can be added later if faster agent command delivery is required.
+
+The server exposes authenticated release metadata to the dashboard. A background
+resolver downloads the stable agent manifest, verifies its detached ECDSA signature with
+the package repository public key, and retains the last trusted fallback when refresh
+fails.

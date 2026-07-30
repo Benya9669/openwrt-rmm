@@ -21,16 +21,34 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Test server
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate immutable signed server release
+        if: startsWith(github.ref, 'refs/tags/server-v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -p "$GITHUB_REF_NAME" | grep -q -- '-----BEGIN PGP SIGNATURE-----'
+          bash scripts/extract-release-notes.sh \
+            "$GITHUB_REF_NAME" \
+            CHANGELOG.md \
+            release-notes.md
+
+      - name: Test server and web application
         run: |
           go test ./server/...
           go vet ./server/...
+          npm run check:web
 
       - name: Resolve image version
         id: version
@@ -70,6 +88,10 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
             org.opencontainers.image.licenses=AGPL-3.0-only
+          build-args: |
+            RMM_SERVER_VERSION=${{ steps.version.outputs.value }}
+            RMM_SOURCE_REVISION=${{ github.sha }}
+            RMM_STABLE_AGENT_VERSION=0.6.8
           cache-from: type=gha,scope=rmm-server
           cache-to: type=gha,mode=max,scope=rmm-server
           provenance: mode=max
@@ -132,17 +154,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/extract-release-notes.sh \
-            "$GITHUB_REF_NAME" \
-            CHANGELOG.md \
-            release-notes.md
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY" \
-              --notes-file release-notes.md
-          else
-            gh release create "$GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY" \
-              --notes-file release-notes.md \
-              --title "OpenWrt RMM Server ${GITHUB_REF_NAME#server-v}"
+            echo "release already exists; published server tags are immutable" >&2
+            exit 1
           fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --notes-file release-notes.md \
+            --title "OpenWrt RMM Server ${GITHUB_REF_NAME#server-v}"

@@ -44,6 +44,5 @@ Select HTTP or HTTPS when opening the session to match the router's LuCI listene
 ## Next Hardening
 
 - Per-session SSH keys.
-- Dedicated tunnel sidecar container.
 - Server-side active tunnel health checks.
 - Browser terminal proxy after the tunnel endpoint is reliable.

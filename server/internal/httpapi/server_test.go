@@ -648,6 +648,9 @@ func TestServesStaticWebUI(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "landing.html"), []byte("<!doctype html><title>RMM Landing</title>"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log('rmm')"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -675,6 +678,9 @@ func TestServesStaticWebUI(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(data), "RMM Landing") {
 		t.Fatalf("unexpected static response %d: %s", resp.StatusCode, data)
 	}
+	if cacheControl := resp.Header.Get("Cache-Control"); cacheControl != "no-store" {
+		t.Fatalf("HTML must not be cached across releases, got %q", cacheControl)
+	}
 
 	for _, path := range []string{"/login", "/app"} {
 		appResp, err := http.Get(srv.URL + path)
@@ -691,6 +697,15 @@ func TestServesStaticWebUI(t *testing.T) {
 		}
 	}
 
+	assetResp, err := http.Get(srv.URL + "/app.js?v=29")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = assetResp.Body.Close()
+	if assetResp.StatusCode != http.StatusOK || assetResp.Header.Get("Cache-Control") != "no-cache" {
+		t.Fatalf("unexpected asset cache policy: status=%d cache=%q", assetResp.StatusCode, assetResp.Header.Get("Cache-Control"))
+	}
+
 	missingResp, err := http.Get(srv.URL + "/missing-page")
 	if err != nil {
 		t.Fatal(err)
@@ -698,6 +713,44 @@ func TestServesStaticWebUI(t *testing.T) {
 	_ = missingResp.Body.Close()
 	if missingResp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unexpected missing page response: %d", missingResp.StatusCode)
+	}
+}
+
+func TestReleaseMetadataRequiresAuthentication(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "metadata.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		OperatorToken:      "operator-test",
+		ServerVersion:      "0.9.0",
+		ServerRevision:     "abc123",
+		StableAgentVersion: "0.6.8",
+		StableAgentVersionProvider: func() string {
+			return "0.6.9"
+		},
+		UpdateManifestURL: "https://packages.example.test/update-manifest.json",
+	}))
+	defer srv.Close()
+
+	unauthorized, err := http.Get(srv.URL + "/api/meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = unauthorized.Body.Close()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unexpected unauthenticated metadata status: %d", unauthorized.StatusCode)
+	}
+
+	var metadata map[string]string
+	requestJSON(t, http.MethodGet, srv.URL+"/api/meta", "operator-test", nil, http.StatusOK, &metadata)
+	if metadata["server_version"] != "0.9.0" ||
+		metadata["server_revision"] != "abc123" ||
+		metadata["stable_agent_version"] != "0.6.9" ||
+		metadata["update_manifest_url"] != "https://packages.example.test/update-manifest.json" {
+		t.Fatalf("unexpected release metadata: %#v", metadata)
 	}
 }
 

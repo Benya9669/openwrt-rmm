@@ -75,6 +75,31 @@ Response:
 {"status":"ok"}
 ```
 
+## Release metadata
+
+Authenticated clients obtain the server build and stable agent channel from the server
+instead of embedding a version in JavaScript:
+
+```http
+GET /api/meta
+Authorization: Bearer <operator-api-token>
+```
+
+```json
+{
+  "server_version": "0.9.0",
+  "server_revision": "0123456789abcdef",
+  "stable_agent_version": "0.6.8",
+  "update_manifest_url": "https://benya9669.github.io/openwrt-rmm/update-manifest.json"
+}
+```
+
+The dashboard applies Semantic Versioning: an older installed version receives an update
+notice, an equal version is current, and a newer version is never offered a downgrade.
+The referenced manifest, detached package-key signature, and Sigstore bundle are
+published by the agent release workflow. The server keeps its configured fallback
+version unless the detached signature verifies successfully.
+
 ## Agent Enrollment
 
 ```http

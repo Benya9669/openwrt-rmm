@@ -1,12 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 FROM golang:1.26.5-alpine AS build
 
+ARG RMM_SERVER_VERSION=dev
+ARG RMM_SOURCE_REVISION=unknown
+ARG RMM_STABLE_AGENT_VERSION=0.6.8
+
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY server ./server
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/rmm-server ./server/cmd/rmm-server
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+  -ldflags="-s -w -X main.serverVersion=${RMM_SERVER_VERSION} -X main.serverRevision=${RMM_SOURCE_REVISION} -X main.stableAgentVersion=${RMM_STABLE_AGENT_VERSION}" \
+  -o /out/rmm-server ./server/cmd/rmm-server
 
 FROM alpine:3.21
 
@@ -15,6 +21,7 @@ RUN apk add --no-cache ca-certificates su-exec tzdata
 WORKDIR /app
 COPY --from=build /out/rmm-server /usr/local/bin/rmm-server
 COPY web ./web
+COPY keys/openwrt/apk/rmm-openwrt.pem ./keys/rmm-openwrt.pem
 COPY deploy/server/entrypoint.sh /usr/local/bin/rmm-entrypoint
 
 RUN addgroup -S rmm && adduser -S -G rmm rmm \

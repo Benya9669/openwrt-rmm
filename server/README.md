@@ -28,6 +28,11 @@ Environment variables:
 - `RMM_TELEGRAM_BOT_TOKEN` - optional Telegram bot used for per-user alert delivery
 - `RMM_NOTIFICATION_MAX_ATTEMPTS` - delivery attempt limit, default `5`
 - `RMM_NOTIFICATION_RETENTION_DAYS` - terminal delivery history retention, default `90`
+- `RMM_STABLE_AGENT_VERSION` - stable agent version reported to the dashboard
+- `RMM_UPDATE_MANIFEST_URL` - public URL of the signed stable agent update manifest
+- `RMM_UPDATE_MANIFEST_SIGNATURE_URL` - detached ECDSA signature URL
+- `RMM_UPDATE_MANIFEST_PUBLIC_KEY` - PEM public key used to verify the manifest before
+  accepting a new stable version
 - `RMM_COOKIE_SECURE` - defaults to `true` outside explicit development mode
 - `RMM_DEVICE_DOMAIN` - wildcard device domain, for example `routers.example.com`
 - `RMM_ALLOW_LEGACY_ENROLLMENT` - opt-in shared enrollment compatibility mode
@@ -63,6 +68,7 @@ Operator API:
 - `PATCH /api/auth/profile`
 - `POST /api/auth/change-password`
 - `POST /api/auth/logout-all`
+- `GET /api/meta`
 - `GET|PUT /api/notifications/settings`
 - `GET /api/notifications`
 - `POST /api/notifications/test`
