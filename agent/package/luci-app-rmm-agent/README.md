@@ -27,6 +27,16 @@ opkg install rmm-agent_*.ipk luci-app-rmm-agent_*.ipk
 
 On apk-based OpenWrt releases, install the generated `.apk` packages instead.
 
+English remains the built-in default language. The same build produces the standard
+optional Russian translation package:
+
+```text
+luci-i18n-rmm-agent-ru
+```
+
+After it is installed, LuCI selects Russian according to the router's configured
+interface language.
+
 ## Reproducible Docker build
 
 The repository includes a containerized OpenWrt SDK build. By default it uses the

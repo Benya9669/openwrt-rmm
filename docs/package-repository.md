@@ -86,9 +86,13 @@ Run it only after the main agent release has completed. The legacy workflow:
 
 1. checks out and builds the exact agent tag;
 2. signs the IPK repositories with the configured `usign` key;
-3. combines them with the current release and reconstructs the complete repository;
-4. refreshes signed checksums and uploads the legacy files to the existing GitHub Release;
+3. downloads retained artifacts from the original tagged workflow and reconstructs the
+   complete repository;
+4. uploads only installable legacy packages to the existing GitHub Release;
 5. redeploys the complete current plus legacy repository to GitHub Pages.
+
+Run the legacy workflow within 90 days of the tagged build while its internal artifacts
+are retained.
 
 The workflow refuses an older agent tag because publishing it would roll the `stable`
 feed back from the latest agent version.
@@ -112,6 +116,8 @@ wget -O "/etc/opkg/keys/${key_id}" "${key_base}/${key_id}"
 printf 'src/gz rmm %s\n' "$feed" > /etc/opkg/customfeeds.conf.d/rmm.conf
 opkg update
 opkg install rmm-agent-go-production luci-app-rmm-agent
+# Optional Russian LuCI translation:
+opkg install luci-i18n-rmm-agent-ru
 ```
 
 The workflow creates `Packages`, `Packages.gz` and `Packages.sig`. `opkg` verifies the
@@ -130,6 +136,8 @@ wget -O /etc/apk/keys/rmm-openwrt.pem "${base}/keys/apk/rmm-openwrt.pem"
 printf '%s\n' "$repo" > /etc/apk/repositories.d/rmm.list
 apk update
 apk add rmm-agent-go-production luci-app-rmm-agent
+# Optional Russian LuCI translation:
+apk add luci-i18n-rmm-agent-ru
 ```
 
 APK verifies the signed `packages.adb` index. Installation should not require
@@ -138,17 +146,8 @@ not configured correctly.
 
 ## Release verification
 
-Release assets also include a keyless Sigstore bundle for the combined checksums:
-
-```sh
-cosign verify-blob \
-  --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity-regexp \
-    '^https://github.com/Benya9669/openwrt-rmm/.github/workflows/(build\.yml@refs/tags/agent-v.*|build-legacy\.yml@refs/heads/main)$' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  SHA256SUMS
-sha256sum --check SHA256SUMS
-```
-
-This Sigstore verification complements native package-manager trust; it does not replace
-the `usign` or APK repository signature.
+GitHub Releases contain only installable `.ipk` and `.apk` files. GitHub build-provenance
+attestations remain available through the repository attestations page and GitHub CLI.
+Package-manager installations rely on the signed feed: `opkg` verifies `Packages.sig`,
+while APK verifies `packages.adb`. Public verification keys are served through GitHub
+Pages and are not duplicated as release assets.

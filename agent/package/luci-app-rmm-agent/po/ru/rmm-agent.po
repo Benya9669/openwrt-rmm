@@ -1,0 +1,81 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-rmm-agent\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : "
+"n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "RMM agent"
+msgstr "RMM Агент"
+
+msgid "Command failed with code %d"
+msgstr "Команда завершилась с кодом %d"
+
+msgid "RMM agent action completed."
+msgstr "Действие RMM Агента выполнено."
+
+msgid "Unable to control RMM agent: %s"
+msgstr "Не удалось управлять RMM Агентом: %s"
+
+msgid "Connect this router to your RMM account. Create a one-time enrollment grant in the RMM control panel, paste it below, save and restart the agent."
+msgstr "Подключите этот роутер к своей учётной записи RMM. Создайте одноразовый код подключения в панели RMM, вставьте его ниже, сохраните настройки и перезапустите агент."
+
+msgid "Connection"
+msgstr "Подключение"
+
+msgid "Enable agent"
+msgstr "Включить агент"
+
+msgid "RMM server URL"
+msgstr "Адрес сервера RMM"
+
+msgid "Use an HTTPS URL, or explicitly allow insecure HTTP in advanced settings."
+msgstr "Используйте адрес HTTPS или явно разрешите небезопасный HTTP в дополнительных настройках."
+
+msgid "One-time enrollment grant"
+msgstr "Одноразовый код подключения"
+
+msgid "The grant is consumed once and removed from the router after successful enrollment."
+msgstr "Код используется один раз и удаляется с роутера после успешного подключения."
+
+msgid "Polling interval"
+msgstr "Интервал опроса"
+
+msgid "Connectivity check targets"
+msgstr "Адреса для проверки соединения"
+
+msgid "Advanced settings"
+msgstr "Дополнительные настройки"
+
+msgid "Tunnel identity file"
+msgstr "Файл ключа туннеля"
+
+msgid "Allow insecure HTTP"
+msgstr "Разрешить небезопасный HTTP"
+
+msgid "Use only in an isolated lab. Agent credentials can otherwise be intercepted."
+msgstr "Используйте только в изолированной тестовой сети. Иначе учётные данные агента могут быть перехвачены."
+
+msgid "Re-enroll on next restart"
+msgstr "Подключить заново при следующем запуске"
+
+msgid "Deletes the current device identity. Create and enter a fresh one-time grant first."
+msgstr "Удаляет текущую идентификацию устройства. Сначала создайте и введите новый одноразовый код подключения."
+
+msgid "Service status"
+msgstr "Состояние службы"
+
+msgid "The RMM agent is running."
+msgstr "RMM Агент запущен."
+
+msgid "The RMM agent is stopped."
+msgstr "RMM Агент остановлен."
+
+msgid "Restart agent"
+msgstr "Перезапустить агент"
+
+msgid "Start agent"
+msgstr "Запустить агент"

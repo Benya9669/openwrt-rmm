@@ -7,6 +7,10 @@ Production package upgrades restart an already running agent so the new binary t
 
 Production Go agent for OpenWrt, with the shell implementation retained as a fallback runtime.
 
+The LuCI application uses English by default. Russian is distributed as the standard
+optional `luci-i18n-rmm-agent-ru` package so the router can select either language
+through its normal LuCI language settings.
+
 The agent, LuCI application and OpenWrt packaging under `agent/` are licensed under the
 MIT License. Binary OpenWrt packages install a copy of the license under
 `/usr/share/licenses/<package>/LICENSE`.

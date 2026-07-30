@@ -132,9 +132,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          bash scripts/extract-release-notes.sh \
+            "$GITHUB_REF_NAME" \
+            CHANGELOG.md \
+            release-notes.md
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --notes-file release-notes.md
+          else
             gh release create "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
-              --generate-notes \
+              --notes-file release-notes.md \
               --title "OpenWrt RMM Server ${GITHUB_REF_NAME#server-v}"
           fi

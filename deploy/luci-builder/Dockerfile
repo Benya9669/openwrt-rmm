@@ -141,10 +141,13 @@ RUN rm -rf tmp/info \
         tmp/.packagedeps \
         tmp/.packageinfo
 
-RUN printf '%s\n' 'CONFIG_PACKAGE_luci-app-rmm-agent=m' >> .config \
+RUN printf '%s\n' \
+        'CONFIG_PACKAGE_luci-app-rmm-agent=m' \
+        'CONFIG_PACKAGE_luci-i18n-rmm-agent-ru=m' \
+        >> .config \
     && make defconfig \
     && awk ' \
-        /^CONFIG_PACKAGE_(ca-bundle|ip-tiny|iwinfo|libopenssl|luci-app-rmm-agent|openssh-client|openssh-keygen|rmm-agent-go-production|zlib)=m$/ { \
+        /^CONFIG_PACKAGE_(ca-bundle|ip-tiny|iwinfo|libopenssl|luci-app-rmm-agent|luci-i18n-rmm-agent-ru|openssh-client|openssh-keygen|rmm-agent-go-production|zlib)=m$/ { \
             print; \
             next; \
         } \
@@ -156,7 +159,8 @@ RUN printf '%s\n' 'CONFIG_PACKAGE_luci-app-rmm-agent=m' >> .config \
         { print; } \
        ' .config > .config.packages-pruned \
     && mv .config.packages-pruned .config \
-    && grep -q '^CONFIG_PACKAGE_luci-app-rmm-agent=m$' .config
+    && grep -q '^CONFIG_PACKAGE_luci-app-rmm-agent=m$' .config \
+    && grep -q '^CONFIG_PACKAGE_luci-i18n-rmm-agent-ru=m$' .config
 
 RUN make -j1 package/luci-app-rmm-agent/compile V=s
 
@@ -171,10 +175,13 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
     find bin -type f \
         \( -name 'luci-app-rmm-agent*.apk' \
            -o -name 'luci-app-rmm-agent*.ipk' \
+           -o -name 'luci-i18n-rmm-agent-ru*.apk' \
+           -o -name 'luci-i18n-rmm-agent-ru*.ipk' \
            -o -name 'rmm-agent*.apk' \
            -o -name 'rmm-agent*.ipk' \) \
         -exec cp '{}' /home/builder/artifacts/ \;; \
     test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipk' \) -print -quit)"; \
+    test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name 'luci-i18n-rmm-agent-ru*.apk' -o -name 'luci-i18n-rmm-agent-ru*.ipk' \) -print -quit)"; \
     cd /home/builder/artifacts; \
     if find . -maxdepth 1 -type f -name '*.ipk' -print -quit | grep -q .; then \
         MKHASH=/home/builder/sdk/staging_dir/host/bin/mkhash \

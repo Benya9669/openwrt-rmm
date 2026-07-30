@@ -184,66 +184,62 @@ jobs:
           while IFS= read -r file; do
             artifact="$(basename "$(dirname "$file")")"
             cp "$file" "legacy-publish/${artifact}-$(basename "$file")"
-          done < <(find legacy-artifacts -type f ! -name 'SHA256SUMS' -print | sort)
+          done < <(find legacy-artifacts -type f \( -name '*.ipk' -o -name '*.apk' \) -print | sort)
+          find legacy-publish -type f -print -quit | grep -q .
 
       - name: Attest legacy release assets
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: legacy-publish/*
 
-      - name: Combine and reconstruct all release package artifacts
+      - name: Download current release build artifacts
         env:
           AGENT_TAG: ${{ inputs.agent_tag }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir release-assets
-          gh release download "$AGENT_TAG" \
+          release_run_id="$(
+            gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow build.yml \
+              --branch "$AGENT_TAG" \
+              --event push \
+              --status success \
+              --limit 20 \
+              --json databaseId \
+              --jq '.[0].databaseId'
+          )"
+          test -n "$release_run_id"
+          gh run download "$release_run_id" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern 'openwrt-*' \
-            --dir release-assets
-          cp legacy-publish/* release-assets/
-          bash scripts/unpack-release-package-assets.sh \
-            release-assets \
-            .github/openwrt-sdk-lock.tsv \
-            combined-artifacts
+            --dir current-artifacts
+
+      - name: Prepare combined signed package repository
+        env:
+          AGENT_TAG: ${{ inputs.agent_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir combined-artifacts
+          cp -a current-artifacts/openwrt-* combined-artifacts/
+          cp -a legacy-artifacts/openwrt-* combined-artifacts/
           bash scripts/prepare-package-repository.sh \
             combined-artifacts \
             package-repository \
             "${AGENT_TAG#agent-v}"
 
-      - uses: sigstore/cosign-installer@v3
-
-      - name: Prepare combined release checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-          (
-            cd release-assets
-            sha256sum ./openwrt-* > SHA256SUMS
-          )
-
-      - name: Attest combined release checksums
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: release-assets/SHA256SUMS
-
-      - name: Sign and upload combined release checksums
+      - name: Upload legacy packages
         env:
           AGENT_TAG: ${{ inputs.agent_tag }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          cosign sign-blob --yes \
-            --bundle release-assets/SHA256SUMS.sigstore.json \
-            release-assets/SHA256SUMS
           mapfile -t legacy_files < <(find legacy-publish -type f -print | sort)
           gh release upload "$AGENT_TAG" \
             "${legacy_files[@]}" \
-            release-assets/SHA256SUMS \
-            release-assets/SHA256SUMS.sigstore.json \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 

@@ -208,7 +208,7 @@ jobs:
           name: openwrt-${{ matrix.release }}-${{ matrix.label }}
           path: artifacts/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   release:
     name: Publish agent GitHub release assets
@@ -233,8 +233,17 @@ jobs:
           while IFS= read -r file; do
             artifact="$(basename "$(dirname "$file")")"
             cp "$file" "publish/${artifact}-$(basename "$file")"
-          done < <(find release-assets -type f ! -name 'SHA256SUMS' -print | sort)
-          (cd publish && sha256sum ./* > SHA256SUMS)
+          done < <(find release-assets -type f \( -name '*.ipk' -o -name '*.apk' \) -print | sort)
+          find publish -type f -print -quit | grep -q .
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/extract-release-notes.sh \
+            "$GITHUB_REF_NAME" \
+            CHANGELOG.md \
+            release-notes.md
 
       - name: Prepare signed package repository
         shell: bash
@@ -257,16 +266,6 @@ jobs:
         with:
           subject-path: publish/*
 
-      - uses: sigstore/cosign-installer@v3
-
-      - name: Sign release checksums with GitHub OIDC
-        shell: bash
-        run: |
-          set -euo pipefail
-          cosign sign-blob --yes \
-            --bundle publish/SHA256SUMS.sigstore.json \
-            publish/SHA256SUMS
-
       - name: Create release and upload packages
         env:
           GH_TOKEN: ${{ github.token }}
@@ -278,10 +277,13 @@ jobs:
             gh release upload "${GITHUB_REF_NAME}" "${files[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
               --clobber
+            gh release edit "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --notes-file release-notes.md
           else
             gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --generate-notes \
+              --notes-file release-notes.md \
               --title "OpenWrt RMM Agent ${GITHUB_REF_NAME#agent-v}"
           fi
 
