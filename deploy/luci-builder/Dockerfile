@@ -142,8 +142,8 @@ RUN rm -rf tmp/info \
         tmp/.packageinfo
 
 RUN printf '%s\n' \
-        'CONFIG_ALL=y' \
         'CONFIG_PACKAGE_luci-app-rmm-agent=m' \
+        'CONFIG_PACKAGE_luci-i18n-rmm-agent-ru=m' \
         >> .config \
     && make defconfig \
     && awk ' \
@@ -159,9 +159,6 @@ RUN printf '%s\n' \
         { print; } \
        ' .config > .config.packages-pruned \
     && mv .config.packages-pruned .config \
-    && sed -i \
-        -e 's/^CONFIG_ALL=y$/# CONFIG_ALL is not set/' \
-        .config \
     && grep -q '^CONFIG_PACKAGE_luci-app-rmm-agent=m$' .config \
     && grep -q '^CONFIG_PACKAGE_luci-i18n-rmm-agent-ru=m$' .config
 
