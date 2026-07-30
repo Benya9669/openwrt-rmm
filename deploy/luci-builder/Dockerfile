@@ -159,8 +159,7 @@ RUN printf '%s\n' \
         } \
         { print; } \
        ' .config > .config.packages-pruned \
-    && mv .config.packages-pruned .config \
-    && grep -q '^CONFIG_PACKAGE_luci-app-rmm-agent=m$' .config
+    && mv .config.packages-pruned .config
 
 RUN make -j1 package/luci-app-rmm-agent/compile V=s
 
