@@ -144,6 +144,7 @@ RUN rm -rf tmp/info \
 RUN printf '%s\n' \
         'CONFIG_PACKAGE_luci-app-rmm-agent=m' \
         'CONFIG_LUCI_LANG_ru=y' \
+        'CONFIG_PACKAGE_luci-i18n-rmm-agent-ru=m' \
         >> .config \
     && make defconfig \
     && awk ' \
