@@ -70,7 +70,9 @@ for artifact_dir in "$source_dir"/openwrt-*; do
       fi
       ;;
     *.apk)
-      package_version="$(printf '%s\n' "$package_name" | sed -n 's/^rmm-agent-go-production[-_]\([^_]*\)_.*/\1/p')"
+      package_version="${package_name%.apk}"
+      package_version="${package_version#rmm-agent-go-production_}"
+      package_version="${package_version#rmm-agent-go-production-}"
       ;;
     *)
       echo "cannot determine rmm-agent-go-production package version in $artifact_dir" >&2
