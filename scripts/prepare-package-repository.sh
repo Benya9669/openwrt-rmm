@@ -59,12 +59,17 @@ for artifact_dir in "$source_dir"/openwrt-*; do
   package_file="$(find "$artifact_dir" -maxdepth 1 -type f \( -name 'rmm-agent-go-production_*.ipk' -o -name 'rmm-agent-go-production-*.apk' \) -print -quit)"
   case "$package_file" in
     *.ipk)
-      control_path="$(ar p "$package_file" control.tar.gz | tar -tzf - | sed -n '/^\.\?\/\?control$/p' | head -n 1)"
-      if [ -z "$control_path" ]; then
-        echo "IPK control archive has no control file: $package_file" >&2
-        exit 1
+      package_version="$(awk '
+        /^Package: / { package = substr($0, 10) }
+        package == "rmm-agent-go-production" && /^Version: / { print substr($0, 10); exit }
+        /^$/ { package = "" }
+      ' "$artifact_dir/Packages" 2>/dev/null || true)"
+      if [ -z "$package_version" ]; then
+        control_path="$(ar p "$package_file" control.tar.gz 2>/dev/null | tar -tzf - 2>/dev/null | sed -n '/^\.\?\/\?control$/p' | head -n 1)"
+        if [ -n "$control_path" ]; then
+          package_version="$(ar p "$package_file" control.tar.gz 2>/dev/null | tar -xzO -f - "$control_path" 2>/dev/null | sed -n 's/^Version: //p' | head -n 1)"
+        fi
       fi
-      package_version="$(ar p "$package_file" control.tar.gz | tar -xzO -f - "$control_path" | sed -n 's/^Version: //p' | head -n 1)"
       ;;
     *.apk)
       package_version="$(tar -xzO -f "$package_file" .PKGINFO | sed -n 's/^pkgver = //p' | head -n 1)"
