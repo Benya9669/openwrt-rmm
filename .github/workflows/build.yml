@@ -259,6 +259,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read
       pages: read
       id-token: write
       attestations: write
@@ -295,15 +296,27 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#agent-v}"
-          artifact_url="$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq '.[0].artifact_url // empty' || true)"
+          artifact_url=""
+          deployment_error="$(mktemp)"
+          if ! artifact_url="$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq '.[0].artifact_url // empty' 2>"$deployment_error")"; then
+            if grep -q 'HTTP 404' "$deployment_error"; then
+              # The legacy repository has no readable Pages deployment artifact.
+              # Bootstrap the retained immutable-feed layout without treating the error as a URL.
+              artifact_url=""
+            else
+              cat "$deployment_error" >&2
+              exit 1
+            fi
+          fi
+          rm -f "$deployment_error"
           if [ -n "$artifact_url" ]; then
             mkdir previous-pages
             curl --fail --location --retry 3 \
               --header "Authorization: Bearer ${GH_TOKEN}" \
               "$artifact_url" -o previous-pages.zip
             unzip -q previous-pages.zip -d previous-pages
-          elif gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq 'length' | grep -qx '0'; then
-            echo "No prior Pages deployment; publishing the first retained feed."
+          elif [ -z "$artifact_url" ]; then
+            echo "No readable prior Pages deployment; publishing the first retained immutable feed."
           else
             echo "Unable to retrieve the deployed Pages artifact; refusing to discard retained feeds." >&2
             exit 1
