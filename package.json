@@ -2,6 +2,10 @@
   "name": "rmm-openwrt",
   "private": true,
   "scripts": {
-    "check:web": "node --check web/app.js && node --check web/landing-motion.js && node --check web/version.js && node web/version.test.js"
+    "check:web": "node --check web/app.js && node --check web/landing-motion.js && node --check web/version.js && node web/version.test.js",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
   }
 }

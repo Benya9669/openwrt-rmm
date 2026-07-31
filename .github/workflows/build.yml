@@ -41,7 +41,22 @@ jobs:
             release-notes.md
       - run: go test ./...
       - run: go vet ./...
+      - name: Install web test dependencies
+        run: npm ci
       - run: npm run check:web
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run browser E2E tests
+        run: npm run test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
       - name: Verify license copies and package metadata
         shell: bash
         run: |
@@ -101,7 +116,10 @@ jobs:
           test -f "$fixture/output/openwrt-21.02.7-x86-64/rmm-agent.ipk"
 
           mkdir -p "$fixture/repository-input/openwrt-24.10.7-ramips-mt7621"
-          touch "$fixture/repository-input/openwrt-24.10.7-ramips-mt7621/rmm-agent.ipk"
+          mkdir "$fixture/repository-input/control"
+          printf 'Package: rmm-agent-go-production\nVersion: 0.6.8-1\n' > "$fixture/repository-input/control/control"
+          tar -C "$fixture/repository-input/control" -czf "$fixture/repository-input/control.tar.gz" control
+          ar r "$fixture/repository-input/openwrt-24.10.7-ramips-mt7621/rmm-agent-go-production_0.6.8-1_mipsel_24kc.ipk" "$fixture/repository-input/control.tar.gz"
           bash scripts/prepare-package-repository.sh \
             "$fixture/repository-input" \
             "$fixture/repository" \
@@ -109,7 +127,7 @@ jobs:
           node -e '
             const fs = require("node:fs");
             const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            if (manifest.agent.version !== "0.6.8" || manifest.packages.length !== 1) process.exit(1);
+            if (manifest.agent.version !== "0.6.8" || manifest.packages.length !== 1 || manifest.packages[0].feed_url.includes("/stable/") || manifest.packages[0].package_version !== "0.6.8-1") process.exit(1);
           ' "$fixture/repository/update-manifest.json"
 
   openwrt-packages:
@@ -241,6 +259,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      pages: read
       id-token: write
       attestations: write
     steps:
@@ -273,10 +292,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          version="${GITHUB_REF_NAME#agent-v}"
+          artifact_url="$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq '.[0].artifact_url // empty' || true)"
+          if [ -n "$artifact_url" ]; then
+            mkdir previous-pages
+            curl --fail --location --retry 3 \
+              --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "$artifact_url" -o previous-pages.zip
+            unzip -q previous-pages.zip -d previous-pages
+          elif gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq 'length' | grep -qx '0'; then
+            echo "No prior Pages deployment; publishing the first retained feed."
+          else
+            echo "Unable to retrieve the deployed Pages artifact; refusing to discard retained feeds." >&2
+            exit 1
+          fi
           bash scripts/prepare-package-repository.sh \
             release-assets \
             package-repository \
-            "${GITHUB_REF_NAME#agent-v}"
+            "$version"
+          if [ -d previous-pages ]; then
+            cp -a previous-pages/. package-repository/
+            # Reapply the new release after retaining every prior immutable feed.
+            bash scripts/prepare-package-repository.sh release-assets package-repository-new "$version"
+            cp -a package-repository-new/. package-repository/
+          fi
+          mkdir -p "package-repository/manifests/$version"
+          cp package-repository/update-manifest.json "package-repository/manifests/$version/update-manifest.json"
 
       - name: Sign stable update manifest with the package key
         env:
@@ -296,6 +337,7 @@ jobs:
             -verify keys/openwrt/apk/rmm-openwrt.pem \
             -signature package-repository/update-manifest.sig \
             package-repository/update-manifest.json
+          cp package-repository/update-manifest.sig "package-repository/manifests/${GITHUB_REF_NAME#agent-v}/update-manifest.sig"
           rm -f manifest-signing.pem
           trap - EXIT
 
@@ -313,6 +355,7 @@ jobs:
             --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\\.github/workflows/build\\.yml@refs/tags/agent-v" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             package-repository/update-manifest.json
+          cp package-repository/update-manifest.sigstore.json "package-repository/manifests/${GITHUB_REF_NAME#agent-v}/update-manifest.sigstore.json"
 
       - uses: actions/upload-artifact@v4
         with:

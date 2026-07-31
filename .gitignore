@@ -22,3 +22,7 @@ router_tunnel_key.pub
 /.tmp-go-cache/
 /.tmp-ui-091.err.log
 /.tmp-ui-091.out.log
+.playwright/
+node_modules/
+playwright-report/
+test-results/

@@ -99,6 +99,8 @@ const els = {
   emptyStateDescription: document.querySelector("#emptyState p"),
   deviceView: document.querySelector("#deviceView"),
   backToFleetBtn: document.querySelector("#backToFleetBtn"),
+  updateAgentBtn: document.querySelector("#updateAgentBtn"),
+  agentUpdateStatus: document.querySelector("#agentUpdateStatus"),
   quickDiagnosticBtn: document.querySelector("#quickDiagnosticBtn"),
   openLuciBtn: document.querySelector("#openLuciBtn"),
   remoteAccessPanel: document.querySelector("#remoteAccessPanel"),
@@ -231,6 +233,13 @@ const els = {
   profileAdminTab: document.querySelector("#profileAdminTab"),
   profileTabs: [...document.querySelectorAll("[data-profile-tab]")],
   profilePanels: [...document.querySelectorAll("[data-profile-panel]")],
+	rolloutForm: document.querySelector("#rolloutForm"),
+	rolloutDeviceIds: document.querySelector("#rolloutDeviceIds"),
+	rolloutChannel: document.querySelector("#rolloutChannel"),
+	rolloutBatchSize: document.querySelector("#rolloutBatchSize"),
+	rolloutFailureThreshold: document.querySelector("#rolloutFailureThreshold"),
+	rolloutMessage: document.querySelector("#rolloutMessage"),
+	rolloutList: document.querySelector("#rolloutList"),
   passwordForm: document.querySelector("#passwordForm"),
   currentPassword: document.querySelector("#currentPassword"),
   newPassword: document.querySelector("#newPassword"),
@@ -470,6 +479,10 @@ function friendlyAPIError(status, code, rawMessage) {
     "device not found": "Роутер не найден или у вас нет к нему доступа",
     "invalid or expired enrollment grant": "Код подключения недействителен или уже использован",
     "active LuCI access grant limit reached": "Создано слишком много временных ссылок. Подождите минуту",
+    "agent update is unavailable": "Управляемое обновление агента сейчас недоступно",
+    "device does not support managed agent updates": "Этот роутер не поддерживает управляемое обновление агента",
+    "no compatible immutable agent feed is available": "Для этого роутера нет совместимой версии агента",
+    "failed to queue agent update": "Не удалось добавить обновление агента в очередь",
   };
   if (known[rawMessage]) return known[rawMessage];
   if (String(rawMessage).startsWith("failed to ")) {
@@ -624,6 +637,7 @@ function commandTypeLabel(type) {
     uci_restore: "Восстановление настроек",
     remote_ssh_reverse: "Открытие удаленного доступа",
     remote_ssh_close: "Закрытие удаленного доступа",
+    agent_update: "Обновление агента",
   }[type] || type || "-";
 }
 
@@ -718,6 +732,15 @@ function deviceModel(device) {
 
 function deviceAgentVersion(device) {
   return device && device.inventory && device.inventory.agent_version ? String(device.inventory.agent_version) : "";
+}
+
+function supportsManagedAgentUpdate(device) {
+  const inventory = device && device.inventory;
+  return inventory && inventory.agent_runtime === "go" && inventory.agent_package === "rmm-agent-go-production";
+}
+
+function hasAgentUpdateAvailable(device) {
+  return supportsManagedAgentUpdate(device) && agentVersionState(deviceAgentVersion(device)).comparison === -1;
 }
 
 function stableAgentVersion() {
@@ -957,6 +980,7 @@ function renderDeviceDetail(device) {
   els.deviceMeta.textContent = `${device.id} - ${device.openwrt_version || "unknown"}${device.domain_name ? ` - ${device.domain_name}` : ""}`;
   els.deviceBadge.textContent = device.online ? "На связи" : "Не на связи";
   els.deviceBadge.className = `badge ${device.online ? "online" : "offline"}`;
+  els.updateAgentBtn.classList.toggle("is-hidden", !hasAgentUpdateAvailable(device));
   els.lastSeen.textContent = formatDate(device.last_seen_at);
   els.loadAvg.textContent = formatLoadAverage(device.metrics && device.metrics.loadavg);
   els.uptime.textContent = formatUptime(device.metrics && device.metrics.uptime);
@@ -972,9 +996,34 @@ function renderDeviceDetail(device) {
   els.inventoryJson.textContent = JSON.stringify(device.inventory || {}, null, 2);
   renderDeviceInformation(device);
   renderDeviceStatus(device);
+  renderAgentUpdateStatus();
   renderHealthSummary(device);
   renderClients(device);
   renderInterfaceCounters(device);
+}
+
+function renderAgentUpdateStatus() {
+  const command = state.commands.find((item) => item.type === "agent_update");
+  const pending = command && (command.status === "queued" || command.status === "claimed");
+  els.updateAgentBtn.classList.toggle("is-hidden", !hasAgentUpdateAvailable(currentDevice()) || pending);
+  if (!command) {
+    els.agentUpdateStatus.classList.add("is-hidden");
+    els.agentUpdateStatus.innerHTML = "";
+    return;
+  }
+
+  const running = pending;
+  const targetVersion = command.args && command.args.target_version;
+  const output = command.output ? ` ${outputSummary(command.output)}` : "";
+  const title = running ? "Обновление агента выполняется" : `Обновление агента: ${statusLabel(command.status)}`;
+  const detail = running
+    ? `${statusLabel(command.status)}${targetVersion ? ` до версии ${targetVersion}` : ""}. Попытка ${command.attempt_count || 0}/${command.max_attempts || 3}.${output}`
+    : `${targetVersion ? `Целевая версия ${targetVersion}. ` : ""}${output || "Смотрите результат в истории команд."}`;
+  els.agentUpdateStatus.classList.remove("is-hidden");
+  els.agentUpdateStatus.innerHTML = `
+    <span class="operation-icon">${running ? "↻" : command.status === "completed" ? "✓" : "!"}</span>
+    <div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></div>
+  `;
 }
 
 function renderDeviceInformation(device) {
@@ -1632,8 +1681,26 @@ function selectProfileTab(requestedTab) {
     loadUsers().catch((error) => {
       els.userList.innerHTML = inlineStateMarkup("Не удалось загрузить пользователей", error.message);
     });
+		loadRollouts().catch((error) => { els.rolloutList.innerHTML = inlineStateMarkup("Не удалось загрузить rollout", error.message); });
   }
 }
+
+async function loadRollouts() {
+  const response = await api("/api/agent-rollouts");
+  els.rolloutChannel.querySelector('option[value="candidate"]').disabled = !response.candidate_available;
+  els.rolloutChannel.title = response.candidate_available ? "" : "Candidate manifest is unavailable";
+  els.rolloutList.innerHTML = (response.rollouts || []).map((rollout) => `<article class="user-row"><div><strong>${escapeHtml(rollout.channel)} ${escapeHtml(rollout.target_version)}</strong><small>${escapeHtml(rollout.status)}: ${rollout.devices.length} устройств, ошибок ${rollout.failure_count}</small></div><div class="user-actions">${rollout.status === "running" ? `<button data-rollout-action="pause" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Пауза</button>` : ""}${rollout.status === "paused" ? `<button data-rollout-action="resume" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Продолжить</button>` : ""}${["running", "paused"].includes(rollout.status) ? `<button class="danger" data-rollout-action="cancel" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Отменить</button>` : ""}</div></article>`).join("") || inlineStateMarkup("Нет rollout", "Создайте первый rollout для явного списка устройств.");
+}
+
+els.rolloutForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const device_ids = els.rolloutDeviceIds.value.split(",").map((value) => value.trim()).filter(Boolean);
+  api("/api/agent-rollouts", { method: "POST", body: JSON.stringify({ device_ids, channel: els.rolloutChannel.value, batch_size: Number(els.rolloutBatchSize.value), failure_threshold: Number(els.rolloutFailureThreshold.value) }) }).then(() => { setFormMessage(els.rolloutMessage, "Rollout создан", "success"); return loadRollouts(); }).catch((error) => setFormMessage(els.rolloutMessage, error.message, "error"));
+});
+els.rolloutList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-rollout-action]"); if (!button) return;
+  api(`/api/agent-rollouts/${encodeURIComponent(button.dataset.rolloutId)}/${button.dataset.rolloutAction}`, { method: "POST" }).then(loadRollouts).catch((error) => setFormMessage(els.rolloutMessage, error.message, "error"));
+});
 
 function closeProfile() {
   if (els.profileDialog.open) els.profileDialog.close();
@@ -2217,6 +2284,7 @@ function renderCommandLoadMore() {
 }
 
 function renderCommands(commands) {
+  renderAgentUpdateStatus();
   els.commandList.innerHTML = "";
   renderCommandSummary(commands);
   const filtered = commands.filter(commandFilterMatches);
@@ -2479,6 +2547,25 @@ async function sendCommand() {
   });
   await Promise.all([loadCommands(), loadAudit()]);
   notify("Command queued", "success");
+}
+
+async function queueAgentUpdate() {
+  const device = currentDevice();
+  if (!device || !hasAgentUpdateAvailable(device)) return;
+  const targetVersion = stableAgentVersion();
+  if (!window.confirm(`Обновить агент на роутере до версии ${targetVersion}? Во время обновления связь с роутером может кратковременно прерваться.`)) return;
+  els.updateAgentBtn.disabled = true;
+  els.updateAgentBtn.textContent = "Добавление в очередь...";
+  try {
+    const command = await api(`/api/devices/${encodeURIComponent(device.id)}/agent-update`, { method: "POST" });
+    state.commands = [command, ...state.commands.filter((item) => item.id !== command.id)];
+    renderCommands(state.commands);
+    notify("Обновление агента добавлено в очередь", "success");
+    await Promise.all([loadCommands(), loadAudit()]);
+  } finally {
+    els.updateAgentBtn.disabled = false;
+    els.updateAgentBtn.textContent = "Обновить агент";
+  }
 }
 
 function uciConfigArg() {
@@ -3117,6 +3204,7 @@ els.copyEnrollmentTokenBtn.addEventListener("click", async () => {
 els.backToFleetBtn.addEventListener("click", showFleet);
 els.quickDiagnosticBtn.addEventListener("click", () => selectDeviceTab("operations"));
 els.openLuciBtn.addEventListener("click", openLuciOrRemoteAccess);
+els.updateAgentBtn.addEventListener("click", () => queueAgentUpdate().catch(reportError));
 els.runFullDiagnosticBtn.addEventListener("click", () => runFullDiagnostic().catch(reportError));
 els.loadMoreCommandsBtn.addEventListener("click", () => loadCommands({ append: true }).catch(reportError));
 els.loadMoreAuditBtn.addEventListener("click", () => loadAudit({ append: true }).catch(reportError));

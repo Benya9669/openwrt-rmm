@@ -29,7 +29,7 @@ func TestResolverAcceptsOnlyVerifiedStableManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	manifest := []byte(`{"schema":1,"channel":"stable","agent":{"version":"0.6.9"}}`)
+	manifest := []byte(`{"schema":1,"channel":"stable","agent":{"version":"0.6.9","feed_base_url":"https://packages.example.test/stable"},"packages":[{"openwrt_release":"24.10.7","target":"x86-64","format":"ipk","package_version":"0.6.9-1","feed_url":"https://packages.example.test/stable/24.10.7/x86-64"}]}`)
 	digest := sha256.Sum256(manifest)
 	signature, err := ecdsa.SignASN1(rand.Reader, privateKey, digest[:])
 	if err != nil {
@@ -51,8 +51,14 @@ func TestResolverAcceptsOnlyVerifiedStableManifest(t *testing.T) {
 	if resolver.Version() != "0.6.9" {
 		t.Fatalf("unexpected verified version %q", resolver.Version())
 	}
+	if feed, ok := resolver.CompatibleFeed("24.10.7", "x86-64", "opkg"); !ok || feed.FeedURL != "https://packages.example.test/stable/24.10.7/x86-64" {
+		t.Fatalf("unexpected compatible feed: %#v, %v", feed, ok)
+	}
+	if _, ok := resolver.CompatibleFeed("24.10.7", "x86-64", "apk"); ok {
+		t.Fatal("incompatible package manager was accepted")
+	}
 
-	manifest = []byte(`{"schema":1,"channel":"stable","agent":{"version":"9.9.9"}}`)
+	manifest = []byte(`{"schema":1,"channel":"stable","agent":{"version":"9.9.9","feed_base_url":"https://packages.example.test/stable"}}`)
 	if err := resolver.Refresh(context.Background()); err == nil {
 		t.Fatal("tampered manifest was accepted")
 	}

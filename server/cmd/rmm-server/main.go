@@ -92,6 +92,9 @@ func main() {
 	manifestSignatureURL := env("RMM_UPDATE_MANIFEST_SIGNATURE_URL", "https://benya9669.github.io/openwrt-rmm/update-manifest.sig")
 	stableAgentFallback := env("RMM_STABLE_AGENT_VERSION", stableAgentVersion)
 	var stableAgentVersionProvider func() string
+	var compatibleAgentFeed func(string, string, string) (string, string, string, bool)
+	var candidateAgentFeed func(string, string, string) (string, string, string, bool)
+	var historicalAgentFeed func(context.Context, string, string, string, string, string) (string, string, string, bool)
 	manifestPublicKey := strings.TrimSpace(os.Getenv("RMM_UPDATE_MANIFEST_PUBLIC_KEY"))
 	if manifestPublicKey != "" {
 		resolver, resolverErr := updateinfo.NewResolver(
@@ -114,6 +117,45 @@ func main() {
 			log.Printf("update manifest refresh failed: %v", refreshErr)
 		})
 		stableAgentVersionProvider = resolver.Version
+		compatibleAgentFeed = func(openWrtRelease, target, packageManager string) (string, string, string, bool) {
+			pkg, ok := resolver.CompatibleFeed(openWrtRelease, target, packageManager)
+			return resolver.TargetVersion(), pkg.FeedURL, pkg.PackageVersion, ok
+		}
+		historicalAgentFeed = func(ctx context.Context, historicalManifestURL, historicalSignatureURL, openWrtRelease, target, packageManager string) (string, string, string, bool) {
+			historical, err := updateinfo.NewChannelResolver(historicalManifestURL, historicalSignatureURL, manifestPublicKey, "", "stable")
+			if err != nil || historical.Refresh(ctx) != nil {
+				return "", "", "", false
+			}
+			pkg, ok := historical.CompatibleFeed(openWrtRelease, target, packageManager)
+			return historical.TargetVersion(), pkg.FeedURL, pkg.PackageVersion, ok
+		}
+	}
+	if candidateManifestURL := strings.TrimSpace(os.Getenv("RMM_CANDIDATE_UPDATE_MANIFEST_URL")); candidateManifestURL != "" {
+		candidateSignatureURL := strings.TrimSpace(os.Getenv("RMM_CANDIDATE_UPDATE_MANIFEST_SIGNATURE_URL"))
+		if manifestPublicKey == "" || candidateSignatureURL == "" {
+			log.Printf("candidate update manifest is unavailable: signature URL and public key are required")
+		} else {
+			candidate, candidateErr := updateinfo.NewChannelResolver(candidateManifestURL, candidateSignatureURL, manifestPublicKey, "", "candidate")
+			if candidateErr != nil {
+				log.Printf("candidate update manifest is unavailable: %v", candidateErr)
+			} else {
+				refreshContext, cancelRefresh := context.WithTimeout(context.Background(), 15*time.Second)
+				refreshErr := candidate.Refresh(refreshContext)
+				cancelRefresh()
+				if refreshErr != nil {
+					log.Printf("candidate update manifest is unavailable: %v", refreshErr)
+				} else {
+					candidateAgentFeed = func(openWrtRelease, target, packageManager string) (string, string, string, bool) {
+						if !candidate.Available() {
+							return "", "", "", false
+						}
+						pkg, ok := candidate.CompatibleFeed(openWrtRelease, target, packageManager)
+						return candidate.TargetVersion(), pkg.FeedURL, pkg.PackageVersion, ok
+					}
+					go candidate.Run(context.Background(), 15*time.Minute, func(refreshErr error) { log.Printf("candidate update manifest refresh failed: %v", refreshErr) })
+				}
+			}
+		}
 	}
 
 	st, err := store.OpenSQLite(context.Background(), dbPath)
@@ -151,6 +193,9 @@ func main() {
 		StableAgentVersion:         stableAgentFallback,
 		StableAgentVersionProvider: stableAgentVersionProvider,
 		UpdateManifestURL:          manifestURL,
+		CompatibleAgentFeed:        compatibleAgentFeed,
+		CandidateAgentFeed:         candidateAgentFeed,
+		HistoricalAgentFeed:        historicalAgentFeed,
 	})
 
 	srv := &http.Server{

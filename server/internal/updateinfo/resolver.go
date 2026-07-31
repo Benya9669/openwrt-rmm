@@ -26,8 +26,18 @@ type Manifest struct {
 	Schema  int    `json:"schema"`
 	Channel string `json:"channel"`
 	Agent   struct {
-		Version string `json:"version"`
+		Version     string `json:"version"`
+		FeedBaseURL string `json:"feed_base_url"`
 	} `json:"agent"`
+	Packages []Package `json:"packages"`
+}
+
+type Package struct {
+	OpenWrtRelease string `json:"openwrt_release"`
+	Target         string `json:"target"`
+	Format         string `json:"format"`
+	FeedURL        string `json:"feed_url"`
+	PackageVersion string `json:"package_version"`
 }
 
 type Resolver struct {
@@ -35,12 +45,19 @@ type Resolver struct {
 	signatureURL string
 	publicKey    *ecdsa.PublicKey
 	client       *http.Client
+	channel      string
 
-	mu      sync.RWMutex
-	version string
+	mu       sync.RWMutex
+	version  string
+	manifest Manifest
+	loaded   bool
 }
 
 func NewResolver(manifestURL, signatureURL, publicKeyPath, fallback string) (*Resolver, error) {
+	return NewChannelResolver(manifestURL, signatureURL, publicKeyPath, fallback, "stable")
+}
+
+func NewChannelResolver(manifestURL, signatureURL, publicKeyPath, fallback, channel string) (*Resolver, error) {
 	publicKeyData, err := os.ReadFile(publicKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read update manifest public key: %w", err)
@@ -64,8 +81,9 @@ func NewResolver(manifestURL, signatureURL, publicKeyPath, fallback string) (*Re
 	}
 	return &Resolver{
 		manifestURL: manifestURL, signatureURL: signatureURL, publicKey: publicKey,
-		version: fallback,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		version: fallback, channel: channel,
+		// Do not follow redirects away from the signed manifest location.
+		client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
 
@@ -93,13 +111,55 @@ func (r *Resolver) Refresh(ctx context.Context) error {
 		return fmt.Errorf("decode update manifest: %w", err)
 	}
 	version := strings.TrimSpace(manifest.Agent.Version)
-	if manifest.Schema != 1 || manifest.Channel != "stable" || !stableVersionPattern.MatchString(version) {
+	if manifest.Schema != 1 || manifest.Channel != r.channel || !stableVersionPattern.MatchString(version) || strings.TrimSpace(manifest.Agent.FeedBaseURL) == "" {
 		return errors.New("update manifest schema, channel, or agent version is invalid")
+	}
+	for _, pkg := range manifest.Packages {
+		if strings.TrimSpace(pkg.OpenWrtRelease) == "" || strings.TrimSpace(pkg.Target) == "" || !stableVersionPattern.MatchString(strings.TrimSpace(pkg.PackageVersion)) || (pkg.Format != "ipk" && pkg.Format != "apk") || !validFeedURL(pkg.FeedURL) {
+			return errors.New("update manifest package compatibility entry is invalid")
+		}
 	}
 	r.mu.Lock()
 	r.version = version
+	r.manifest = manifest
+	r.loaded = true
 	r.mu.Unlock()
 	return nil
+}
+
+// Available reports whether a signed manifest has been successfully loaded.
+func (r *Resolver) Available() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.loaded
+}
+
+// CompatibleFeed returns the exact signed feed entry for a reported OpenWrt release and target.
+func (r *Resolver) CompatibleFeed(openWrtRelease, target, packageManager string) (Package, bool) {
+	wantFormat := map[string]string{"opkg": "ipk", "apk": "apk"}[strings.TrimSpace(packageManager)]
+	if wantFormat == "" {
+		return Package{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, pkg := range r.manifest.Packages {
+		if pkg.OpenWrtRelease == openWrtRelease && pkg.Target == target && pkg.Format == wantFormat {
+			return pkg, true
+		}
+	}
+	return Package{}, false
+}
+
+// TargetVersion returns the version from the last verified manifest.
+func (r *Resolver) TargetVersion() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.manifest.Agent.Version
+}
+
+func validFeedURL(raw string) bool {
+	u, err := http.NewRequest(http.MethodGet, raw, nil)
+	return err == nil && u.URL.Scheme == "https" && u.URL.Host != "" && u.URL.RawQuery == "" && u.URL.Fragment == ""
 }
 
 func (r *Resolver) Run(ctx context.Context, interval time.Duration, report func(error)) {

@@ -774,3 +774,14 @@ Webhook requests use `Content-Type: application/json`, `X-RMM-Timestamp` and
 - `online`: confirmed by Wi-Fi association, an active neighbour state or a successful safe ICMP probe;
 - `recent`: confirmed within the recent-presence window;
 - `unconfirmed`: known from DHCP or stale neighbour data but not actively confirmed.
+# API
+
+## Agent rollback
+
+`POST /api/devices/{id}/agent-rollback` is admin-only. Its JSON body is:
+
+```json
+{"manifest_url":"https://packages.example.test/releases/0.6.8/manifest.json","signature_url":"https://packages.example.test/releases/0.6.8/manifest.sig"}
+```
+
+Both URLs must be HTTPS, on the configured update manifest origin, and below its path prefix. The response is the queued, immutable `agent_rollback` command.

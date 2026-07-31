@@ -8,7 +8,74 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+	"rmm-openwrt/server/internal/model"
 )
+
+func TestAgentRolloutQueuesSequentialBatchesAndPausesOnFailure(t *testing.T) {
+	ctx := context.Background()
+	s, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "rollout.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var devices []model.RolloutDevice
+	for i := 0; i < 3; i++ {
+		d, err := s.EnrollDevice(ctx, "router", "24.10")
+		if err != nil {
+			t.Fatal(err)
+		}
+		devices = append(devices, model.RolloutDevice{DeviceID: d.DeviceID, FeedURL: "https://packages.example.test/feed", PackageManager: "opkg"})
+	}
+	r, err := s.CreateAgentRollout(ctx, "stable", "1.2.3", 1, 1, devices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued := 0
+	var first model.RolloutDevice
+	for _, device := range r.Devices {
+		if device.Status == "queued" {
+			queued++
+			first = device
+		}
+	}
+	if queued != 1 {
+		t.Fatalf("initial batch = %#v", r.Devices)
+	}
+	if err := s.HandleAgentRolloutResult(ctx, first.CommandID, "completed", ""); err != nil {
+		t.Fatal(err)
+	}
+	r, err = s.GetAgentRollout(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued = 0
+	var second model.RolloutDevice
+	for _, device := range r.Devices {
+		if device.Status == "queued" {
+			queued++
+			second = device
+		}
+	}
+	if queued != 1 {
+		t.Fatalf("second batch was not queued: %#v", r.Devices)
+	}
+	if err := s.HandleAgentRolloutResult(ctx, second.CommandID, "failed", "update failed"); err != nil {
+		t.Fatal(err)
+	}
+	r, err = s.GetAgentRollout(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := 0
+	for _, device := range r.Devices {
+		if device.Status == "pending" {
+			pending++
+		}
+	}
+	if r.Status != "paused" || pending != 1 {
+		t.Fatalf("failure must pause without queueing: %#v", r)
+	}
+}
 
 func TestMigrateLegacyRemoteSessionsTable(t *testing.T) {
 	ctx := context.Background()

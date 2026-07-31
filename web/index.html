@@ -234,10 +234,12 @@
             </div>
             <div class="device-header-actions">
               <span id="deviceBadge" class="badge"></span>
+              <button id="updateAgentBtn" class="primary is-hidden" type="button">Обновить агент</button>
               <button id="quickDiagnosticBtn" type="button">Диагностика</button>
               <button id="openLuciBtn" class="primary" type="button">Открыть LuCI</button>
             </div>
           </div>
+          <div id="agentUpdateStatus" class="operation-status is-hidden" role="status"></div>
 
           <nav class="device-tabs" aria-label="Разделы объекта" role="tablist">
             <button class="device-tab is-active" data-device-tab-target="overview" type="button" role="tab" aria-selected="true">Обзор</button>
@@ -959,6 +961,16 @@
         <section id="userManagementSection" class="profile-form user-management profile-tab-panel is-hidden" data-profile-panel="admin" role="tabpanel">
           <div class="profile-section-heading"><strong>Пользователи</strong><span>Роли и доступы всех аккаунтов</span></div>
           <div id="userList" class="user-list"></div>
+          <div class="profile-section-heading"><strong>Поэтапные обновления агента</strong><span>Только поддерживаемые Go-устройства с совместимым неизменяемым feed</span></div>
+          <form id="rolloutForm" class="command-form">
+            <input id="rolloutDeviceIds" type="text" placeholder="ID устройств через запятую" required>
+            <select id="rolloutChannel"><option value="stable">stable</option><option value="candidate">candidate</option></select>
+            <input id="rolloutBatchSize" type="number" min="1" value="1" required>
+            <input id="rolloutFailureThreshold" type="number" min="1" value="1" required>
+            <button type="submit">Запустить rollout</button>
+          </form>
+          <p id="rolloutMessage" class="form-message" role="status"></p>
+          <div id="rolloutList" class="user-list"></div>
         </section>
         <div class="profile-session-actions profile-tab-panel is-hidden" data-profile-panel="security">
           <button id="logoutAllBtn" class="danger" type="button">Завершить все сессии</button>

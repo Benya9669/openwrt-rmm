@@ -260,11 +260,10 @@
   display: grid;
   min-height: 132px;
   place-items: center;
-  border: 1px solid transparent;
   border-radius: 20px;
   padding: 18px;
   opacity: .46;
-  transition: opacity 220ms ease, transform 220ms ease, border-color 220ms ease;
+  transition: opacity 220ms ease, transform 220ms ease;
 }
 .partner-logo img {
   width: 100%;
@@ -272,9 +271,11 @@
   height: 82px;
   object-fit: contain;
   filter: grayscale(1) saturate(0) brightness(1.45) contrast(.78);
+  transition: filter 220ms ease;
 }
 @media (hover: hover) and (pointer: fine) {
-  .partner-logo:hover { border-color: rgb(83 105 126 / 24%); opacity: .72; transform: translateY(-2px); }
+  .partner-logo:hover { opacity: 1; transform: scale(1.06); }
+  .partner-logo:hover img { filter: none; }
 }
 .landing-login-section h2 { margin: 9px 0; font-size: 38px; }
 .landing-login-section > div p { max-width: 500px; color: var(--muted); line-height: 1.6; }

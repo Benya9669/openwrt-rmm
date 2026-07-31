@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -100,6 +101,11 @@ type Store interface {
 	AddAuditEvent(ctx context.Context, actor, action, deviceID, commandID string, details json.RawMessage) (model.AuditEvent, error)
 	ListAuditEvents(ctx context.Context, opts store.AuditListOptions) ([]model.AuditEvent, error)
 	PurgeAuditEvents(ctx context.Context, opts store.PurgeOptions) (int64, error)
+	CreateAgentRollout(ctx context.Context, channel, targetVersion string, batchSize, failureThreshold int, devices []model.RolloutDevice) (model.AgentRollout, error)
+	GetAgentRollout(ctx context.Context, id string) (model.AgentRollout, error)
+	ListAgentRollouts(ctx context.Context) ([]model.AgentRollout, error)
+	SetAgentRolloutStatus(ctx context.Context, id, status string) (model.AgentRollout, error)
+	HandleAgentRolloutResult(ctx context.Context, commandID, status, output string) error
 }
 
 type Config struct {
@@ -129,6 +135,9 @@ type Config struct {
 	StableAgentVersion         string
 	StableAgentVersionProvider func() string
 	UpdateManifestURL          string
+	CompatibleAgentFeed        func(openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
+	CandidateAgentFeed         func(openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
+	HistoricalAgentFeed        func(ctx context.Context, manifestURL, signatureURL, openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
 }
 
 type App struct {
@@ -155,6 +164,9 @@ type App struct {
 	stableAgentVersion         string
 	stableAgentVersionProvider func() string
 	updateManifestURL          string
+	compatibleAgentFeed        func(openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
+	candidateAgentFeed         func(openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
+	historicalAgentFeed        func(ctx context.Context, manifestURL, signatureURL, openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
 	loginLimiter               *loginRateLimiter
 	passwordResetLimiter       *loginRateLimiter
 	loginSlots                 chan struct{}
@@ -221,6 +233,11 @@ type bulkCommandRequest struct {
 	Args      json.RawMessage `json:"args"`
 }
 
+type agentRollbackRequest struct {
+	ManifestURL  string `json:"manifest_url"`
+	SignatureURL string `json:"signature_url"`
+}
+
 type nextCommandRequest struct {
 	DeviceID string `json:"device_id"`
 }
@@ -231,6 +248,13 @@ type commandResultRequest struct {
 	ExitCode int             `json:"exit_code"`
 	Output   string          `json:"output"`
 	Result   json.RawMessage `json:"result"`
+}
+
+type rolloutRequest struct {
+	DeviceIDs        []string `json:"device_ids"`
+	Channel          string   `json:"channel"`
+	BatchSize        int      `json:"batch_size"`
+	FailureThreshold int      `json:"failure_threshold"`
 }
 
 type loginRequest struct {
@@ -329,6 +353,9 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		stableAgentVersion:         strings.TrimSpace(cfg.StableAgentVersion),
 		stableAgentVersionProvider: cfg.StableAgentVersionProvider,
 		updateManifestURL:          strings.TrimSpace(cfg.UpdateManifestURL),
+		compatibleAgentFeed:        cfg.CompatibleAgentFeed,
+		candidateAgentFeed:         cfg.CandidateAgentFeed,
+		historicalAgentFeed:        cfg.HistoricalAgentFeed,
 		loginLimiter:               newLoginRateLimiter(5, 5*time.Minute),
 		passwordResetLimiter:       newLoginRateLimiter(3, time.Hour),
 		loginSlots:                 make(chan struct{}, 4),
@@ -400,6 +427,9 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("PATCH /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("DELETE /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("GET /api/audit-events", a.operatorAuth(http.HandlerFunc(a.handleListAuditEvents)))
+	mux.Handle("GET /api/agent-rollouts", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleAgentRollouts))))
+	mux.Handle("POST /api/agent-rollouts", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleAgentRollouts))))
+	mux.Handle("POST /api/agent-rollouts/", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleAgentRollouts))))
 	mux.Handle("DELETE /api/audit-events", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handlePurgeAuditEvents))))
 	if cfg.AllowLegacyLuCIProxy {
 		mux.Handle("GET /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
@@ -558,6 +588,10 @@ func (a *App) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save command result")
 		return
 	}
+	if err := a.store.HandleAgentRolloutResult(r.Context(), id, status, req.Output); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to advance agent rollout")
+		return
+	}
 	if !found {
 		_, _ = a.store.AddAuditEvent(r.Context(), "agent", "command.result_rejected", req.DeviceID, id, mustJSON(map[string]string{
 			"status":     status,
@@ -573,6 +607,120 @@ func (a *App) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 	a.events.publish("devices")
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *App) handleAgentRollouts(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		rollouts, err := a.store.ListAgentRollouts(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load agent rollouts")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"rollouts": rollouts, "candidate_available": a.candidateAgentFeed != nil})
+		return
+	}
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) == 4 {
+		action := parts[3]
+		status := map[string]string{"pause": "paused", "resume": "running", "cancel": "cancelled"}[action]
+		if status == "" {
+			writeError(w, http.StatusBadRequest, "invalid rollout action")
+			return
+		}
+		rollout, err := a.store.SetAgentRolloutStatus(r.Context(), parts[2], status)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "rollout not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update agent rollout")
+			return
+		}
+		_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "agent.rollout_"+action, "", "", mustJSON(map[string]string{"rollout_id": rollout.ID, "request_id": requestID(r.Context())}))
+		a.events.publish("devices")
+		writeJSON(w, http.StatusOK, rollout)
+		return
+	}
+	var req rolloutRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if len(req.DeviceIDs) == 0 || len(req.DeviceIDs) > 500 || (req.Channel != "stable" && req.Channel != "candidate") {
+		writeError(w, http.StatusBadRequest, "device IDs and a valid channel are required")
+		return
+	}
+	if req.BatchSize < 1 || req.BatchSize > len(req.DeviceIDs) {
+		writeError(w, http.StatusBadRequest, "invalid batch size")
+		return
+	}
+	if req.FailureThreshold == 0 {
+		req.FailureThreshold = 1
+	}
+	if req.FailureThreshold < 1 {
+		writeError(w, http.StatusBadRequest, "invalid failure threshold")
+		return
+	}
+	resolver := a.compatibleAgentFeed
+	if req.Channel == "candidate" {
+		resolver = a.candidateAgentFeed
+	}
+	if resolver == nil {
+		writeError(w, http.StatusConflict, "candidate agent update is unavailable")
+		return
+	}
+	seen := map[string]bool{}
+	var eligible []model.RolloutDevice
+	version := ""
+	for _, id := range req.DeviceIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		d, found, err := a.store.GetDevice(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load device")
+			return
+		}
+		if !found {
+			continue
+		}
+		var inv struct {
+			AgentRuntime   string `json:"agent_runtime"`
+			AgentPackage   string `json:"agent_package"`
+			PackageManager string `json:"package_manager"`
+			OpenWrtRelease string `json:"openwrt_release"`
+			Target         string `json:"target"`
+		}
+		if json.Unmarshal(d.Inventory, &inv) != nil || inv.AgentRuntime != "go" || inv.AgentPackage != "rmm-agent-go-production" {
+			continue
+		}
+		v, feed, packageVersion, ok := resolver(strings.TrimSpace(inv.OpenWrtRelease), strings.TrimSpace(inv.Target), strings.TrimSpace(inv.PackageManager))
+		if !ok {
+			continue
+		}
+		if version == "" {
+			version = v
+		}
+		if version != v {
+			continue
+		}
+		eligible = append(eligible, model.RolloutDevice{DeviceID: d.ID, FeedURL: feed, PackageManager: inv.PackageManager, PackageVersion: packageVersion})
+	}
+	if len(eligible) == 0 {
+		writeError(w, http.StatusConflict, "no eligible supported devices with compatible immutable feeds")
+		return
+	}
+	if req.BatchSize > len(eligible) {
+		req.BatchSize = len(eligible)
+	}
+	rollout, err := a.store.CreateAgentRollout(r.Context(), req.Channel, version, req.BatchSize, req.FailureThreshold, eligible)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create agent rollout")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "agent.rollout_create", "", "", mustJSON(map[string]any{"rollout_id": rollout.ID, "channel": req.Channel, "eligible_devices": len(eligible), "request_id": requestID(r.Context())}))
+	a.events.publish("devices")
+	writeJSON(w, http.StatusCreated, rollout)
 }
 
 func (a *App) handleListDevices(w http.ResponseWriter, r *http.Request) {
@@ -676,6 +824,18 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 		a.handleTransferDevice(w, r)
 		return
 	}
+	if len(parts) == 4 && parts[3] == "agent-update" && r.Method == http.MethodPost {
+		a.handleCreateAgentUpdate(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "agent-rollback" && r.Method == http.MethodPost {
+		if !principal.IsAdmin() {
+			writeError(w, http.StatusForbidden, "admin access is required")
+			return
+		}
+		a.handleCreateAgentRollback(w, r)
+		return
+	}
 	if len(parts) == 4 && parts[3] == "metrics-history" && r.Method == http.MethodGet {
 		a.handleListMetricSamples(w, r)
 		return
@@ -749,6 +909,196 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, http.StatusNotFound, "not found")
+}
+
+func (a *App) handleCreateAgentUpdate(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[3] != "agent-update" || a.compatibleAgentFeed == nil {
+		writeError(w, http.StatusNotFound, "agent update is unavailable")
+		return
+	}
+	device, found, err := a.store.GetDevice(r.Context(), parts[2])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load device")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	var inventory struct {
+		AgentRuntime   string `json:"agent_runtime"`
+		AgentPackage   string `json:"agent_package"`
+		PackageManager string `json:"package_manager"`
+		OpenWrtRelease string `json:"openwrt_release"`
+		Target         string `json:"target"`
+	}
+	if json.Unmarshal(device.Inventory, &inventory) != nil || inventory.AgentRuntime != "go" || inventory.AgentPackage != "rmm-agent-go-production" {
+		writeError(w, http.StatusConflict, "device does not support managed agent updates")
+		return
+	}
+	targetVersion, feedURL, packageVersion, ok := a.compatibleAgentFeed(strings.TrimSpace(inventory.OpenWrtRelease), strings.TrimSpace(inventory.Target), strings.TrimSpace(inventory.PackageManager))
+	if !ok {
+		writeError(w, http.StatusConflict, "no compatible immutable agent feed is available")
+		return
+	}
+	c, _, err := a.store.CreateCommand(r.Context(), device.ID, "agent_update", mustJSON(map[string]string{
+		"target_version": targetVersion, "feed_url": feedURL, "package_version": packageVersion, "package_manager": inventory.PackageManager, "package": "rmm-agent-go-production",
+	}))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to queue agent update")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "agent.update_queue", device.ID, c.ID, mustJSON(map[string]string{"request_id": requestID(r.Context())}))
+	a.events.publish("devices")
+	writeJSON(w, http.StatusCreated, c)
+}
+
+func (a *App) handleCreateAgentRollback(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[3] != "agent-rollback" || a.historicalAgentFeed == nil {
+		writeError(w, http.StatusNotFound, "agent rollback is unavailable")
+		return
+	}
+	var req agentRollbackRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !trustedHistoricalManifestURL(a.updateManifestURL, req.ManifestURL) || !trustedHistoricalManifestURL(a.updateManifestURL, req.SignatureURL) {
+		writeError(w, http.StatusBadRequest, "manifest URLs must be HTTPS within the configured update manifest origin and path prefix")
+		return
+	}
+	device, found, err := a.store.GetDevice(r.Context(), parts[2])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load device")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	var inventory struct {
+		AgentRuntime   string `json:"agent_runtime"`
+		AgentPackage   string `json:"agent_package"`
+		AgentVersion   string `json:"agent_version"`
+		PackageManager string `json:"package_manager"`
+		OpenWrtRelease string `json:"openwrt_release"`
+		Target         string `json:"target"`
+	}
+	if json.Unmarshal(device.Inventory, &inventory) != nil || inventory.AgentRuntime != "go" || inventory.AgentPackage != "rmm-agent-go-production" {
+		writeError(w, http.StatusConflict, "device does not support managed agent rollbacks")
+		return
+	}
+	targetVersion, feedURL, packageVersion, ok := a.historicalAgentFeed(r.Context(), strings.TrimSpace(req.ManifestURL), strings.TrimSpace(req.SignatureURL), strings.TrimSpace(inventory.OpenWrtRelease), strings.TrimSpace(inventory.Target), strings.TrimSpace(inventory.PackageManager))
+	if !ok {
+		writeError(w, http.StatusConflict, "no compatible immutable rollback feed is available")
+		return
+	}
+	if compareSemver(targetVersion, strings.TrimSpace(inventory.AgentVersion)) >= 0 {
+		writeError(w, http.StatusConflict, "rollback target must be lower than the reported agent version")
+		return
+	}
+	c, _, err := a.store.CreateCommand(r.Context(), device.ID, "agent_rollback", mustJSON(map[string]string{
+		"target_version": targetVersion, "feed_url": feedURL, "package_version": packageVersion, "package_manager": inventory.PackageManager, "package": "rmm-agent-go-production",
+	}))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to queue agent rollback")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "agent.rollback_queue", device.ID, c.ID, mustJSON(map[string]string{"target_version": targetVersion, "request_id": requestID(r.Context())}))
+	a.events.publish("devices")
+	writeJSON(w, http.StatusCreated, c)
+}
+
+func trustedHistoricalManifestURL(configured, candidate string) bool {
+	base, err := url.Parse(strings.TrimSpace(configured))
+	if err != nil || base.Scheme != "https" || base.Host == "" {
+		return false
+	}
+	u, err := url.Parse(strings.TrimSpace(candidate))
+	if err != nil || u.Scheme != "https" || u.Host != base.Host || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	prefix := base.Path[:strings.LastIndex(base.Path, "/")+1]
+	return strings.HasPrefix(u.Path, prefix) && !strings.Contains(u.Path, "..")
+}
+
+func compareSemver(left, right string) int {
+	type version struct {
+		core       [3]int
+		prerelease string
+	}
+	parse := func(value string) (version, bool) {
+		var parsedVersion version
+		value = strings.SplitN(strings.TrimSpace(value), "+", 2)[0]
+		core, prerelease, _ := strings.Cut(value, "-")
+		parts := strings.Split(core, ".")
+		if len(parts) != 3 {
+			return parsedVersion, false
+		}
+		for i, part := range parts {
+			parsed, err := strconv.Atoi(part)
+			if err != nil || parsed < 0 {
+				return parsedVersion, false
+			}
+			parsedVersion.core[i] = parsed
+		}
+		parsedVersion.prerelease = prerelease
+		return parsedVersion, true
+	}
+	a, aOK := parse(left)
+	b, bOK := parse(right)
+	if !aOK || !bOK {
+		return 1
+	}
+	for i := range a.core {
+		if a.core[i] < b.core[i] {
+			return -1
+		}
+		if a.core[i] > b.core[i] {
+			return 1
+		}
+	}
+	if a.prerelease == "" && b.prerelease != "" {
+		return 1
+	}
+	if a.prerelease != "" && b.prerelease == "" {
+		return -1
+	}
+	return comparePrerelease(a.prerelease, b.prerelease)
+}
+
+func comparePrerelease(left, right string) int {
+	leftParts, rightParts := strings.Split(left, "."), strings.Split(right, ".")
+	for i := 0; i < len(leftParts) && i < len(rightParts); i++ {
+		leftPart, rightPart := leftParts[i], rightParts[i]
+		leftNumber, leftErr := strconv.Atoi(leftPart)
+		rightNumber, rightErr := strconv.Atoi(rightPart)
+		switch {
+		case leftErr == nil && rightErr == nil:
+			if leftNumber < rightNumber {
+				return -1
+			}
+			if leftNumber > rightNumber {
+				return 1
+			}
+		case leftErr == nil:
+			return -1
+		case rightErr == nil:
+			return 1
+		case leftPart < rightPart:
+			return -1
+		case leftPart > rightPart:
+			return 1
+		}
+	}
+	if len(leftParts) < len(rightParts) {
+		return -1
+	}
+	if len(leftParts) > len(rightParts) {
+		return 1
+	}
+	return 0
 }
 
 func (a *App) handleListLANClients(w http.ResponseWriter, r *http.Request) {
@@ -2044,7 +2394,7 @@ func bearerToken(r *http.Request) (string, bool) {
 
 func AllowedCommandType(t string) bool {
 	switch t {
-	case "ping", "traceroute", "route_show", "interfaces_show", "reboot", "service_restart", "pkg_list_installed", "pkg_update", "pkg_list_upgradable", "pkg_install", "pkg_remove", "opkg_list_installed", "opkg_update", "opkg_list_upgradable", "opkg_install", "opkg_remove", "uci_show", "uci_backup", "uci_preview", "uci_set", "uci_commit", "uci_commit_confirmed", "uci_revert", "uci_restore", "remote_ssh_reverse", "remote_ssh_close":
+	case "ping", "traceroute", "route_show", "interfaces_show", "reboot", "service_restart", "pkg_list_installed", "pkg_update", "pkg_list_upgradable", "pkg_install", "pkg_remove", "opkg_list_installed", "opkg_update", "opkg_list_upgradable", "opkg_install", "opkg_remove", "agent_update", "agent_rollback", "uci_show", "uci_backup", "uci_preview", "uci_set", "uci_commit", "uci_commit_confirmed", "uci_revert", "uci_restore", "remote_ssh_reverse", "remote_ssh_close":
 		return true
 	default:
 		return false

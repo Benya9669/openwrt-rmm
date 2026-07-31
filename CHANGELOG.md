@@ -3,6 +3,42 @@
 This file contains user-facing release notes. Every section must match its Git tag;
 the release workflow fails when notes for a new tag have not been prepared.
 
+## Unreleased
+
+- Added admin-only, per-device agent rollback using ECDSA-verified historical stable manifests,
+  trusted manifest URL boundaries, inventory compatibility checks, and immutable version-pinned packages.
+
+## server-v0.9.2
+
+First managed single-router production Go agent update stage.
+
+### Added
+
+- Authenticated per-device `agent-update` requests now derive a compatible immutable feed
+  from the last reported production Go agent inventory and queue a dedicated update command.
+- The server retains the complete signature-verified stable manifest, including its feed base
+  and package compatibility entries, rather than retaining only the agent version.
+
+### Security and compatibility
+
+- Updates are limited to the `rmm-agent-go-production` package and require an exact reported
+  OpenWrt release, target, and package manager match. Unsupported devices are not queued.
+- Admins can create stable or signed-candidate canary rollouts for explicit device IDs, with
+  persisted batch/device state, automatic failure pauses, and pause/resume/cancel controls.
+- Rollback is intentionally not implemented: prior immutable feeds are not retained and the
+  agent update protocol has no downgrade path.
+
+## agent-v0.6.9
+
+Managed update support for the production Go agent.
+
+### Added
+
+- Inventory now reports the production package identity, package manager, OpenWrt release,
+  and target needed for the server to select an immutable compatible feed.
+- `agent_update` validates its fixed package, package manager, and HTTPS feed arguments,
+  requires at least 8192 KiB free on the root filesystem, and returns structured outcomes.
+
 ## server-v0.9.1
 
 Stabilization release for notification operations, account navigation, and LAN client

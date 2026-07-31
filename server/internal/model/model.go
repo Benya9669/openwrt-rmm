@@ -61,6 +61,30 @@ type Command struct {
 	ExpiredAt    *time.Time      `json:"expired_at,omitempty"`
 }
 
+type AgentRollout struct {
+	ID               string          `json:"id"`
+	Channel          string          `json:"channel"`
+	TargetVersion    string          `json:"target_version"`
+	BatchSize        int             `json:"batch_size"`
+	FailureThreshold int             `json:"failure_threshold"`
+	Status           string          `json:"status"`
+	FailureCount     int             `json:"failure_count"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	Devices          []RolloutDevice `json:"devices"`
+}
+
+type RolloutDevice struct {
+	DeviceID       string `json:"device_id"`
+	Status         string `json:"status"`
+	Batch          int    `json:"batch"`
+	CommandID      string `json:"command_id,omitempty"`
+	FeedURL        string `json:"feed_url"`
+	PackageManager string `json:"-"`
+	PackageVersion string `json:"package_version"`
+	LastError      string `json:"last_error,omitempty"`
+}
+
 type AuditEvent struct {
 	ID        string          `json:"id"`
 	Actor     string          `json:"actor"`

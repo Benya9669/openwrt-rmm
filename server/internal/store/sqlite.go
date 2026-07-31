@@ -139,6 +139,19 @@ CREATE TABLE IF NOT EXISTS commands (
 CREATE INDEX IF NOT EXISTS idx_commands_device_status ON commands(device_id, status);
 CREATE INDEX IF NOT EXISTS idx_commands_device_created_at ON commands(device_id, created_at);
 
+CREATE TABLE IF NOT EXISTS agent_rollouts (
+ id TEXT PRIMARY KEY, channel TEXT NOT NULL, target_version TEXT NOT NULL, batch_size INTEGER NOT NULL,
+ failure_threshold INTEGER NOT NULL, status TEXT NOT NULL, failure_count INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_rollout_devices (
+ rollout_id TEXT NOT NULL, device_id TEXT NOT NULL, feed_url TEXT NOT NULL, package_manager TEXT NOT NULL, package_version TEXT NOT NULL,
+ batch INTEGER NOT NULL, status TEXT NOT NULL, command_id TEXT NOT NULL DEFAULT '', last_error TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY (rollout_id, device_id), FOREIGN KEY(rollout_id) REFERENCES agent_rollouts(id) ON DELETE CASCADE,
+ FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_rollout_devices_command ON agent_rollout_devices(command_id);
+
 CREATE TABLE IF NOT EXISTS metric_samples (
 	id TEXT PRIMARY KEY,
 	device_id TEXT NOT NULL,
@@ -439,6 +452,7 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`ALTER TABLE notification_settings ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE notification_settings ADD COLUMN webhook_url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE notification_settings ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE agent_rollout_devices ADD COLUMN package_version TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !isDuplicateColumnError(err) {
 			return err
@@ -654,6 +668,178 @@ AND status != 'expired'
 		}
 	}
 	return n > 0, nil
+}
+
+func (s *Store) CreateAgentRollout(ctx context.Context, channel, targetVersion string, batchSize, failureThreshold int, devices []model.RolloutDevice) (model.AgentRollout, error) {
+	id, err := randomID("rollout")
+	if err != nil {
+		return model.AgentRollout{}, err
+	}
+	now := nowText()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.AgentRollout{}, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_rollouts (id, channel, target_version, batch_size, failure_threshold, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`, id, channel, targetVersion, batchSize, failureThreshold, now, now); err != nil {
+		return model.AgentRollout{}, err
+	}
+	for i := range devices {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_rollout_devices (rollout_id, device_id, feed_url, package_manager, package_version, batch, status) VALUES (?, ?, ?, ?, ?, 0, 'pending')`, id, devices[i].DeviceID, devices[i].FeedURL, devices[i].PackageManager, devices[i].PackageVersion); err != nil {
+			return model.AgentRollout{}, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return model.AgentRollout{}, err
+	}
+	if err = s.queueRolloutBatch(ctx, id); err != nil {
+		return model.AgentRollout{}, err
+	}
+	return s.GetAgentRollout(ctx, id)
+}
+
+func (s *Store) GetAgentRollout(ctx context.Context, id string) (model.AgentRollout, error) {
+	r := s.db.QueryRowContext(ctx, `SELECT id, channel, target_version, batch_size, failure_threshold, status, failure_count, created_at, updated_at FROM agent_rollouts WHERE id = ?`, id)
+	var out model.AgentRollout
+	var created, updated string
+	if err := r.Scan(&out.ID, &out.Channel, &out.TargetVersion, &out.BatchSize, &out.FailureThreshold, &out.Status, &out.FailureCount, &created, &updated); err != nil {
+		return out, err
+	}
+	out.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	out.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	rows, err := s.db.QueryContext(ctx, `SELECT device_id, status, batch, command_id, feed_url, last_error FROM agent_rollout_devices WHERE rollout_id = ? ORDER BY batch, device_id`, id)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d model.RolloutDevice
+		if err := rows.Scan(&d.DeviceID, &d.Status, &d.Batch, &d.CommandID, &d.FeedURL, &d.LastError); err != nil {
+			return out, err
+		}
+		out.Devices = append(out.Devices, d)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListAgentRollouts(ctx context.Context) ([]model.AgentRollout, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM agent_rollouts ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.AgentRollout
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		r, err := s.GetAgentRollout(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) SetAgentRolloutStatus(ctx context.Context, id, status string) (model.AgentRollout, error) {
+	if status == "cancelled" {
+		_, _ = s.db.ExecContext(ctx, `UPDATE commands SET status = 'cancelled', cancelled_at = ? WHERE id IN (SELECT command_id FROM agent_rollout_devices WHERE rollout_id = ?) AND status = 'queued'`, nowText(), id)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE agent_rollouts SET status = ?, updated_at = ? WHERE id = ? AND status NOT IN ('cancelled', 'completed')`, status, nowText(), id)
+	if err != nil {
+		return model.AgentRollout{}, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return model.AgentRollout{}, sql.ErrNoRows
+	}
+	if status == "running" {
+		if err := s.queueRolloutBatch(ctx, id); err != nil {
+			return model.AgentRollout{}, err
+		}
+	}
+	return s.GetAgentRollout(ctx, id)
+}
+
+func (s *Store) HandleAgentRolloutResult(ctx context.Context, commandID, status, output string) error {
+	var rolloutID, deviceID string
+	err := s.db.QueryRowContext(ctx, `SELECT rollout_id, device_id FROM agent_rollout_devices WHERE command_id = ?`, commandID).Scan(&rolloutID, &deviceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if status != "completed" {
+		_, err = s.db.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'failed', last_error = ? WHERE rollout_id = ? AND device_id = ?`, output, rolloutID, deviceID)
+		if err != nil {
+			return err
+		}
+		_, err = s.db.ExecContext(ctx, `UPDATE agent_rollouts SET failure_count = failure_count + 1, status = CASE WHEN failure_count + 1 >= failure_threshold THEN 'paused' ELSE status END, updated_at = ? WHERE id = ? AND status = 'running'`, nowText(), rolloutID)
+		return err
+	}
+	if _, err = s.db.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'completed' WHERE rollout_id = ? AND device_id = ?`, rolloutID, deviceID); err != nil {
+		return err
+	}
+	return s.queueRolloutBatch(ctx, rolloutID)
+}
+
+func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var channel, version, state string
+	var batchSize int
+	if err = tx.QueryRowContext(ctx, `SELECT channel, target_version, batch_size, status FROM agent_rollouts WHERE id = ?`, id).Scan(&channel, &version, &batchSize, &state); err != nil {
+		return err
+	}
+	if state != "running" {
+		return nil
+	}
+	var active int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM agent_rollout_devices d JOIN commands c ON c.id = d.command_id WHERE d.rollout_id = ? AND d.status = 'queued' AND c.status IN ('queued', 'claimed')`, id).Scan(&active); err != nil || active > 0 {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT device_id, feed_url, package_manager, package_version FROM agent_rollout_devices WHERE rollout_id = ? AND status = 'pending' ORDER BY device_id LIMIT ?`, id, batchSize)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	batch := 1
+	_ = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(batch), 0) + 1 FROM agent_rollout_devices WHERE rollout_id = ?`, id).Scan(&batch)
+	count := 0
+	for rows.Next() {
+		var deviceID, feedURL, manager, packageVersion string
+		if err = rows.Scan(&deviceID, &feedURL, &manager, &packageVersion); err != nil {
+			return err
+		}
+		commandID, e := randomID("cmd")
+		if e != nil {
+			return e
+		}
+		args, err := json.Marshal(map[string]string{"rollout_id": id, "channel": channel, "target_version": version, "feed_url": feedURL, "package_manager": manager, "package": "rmm-agent-go-production", "package_version": packageVersion})
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO commands (id, device_id, type, args_json, status, created_at) VALUES (?, ?, 'agent_update', ?, 'queued', ?)`, commandID, deviceID, string(args), nowText()); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'queued', batch = ?, command_id = ? WHERE rollout_id = ? AND device_id = ?`, batch, commandID, id, deviceID); err != nil {
+			return err
+		}
+		count++
+	}
+	if count == 0 {
+		_, err = tx.ExecContext(ctx, `UPDATE agent_rollouts SET status = 'completed', updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM agent_rollout_devices WHERE rollout_id = ? AND status != 'completed')`, nowText(), id, id)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) updateRemoteSessionFromCommandResult(ctx context.Context, commandID, status string) error {

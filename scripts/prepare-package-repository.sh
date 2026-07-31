@@ -56,14 +56,34 @@ for artifact_dir in "$source_dir"/openwrt-*; do
   if find "$artifact_dir" -maxdepth 1 -type f -name '*.apk' -print -quit | grep -q .; then
     package_format="apk"
   fi
+  package_file="$(find "$artifact_dir" -maxdepth 1 -type f \( -name 'rmm-agent-go-production_*.ipk' -o -name 'rmm-agent-go-production-*.apk' \) -print -quit)"
+  case "$package_file" in
+    *.ipk)
+      package_version="$(ar p "$package_file" control.tar.gz | tar -xzO ./control | sed -n 's/^Version: //p' | head -n 1)"
+      ;;
+    *.apk)
+      package_version="$(tar -xzO -f "$package_file" .PKGINFO | sed -n 's/^pkgver = //p' | head -n 1)"
+      ;;
+    *)
+      echo "cannot determine rmm-agent-go-production package version in $artifact_dir" >&2
+      exit 1
+      ;;
+  esac
+  case "$package_version" in
+    ''|*[!0-9A-Za-z.+:~_-]*)
+      echo "invalid package version: $package_version" >&2
+      exit 1
+      ;;
+  esac
   if [ -s "$manifest_entries" ]; then
     printf ',\n' >> "$manifest_entries"
   fi
-  printf '    {"openwrt_release":"%s","target":"%s","format":"%s","feed_url":"%s"}' \
+  printf '    {"openwrt_release":"%s","target":"%s","format":"%s","feed_url":"%s","package_version":"%s"}' \
     "$openwrt_release" \
     "$target_label" \
     "$package_format" \
-    "https://benya9669.github.io/openwrt-rmm/feeds/stable/openwrt/$openwrt_release/$target_label" \
+    "https://benya9669.github.io/openwrt-rmm/feeds/$agent_version/openwrt/$openwrt_release/$target_label" \
+    "$package_version" \
     >> "$manifest_entries"
 
   while IFS= read -r public_key; do
@@ -93,7 +113,7 @@ cat > "$output_dir/update-manifest.json" <<EOF
   "agent": {
     "version": "${agent_version}",
     "release_url": "https://github.com/Benya9669/openwrt-rmm/releases/tag/agent-v${agent_version}",
-    "feed_base_url": "https://benya9669.github.io/openwrt-rmm/feeds/stable/openwrt"
+    "feed_base_url": "https://benya9669.github.io/openwrt-rmm/feeds/${agent_version}/openwrt"
   },
   "packages": [
 EOF
