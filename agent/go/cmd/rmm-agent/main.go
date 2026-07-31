@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,7 +26,9 @@ import (
 	"time"
 )
 
-const agentVersion = "0.6.8"
+const agentVersion = "0.6.9"
+
+var stableVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 
 type agentRuntimeHealth struct {
 	StartedAt            time.Time
@@ -339,6 +342,10 @@ func buildInventory(cfg config) map[string]any {
 		"openwrt_version": openwrtVersion(),
 		"agent_version":   agentVersion,
 		"agent_runtime":   "go",
+		"agent_package":   "rmm-agent-go-production",
+		"package_manager": packageManager(),
+		"openwrt_release": openwrtRelease(),
+		"target":          openwrtTarget(),
 		"board":           jsonObjectOrEmpty(commandOutput("ubus", "call", "system", "board")),
 		"interfaces":      interfaces(),
 		"default_route":   firstLine(commandOutput("ip", "route", "show", "default")),
@@ -348,6 +355,23 @@ func buildInventory(cfg config) map[string]any {
 		"wifi_clients":    wifiClients(),
 		"client_probes":   clientProbes(),
 	}
+}
+
+func openwrtRelease() string {
+	values := parseShellConfig(readFileString("/etc/openwrt_release"))
+	return strings.TrimSpace(values["DISTRIB_RELEASE"])
+}
+
+func openwrtTarget() string {
+	var board struct {
+		Release struct {
+			Target string `json:"target"`
+		} `json:"release"`
+	}
+	if json.Unmarshal([]byte(commandOutput("ubus", "call", "system", "board")), &board) != nil {
+		return ""
+	}
+	return strings.ReplaceAll(strings.TrimSpace(board.Release.Target), "/", "-")
 }
 
 func (cfg config) displayHostname() string {
@@ -423,6 +447,10 @@ func serverCheckTarget(serverURL string) string {
 
 func processCommand(ctx context.Context, client *http.Client, cfg config, cmd command) {
 	output, exitCode := runCommand(ctx, cfg, cmd)
+	resultDetails := commandMetadata()
+	if cmd.Type == "agent_update" || cmd.Type == "agent_rollback" {
+		output, exitCode, resultDetails = agentPackageOperation(ctx, cmd.Type, cmd.Args)
+	}
 	status := "completed"
 	if exitCode != 0 {
 		status = "failed"
@@ -433,13 +461,17 @@ func processCommand(ctx context.Context, client *http.Client, cfg config, cmd co
 		"status":    status,
 		"exit_code": exitCode,
 		"output":    output,
-		"result":    map[string]any{"agent_version": agentVersion, "agent_runtime": "go"},
+		"result":    resultDetails,
 	}
 	if err := sendCommandResult(ctx, client, cfg, cmd.ID, result); err != nil {
 		logf("failed to send result for %s: %v", cmd.ID, err)
 		if err := spoolCommandResult(cfg.SpoolDir, cmd.ID, result); err != nil {
 			logf("failed to spool result for %s: %v", cmd.ID, err)
 		}
+	}
+	if (cmd.Type == "agent_update" || cmd.Type == "agent_rollback") && exitCode == 0 {
+		// The result is durable before replacing this running binary with the newly installed package.
+		_, _ = execCommand(context.Background(), 30*time.Second, "/etc/init.d/rmm-agent", "restart")
 	}
 }
 
@@ -454,13 +486,15 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 		if !safeHostName(target) {
 			return "target is invalid\n", 2
 		}
-		return execCommand(ctx, 20*time.Second, "ping", "-c", "4", target)
+		output, code := execCommand(ctx, 20*time.Second, "ping", "-c", "4", target)
+		return output, code
 	case "traceroute":
 		target := commandTarget(args, "1.1.1.1")
 		if !safeHostName(target) {
 			return "target is invalid\n", 2
 		}
-		return execCommand(ctx, 45*time.Second, "traceroute", target)
+		output, code := execCommand(ctx, 45*time.Second, "traceroute", target)
+		return output, code
 	case "route_show":
 		return execCommand(ctx, 10*time.Second, "ip", "route", "show")
 	case "interfaces_show":
@@ -491,6 +525,8 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 			return "package name is invalid\n", 2
 		}
 		return runPackageCommand(ctx, "remove", packageName)
+	case "agent_update", "agent_rollback":
+		return "agent update is handled separately\n", 2
 	case "uci_show":
 		config, ok := uciConfigArg(args)
 		if !ok {
@@ -547,6 +583,96 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 	default:
 		return fmt.Sprintf("rmm-agent does not implement command %q\n", cmd.Type), 2
 	}
+}
+
+func commandMetadata() map[string]any {
+	return map[string]any{"agent_version": agentVersion, "agent_runtime": "go"}
+}
+
+func agentPackageOperation(ctx context.Context, operation string, raw json.RawMessage) (string, int, map[string]any) {
+	result := commandMetadata()
+	result["operation"] = operation
+	args := map[string]string{}
+	if (operation != "agent_update" && operation != "agent_rollback") || json.Unmarshal(raw, &args) != nil || !validAgentPackageOperationArgs(args) || args["package"] != "rmm-agent-go-production" || !stableVersionPattern.MatchString(args["target_version"]) || !stableVersionPattern.MatchString(args["package_version"]) || !safeAgentFeedURL(args["feed_url"]) || (args["package_manager"] != "opkg" && args["package_manager"] != "apk") {
+		result["reason"] = "invalid package operation arguments"
+		return "agent package operation arguments are invalid\n", 2, result
+	}
+	if packageManager() != args["package_manager"] {
+		result["reason"] = "package manager does not match inventory"
+		return "agent package operation package manager does not match this router\n", 2, result
+	}
+	availableKB, ok := rootAvailableKB()
+	result["available_kb"] = availableKB
+	if !ok || availableKB < 8192 {
+		result["reason"] = "insufficient disk space"
+		return "agent package operation requires at least 8192 KiB free on /\n", 1, result
+	}
+	result["feed_url"] = args["feed_url"]
+	result["package"] = args["package"]
+	result["previous_version"] = agentVersion
+	result["target_version"] = args["target_version"]
+	result["package_version"] = args["package_version"]
+	if args["package_manager"] == "apk" {
+		apkArgs := []string{"add"}
+		if operation == "agent_rollback" {
+			apkArgs = append(apkArgs, "--allow-downgrade")
+		} else {
+			apkArgs = append(apkArgs, "--upgrade")
+		}
+		apkArgs = append(apkArgs, "--repository", args["feed_url"], args["package"]+"="+args["package_version"])
+		output, code := execCommand(ctx, 2*time.Minute, "apk", apkArgs...)
+		return output, code, result
+	}
+	if err := configureManagedOpkgFeed(args["feed_url"]); err != nil {
+		result["reason"] = "configure managed feed"
+		return err.Error() + "\n", 1, result
+	}
+	updateOutput, updateCode := execCommand(ctx, 90*time.Second, "opkg", "update")
+	if updateCode != 0 {
+		return updateOutput, updateCode, result
+	}
+	installOutput, installCode := execCommand(ctx, 2*time.Minute, "opkg", "install", args["package"]+"="+args["package_version"])
+	return updateOutput + installOutput, installCode, result
+}
+
+func validAgentPackageOperationArgs(args map[string]string) bool {
+	for key := range args {
+		switch key {
+		case "package", "target_version", "package_version", "feed_url", "package_manager", "rollout_id", "channel":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func safeAgentFeedURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.RawQuery == "" && u.Fragment == "" && !strings.Contains(u.Path, "..")
+}
+
+func rootAvailableKB() (int64, bool) {
+	lines := strings.Split(strings.TrimSpace(commandOutput("df", "-k", "/")), "\n")
+	if len(lines) < 2 {
+		return 0, false
+	}
+	fields := strings.Fields(lines[len(lines)-1])
+	if len(fields) < 4 {
+		return 0, false
+	}
+	available, err := strconv.ParseInt(fields[3], 10, 64)
+	return available, err == nil
+}
+
+func configureManagedOpkgFeed(feedURL string) error {
+	const path = "/etc/opkg/rmm-agent-managed.conf"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path+".tmp", []byte("src/gz rmm-agent-managed "+feedURL+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
 }
 
 func commandTarget(args map[string]string, fallback string) string {

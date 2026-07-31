@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent-go-production
-PKG_VERSION:=0.6.8
+PKG_VERSION:=0.6.9
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=RMM OpenWrt

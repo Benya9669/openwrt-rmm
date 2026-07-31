@@ -7,13 +7,44 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.6.8" {
+	if agentVersion != "0.6.9" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
+	}
+}
+
+func TestSafeAgentFeedURL(t *testing.T) {
+	for _, value := range []string{"https://packages.example.test/stable/24.10.7/x86-64", "https://packages.example.test/feed"} {
+		if !safeAgentFeedURL(value) {
+			t.Fatalf("expected %q to be accepted", value)
+		}
+	}
+	for _, value := range []string{"http://packages.example.test/feed", "https://packages.example.test/feed?next=x", "https://packages.example.test/a/../feed", ""} {
+		if safeAgentFeedURL(value) {
+			t.Fatalf("expected %q to be rejected", value)
+		}
+	}
+}
+
+func TestValidAgentPackageOperationArgs(t *testing.T) {
+	valid := map[string]string{"package": "rmm-agent-go-production", "target_version": "0.6.8", "package_version": "0.6.8-1", "feed_url": "https://packages.example.test/feed", "package_manager": "apk"}
+	if !validAgentPackageOperationArgs(valid) {
+		t.Fatal("expected exact package operation arguments to be accepted")
+	}
+	valid["unexpected"] = "value"
+	if validAgentPackageOperationArgs(valid) {
+		t.Fatal("unexpected package operation field was accepted")
+	}
+}
+
+func TestOpenWrtTargetManifestFormat(t *testing.T) {
+	if strings.ReplaceAll("x86/64", "/", "-") != "x86-64" {
+		t.Fatal("OpenWrt target was not normalized")
 	}
 }
 
