@@ -57,6 +57,7 @@ for artifact_dir in "$source_dir"/openwrt-*; do
     package_format="apk"
   fi
   package_file="$(find "$artifact_dir" -maxdepth 1 -type f \( -name 'rmm-agent-go-production_*.ipk' -o -name 'rmm-agent-go-production-*.apk' \) -print -quit)"
+  package_name="$(basename "$package_file")"
   case "$package_file" in
     *.ipk)
       package_version="$(awk '
@@ -65,14 +66,11 @@ for artifact_dir in "$source_dir"/openwrt-*; do
         /^$/ { package = "" }
       ' "$artifact_dir/Packages" 2>/dev/null || true)"
       if [ -z "$package_version" ]; then
-        control_path="$(ar p "$package_file" control.tar.gz 2>/dev/null | tar -tzf - 2>/dev/null | sed -n '/^\.\?\/\?control$/p' | head -n 1)"
-        if [ -n "$control_path" ]; then
-          package_version="$(ar p "$package_file" control.tar.gz 2>/dev/null | tar -xzO -f - "$control_path" 2>/dev/null | sed -n 's/^Version: //p' | head -n 1)"
-        fi
+        package_version="$(printf '%s\n' "$package_name" | sed -n 's/^rmm-agent-go-production_\([^_]*\)_.*/\1/p')"
       fi
       ;;
     *.apk)
-      package_version="$(tar -xzO -f "$package_file" .PKGINFO | sed -n 's/^pkgver = //p' | head -n 1)"
+      package_version="$(printf '%s\n' "$package_name" | sed -n 's/^rmm-agent-go-production[-_]\([^_]*\)_.*/\1/p')"
       ;;
     *)
       echo "cannot determine rmm-agent-go-production package version in $artifact_dir" >&2
