@@ -59,7 +59,12 @@ for artifact_dir in "$source_dir"/openwrt-*; do
   package_file="$(find "$artifact_dir" -maxdepth 1 -type f \( -name 'rmm-agent-go-production_*.ipk' -o -name 'rmm-agent-go-production-*.apk' \) -print -quit)"
   case "$package_file" in
     *.ipk)
-      package_version="$(ar p "$package_file" control.tar.gz | tar -xzO ./control | sed -n 's/^Version: //p' | head -n 1)"
+      control_path="$(ar p "$package_file" control.tar.gz | tar -tzf - | sed -n '/^\.\?\/\?control$/p' | head -n 1)"
+      if [ -z "$control_path" ]; then
+        echo "IPK control archive has no control file: $package_file" >&2
+        exit 1
+      fi
+      package_version="$(ar p "$package_file" control.tar.gz | tar -xzO -f - "$control_path" | sed -n 's/^Version: //p' | head -n 1)"
       ;;
     *.apk)
       package_version="$(tar -xzO -f "$package_file" .PKGINFO | sed -n 's/^pkgver = //p' | head -n 1)"
