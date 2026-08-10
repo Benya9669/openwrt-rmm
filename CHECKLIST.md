@@ -1,11 +1,11 @@
 # Инженерный и release checklist
 
-Актуализировано: 2026-07-31. Порядок продуктовой разработки задаёт `ROADMAP.md`.
+Актуализировано: 2026-08-10. Порядок продуктовой разработки задаёт `ROADMAP.md`.
 Этот файл содержит только критерии готовности к merge/release/deploy.
 
 ## Состояние ветки `main`
 
-- [x] Go agent source и production package имеют версию `0.6.8`.
+- [x] Go agent source и production package подготовлены с версией `0.6.10`.
 - [x] LuCI package `0.2.2` и отдельный `luci-i18n-rmm-agent-ru`.
 - [x] Notification center, verification, quiet hours, webhook, per-device overrides и incidents.
 - [x] Delivery metrics, channel diagnostics и server-side notification history filters.
@@ -18,11 +18,9 @@
 
 ## Текущее состояние релизов
 
-- [x] `server-v0.9.0` опубликован с notification center и LAN client persistence.
-- [x] `agent-v0.6.8` создан как подписанный tag.
-- [x] Все jobs `agent-v0.6.8` завершены успешно и package feed опубликован.
-- [ ] `server-v0.9.1` создан с GPG-подписью и содержит notification operations,
-  profile tabs и LAN neighbour cleanup.
+- [x] `server-v0.9.0`, `server-v0.9.1` и `server-v0.9.2` опубликованы.
+- [x] `agent-v0.6.9` опубликован, package feed и исторические manifests сохранены.
+- [ ] `server-v0.9.3` и `agent-v0.6.10` подготовлены, но ещё не помечены подписанными тегами.
 - [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
 ## Перед `agent-v*`
@@ -79,7 +77,20 @@
 
 ## Последняя подтверждённая проверка
 
-Commit: `f492782` (`server-v0.9.0`).
+Незакоммиченная подготовка `server-v0.9.3` / `agent-v0.6.10`, 2026-08-10:
+
+- [x] `gofmt`, `go test ./...` и `go vet ./...`.
+- [x] `npm run check:web`.
+- [x] Playwright: 12 сценариев, включая rollback, reconnect, 1920/1366/1024/768/390/360 и zoom 200%.
+- [x] `docker compose config --quiet`.
+- [x] Локальный server image `0.9.3` собран и отвечает на `/healthz`.
+- [x] OpenWrt 25.12.4 ramips/mt7621 smoke создал agent `0.6.10`, LuCI `0.2.2`, Russian i18n и APK index; checksums проверены.
+- [ ] Полная 24.10/25.12 CI matrix и подписанные release feeds опубликованы.
+- [ ] Реальный роутер проверен для install и `0.6.9 → 0.6.10 → 0.6.9` rollback.
+
+Последний опубликованный commit:
+
+Commit: `5905478` (`agent-v0.6.9`).
 
 - [x] `go test ./...`.
 - [x] `go vet ./...`.
@@ -87,5 +98,5 @@ Commit: `f492782` (`server-v0.9.0`).
 - [x] `docker compose config --quiet`.
 - [x] Main CI завершён успешно.
 - [x] Локальная OpenWrt 24.10.7 ramips/mt7621 сборка создала agent, LuCI и Russian i18n.
-- [x] Полная tagged matrix `agent-v0.6.8` и GitHub Pages deployment завершены.
+- [x] Полная tagged matrix `agent-v0.6.9` и GitHub Pages deployment завершены.
 - [ ] Production smoke выполнен на release, содержащем текущий `main`.

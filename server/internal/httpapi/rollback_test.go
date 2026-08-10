@@ -1,6 +1,10 @@
 package httpapi
 
-import "testing"
+import (
+	"testing"
+
+	"rmm-openwrt/server/internal/model"
+)
 
 func TestTrustedHistoricalManifestURL(t *testing.T) {
 	base := "https://packages.example.test/releases/update-manifest.json"
@@ -43,5 +47,17 @@ func TestCompareSemver(t *testing.T) {
 	}
 	if compareSemver("invalid", "0.6.9") <= 0 {
 		t.Fatal("invalid version must not be accepted as a rollback target")
+	}
+}
+
+func TestAgentPackageCommandArgsBootstrapCompatibility(t *testing.T) {
+	feed := model.AgentFeed{TargetVersion: "0.6.10", FeedURL: "https://packages.example.test/feed", PackageVersion: "0.6.10-r1", ManifestURL: "https://packages.example.test/update-manifest.json", SignatureURL: "https://packages.example.test/update-manifest.sig"}
+	legacy := agentPackageCommandArgs(feed, "apk", "0.6.9")
+	if legacy["manifest_url"] != "" || legacy["signature_url"] != "" {
+		t.Fatalf("0.6.9 cannot accept new manifest fields: %#v", legacy)
+	}
+	verified := agentPackageCommandArgs(feed, "apk", "0.6.10")
+	if verified["manifest_url"] != feed.ManifestURL || verified["signature_url"] != feed.SignatureURL {
+		t.Fatalf("0.6.10 must receive signed manifest coordinates: %#v", verified)
 	}
 }

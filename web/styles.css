@@ -1378,6 +1378,27 @@ select {
   color: var(--muted);
 }
 
+.agent-operation-history {
+  display: grid;
+  gap: 5px;
+  margin: 7px 0 0;
+  padding: 7px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+
+.agent-operation-history li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.agent-operation-history small {
+  text-align: right;
+}
+
 .operation-icon {
   display: grid;
   width: 34px;
@@ -3852,6 +3873,42 @@ select:focus-visible,
 .user-list {
   display: grid;
   gap: 9px;
+}
+
+.rollout-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  padding: 12px;
+}
+
+.rollout-card-header,
+.rollout-devices li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rollout-card-header > div:first-child,
+.rollout-devices {
+  display: grid;
+  gap: 4px;
+}
+
+.rollout-card small,
+.rollout-devices small {
+  color: var(--muted);
+}
+
+.rollout-devices {
+  margin: 0;
+  padding: 9px 0 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+  font-size: 12px;
 }
 
 .user-row {

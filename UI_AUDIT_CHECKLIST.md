@@ -1,6 +1,6 @@
 # UI/UX audit record
 
-Основной аудит: 2026-07-21. Последняя синхронизация: 2026-07-31.
+Основной аудит: 2026-07-21. Последняя синхронизация: 2026-08-10.
 
 Это запись уже выполненной проверки, а не список будущей разработки. Актуальные
 критерии повторной приёмки находятся в `UI_CHECKLIST.md`.
@@ -25,7 +25,10 @@
 - [x] E-mail/Telegram verification, webhook, quiet hours и per-device overrides реализованы в `main`.
 - [x] LAN clients online/recent/unconfirmed и `last_seen` реализованы в `main`.
 - [x] Основной UI-аудит выпущен в `server-v0.9.0`.
-- [ ] Стабилизация notification operations и profile tabs выпущена в `server-v0.9.1`.
+- [x] Стабилизация notification operations и profile tabs выпущена в `server-v0.9.1`.
+- [x] Update/rollback history и reconnect-aware rollout UI добавлены в подготовку `server-v0.9.3`.
+- [x] Локальный Playwright regression включает rollback validation, waiting reconnect,
+  responsive matrix 1920/1366/1024/768/390/360 и zoom 200%.
 - [ ] Полная browser matrix повторена на опубликованном server release.
 - [ ] Реальная SMTP/Telegram/webhook доставка проверена на production.
 - [ ] Retry/dead-letter и длинный provider error проверены в production history.

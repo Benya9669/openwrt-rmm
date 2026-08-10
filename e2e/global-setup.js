@@ -24,7 +24,17 @@ module.exports = async () => {
   const heartbeatResponse = await agent.post("/api/agent/heartbeat", {
     data: {
       device_id: enrolled.device_id,
-      inventory: { hostname: "E2E OpenWrt", model: "Test Router" },
+      inventory: {
+        hostname: "E2E OpenWrt",
+        agent_version: "0.6.10",
+        agent_runtime: "go",
+        agent_package: "rmm-agent-go-production",
+        package_manager: "apk",
+        board: {
+          model: "Test Router",
+          release: { version: "25.12.4", target: "x86/64" },
+        },
+      },
       metrics: { loadavg: "0.00 0.01 0.02", memory_percent: 32 },
     },
   });

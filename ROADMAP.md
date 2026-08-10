@@ -1,6 +1,6 @@
 # OpenWrt RMM — roadmap
 
-Актуализировано: 2026-07-31.
+Актуализировано: 2026-08-10.
 
 Этот файл — единственный источник порядка продуктовой разработки. Инженерные и
 production-проверки находятся в `CHECKLIST.md`, UI-критерии — в `UI_CHECKLIST.md`.
@@ -16,7 +16,8 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 ### Агент и OpenWrt-пакеты
 
-- [x] Go-агент `0.6.8`: enrollment, heartbeat, inventory, метрики и очередь команд.
+- [x] Go-агент `0.6.10` в `main`: enrollment, heartbeat, inventory, метрики, очередь команд
+  и проверяемые update/rollback операции; опубликованная стабильная версия — `0.6.9`.
 - [x] Allowlist операций, backoff, восстановление связи и очистка lock-файла.
 - [x] WAN, интерфейсы, DHCP/Wi-Fi-клиенты, память, диск и connectivity checks.
 - [x] Безопасная активная проверка до 32 IPv4 DHCP-клиентов и передача результатов серверу.
@@ -62,15 +63,17 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 ### 0. Стабилизация и выпуск текущего `main`
 
-- [x] Дождаться полного успешного release workflow `agent-v0.6.8`, включая все текущие
-  OpenWrt jobs и публикацию GitHub Pages.
+- [x] Выпустить `server-v0.9.1`, `server-v0.9.2` и `agent-v0.6.9`.
+- [x] Подготовить `server-v0.9.3` и агент `0.6.10` с проверкой manifest, reconnect health
+  и безопасной остановкой rollout.
+- [x] Локально собрать и проверить server image `0.9.3` и APK-пакеты `0.6.10`/LuCI/i18n
+  для OpenWrt 25.12.4 ramips/mt7621.
 - [ ] Проверить установку и обновление `rmm-agent-go-production`,
   `luci-app-rmm-agent` и `luci-i18n-rmm-agent-ru` из подписанного feed на реальном
   OpenWrt 24.10/25.12.
-- [x] Подготовить и выпустить подписанный `server-v0.9.0` с notification center,
-  verification, per-device settings и LAN client presence.
-- [ ] Выпустить `server-v0.9.1` с операционными метриками уведомлений, фильтрами,
-  вкладками личного кабинета и очисткой шума LAN-клиентов.
+- [x] Notification center, операционные метрики, вкладки профиля и очистка LAN neighbour
+  выпущены в `server-v0.9.0`/`server-v0.9.1`.
+- [x] Управляемые обновления, canary rollout и rollback реализованы после `server-v0.9.2`.
 - [ ] Проверить миграцию копии production SQLite, сделать backup и только затем обновить
   production.
 - [ ] Выполнить production-проверки SMTP, Telegram, webhook, active → repeat → resolved,
@@ -115,11 +118,13 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 - [x] Подписанный stable update manifest с версиями, target/feed compatibility и Sigstore bundle.
 - [x] Проверка detached manifest signature сервером перед публикацией stable version в UI.
-- [ ] Проверка manifest signature агентом перед выполнением обновления.
-- [ ] Проверка свободного места, feed signature и package health до обновления.
-- [ ] Обновление одного роутера из кабинета с progress/reconnect/result.
-- [ ] Canary и поэтапный rollout с автоматической остановкой при ошибках.
-- [ ] История версий и rollback, если агент не вернулся после обновления.
+- [x] Проверка manifest signature агентом перед выполнением обновления начиная с `0.6.10`.
+- [x] Проверка свободного места, feed trust и package health до перезапуска агента.
+- [x] Обновление одного роутера из кабинета с install/reconnect/health result.
+- [x] Canary и поэтапный rollout с автоматической остановкой при ошибке или таймауте.
+- [x] История операций и ручной rollback на совместимый подписанный immutable feed.
+- [ ] Автоматический rollback без heartbeat требует отдельного доверенного watchdog-механизма
+  на роутере и не должен имитироваться только сервером.
 - [ ] Stable/candidate release channels без перемещения опубликованных тегов.
 
 ### 5. Организации и расширенная безопасность

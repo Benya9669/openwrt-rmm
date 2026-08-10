@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS agent_rollouts (
 );
 CREATE TABLE IF NOT EXISTS agent_rollout_devices (
  rollout_id TEXT NOT NULL, device_id TEXT NOT NULL, feed_url TEXT NOT NULL, package_manager TEXT NOT NULL, package_version TEXT NOT NULL,
+ manifest_url TEXT NOT NULL DEFAULT '', signature_url TEXT NOT NULL DEFAULT '',
  batch INTEGER NOT NULL, status TEXT NOT NULL, command_id TEXT NOT NULL DEFAULT '', last_error TEXT NOT NULL DEFAULT '',
  PRIMARY KEY (rollout_id, device_id), FOREIGN KEY(rollout_id) REFERENCES agent_rollouts(id) ON DELETE CASCADE,
  FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -453,6 +454,8 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`ALTER TABLE notification_settings ADD COLUMN webhook_url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE notification_settings ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE agent_rollout_devices ADD COLUMN package_version TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE agent_rollout_devices ADD COLUMN manifest_url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE agent_rollout_devices ADD COLUMN signature_url TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !isDuplicateColumnError(err) {
 			return err
@@ -578,6 +581,9 @@ WHERE id = ?
 	if err := s.SyncLANClients(ctx, deviceID, inventory, parseTime(now)); err != nil {
 		return nil, err
 	}
+	if err := s.confirmAgentPackageOperation(ctx, deviceID, inventory, parseTime(now)); err != nil {
+		return nil, err
+	}
 
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at
@@ -685,7 +691,7 @@ func (s *Store) CreateAgentRollout(ctx context.Context, channel, targetVersion s
 		return model.AgentRollout{}, err
 	}
 	for i := range devices {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_rollout_devices (rollout_id, device_id, feed_url, package_manager, package_version, batch, status) VALUES (?, ?, ?, ?, ?, 0, 'pending')`, id, devices[i].DeviceID, devices[i].FeedURL, devices[i].PackageManager, devices[i].PackageVersion); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_rollout_devices (rollout_id, device_id, feed_url, package_manager, package_version, manifest_url, signature_url, batch, status) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending')`, id, devices[i].DeviceID, devices[i].FeedURL, devices[i].PackageManager, devices[i].PackageVersion, devices[i].ManifestURL, devices[i].SignatureURL); err != nil {
 			return model.AgentRollout{}, err
 		}
 	}
@@ -707,14 +713,14 @@ func (s *Store) GetAgentRollout(ctx context.Context, id string) (model.AgentRoll
 	}
 	out.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 	out.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
-	rows, err := s.db.QueryContext(ctx, `SELECT device_id, status, batch, command_id, feed_url, last_error FROM agent_rollout_devices WHERE rollout_id = ? ORDER BY batch, device_id`, id)
+	rows, err := s.db.QueryContext(ctx, `SELECT device_id, status, batch, command_id, feed_url, package_version, manifest_url, signature_url, last_error FROM agent_rollout_devices WHERE rollout_id = ? ORDER BY batch, device_id`, id)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var d model.RolloutDevice
-		if err := rows.Scan(&d.DeviceID, &d.Status, &d.Batch, &d.CommandID, &d.FeedURL, &d.LastError); err != nil {
+		if err := rows.Scan(&d.DeviceID, &d.Status, &d.Batch, &d.CommandID, &d.FeedURL, &d.PackageVersion, &d.ManifestURL, &d.SignatureURL, &d.LastError); err != nil {
 			return out, err
 		}
 		out.Devices = append(out.Devices, d)
@@ -780,10 +786,8 @@ func (s *Store) HandleAgentRolloutResult(ctx context.Context, commandID, status,
 		_, err = s.db.ExecContext(ctx, `UPDATE agent_rollouts SET failure_count = failure_count + 1, status = CASE WHEN failure_count + 1 >= failure_threshold THEN 'paused' ELSE status END, updated_at = ? WHERE id = ? AND status = 'running'`, nowText(), rolloutID)
 		return err
 	}
-	if _, err = s.db.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'completed' WHERE rollout_id = ? AND device_id = ?`, rolloutID, deviceID); err != nil {
-		return err
-	}
-	return s.queueRolloutBatch(ctx, rolloutID)
+	_, err = s.db.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'waiting_reconnect', last_error = '' WHERE rollout_id = ? AND device_id = ?`, rolloutID, deviceID)
+	return err
 }
 
 func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
@@ -804,7 +808,7 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 	if err = tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM agent_rollout_devices d JOIN commands c ON c.id = d.command_id WHERE d.rollout_id = ? AND d.status = 'queued' AND c.status IN ('queued', 'claimed')`, id).Scan(&active); err != nil || active > 0 {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT device_id, feed_url, package_manager, package_version FROM agent_rollout_devices WHERE rollout_id = ? AND status = 'pending' ORDER BY device_id LIMIT ?`, id, batchSize)
+	rows, err := tx.QueryContext(ctx, `SELECT device_id, feed_url, package_manager, package_version, manifest_url, signature_url FROM agent_rollout_devices WHERE rollout_id = ? AND status = 'pending' ORDER BY device_id LIMIT ?`, id, batchSize)
 	if err != nil {
 		return err
 	}
@@ -813,15 +817,20 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 	_ = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(batch), 0) + 1 FROM agent_rollout_devices WHERE rollout_id = ?`, id).Scan(&batch)
 	count := 0
 	for rows.Next() {
-		var deviceID, feedURL, manager, packageVersion string
-		if err = rows.Scan(&deviceID, &feedURL, &manager, &packageVersion); err != nil {
+		var deviceID, feedURL, manager, packageVersion, manifestURL, signatureURL string
+		if err = rows.Scan(&deviceID, &feedURL, &manager, &packageVersion, &manifestURL, &signatureURL); err != nil {
 			return err
 		}
 		commandID, e := randomID("cmd")
 		if e != nil {
 			return e
 		}
-		args, err := json.Marshal(map[string]string{"rollout_id": id, "channel": channel, "target_version": version, "feed_url": feedURL, "package_manager": manager, "package": "rmm-agent-go-production", "package_version": packageVersion})
+		commandArgs := map[string]string{"rollout_id": id, "channel": channel, "target_version": version, "feed_url": feedURL, "package_manager": manager, "package": "rmm-agent-go-production", "package_version": packageVersion}
+		if manifestURL != "" && signatureURL != "" {
+			commandArgs["manifest_url"] = manifestURL
+			commandArgs["signature_url"] = signatureURL
+		}
+		args, err := json.Marshal(commandArgs)
 		if err != nil {
 			return err
 		}
@@ -840,6 +849,178 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *Store) confirmAgentPackageOperation(ctx context.Context, deviceID string, inventory json.RawMessage, observedAt time.Time) error {
+	var reported struct {
+		AgentVersion string `json:"agent_version"`
+	}
+	if json.Unmarshal(inventory, &reported) != nil || strings.TrimSpace(reported.AgentVersion) == "" {
+		return nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, args_json, result_json
+FROM commands
+WHERE device_id = ? AND type IN ('agent_update', 'agent_rollback') AND status = 'completed'
+ORDER BY completed_at DESC
+LIMIT 10
+`, deviceID)
+	if err != nil {
+		return err
+	}
+	type confirmation struct {
+		commandID string
+		result    map[string]any
+	}
+	var confirmations []confirmation
+	for rows.Next() {
+		var commandID, argsJSON, resultJSON string
+		if err := rows.Scan(&commandID, &argsJSON, &resultJSON); err != nil {
+			rows.Close()
+			return err
+		}
+		args := map[string]string{}
+		result := map[string]any{}
+		if json.Unmarshal([]byte(argsJSON), &args) != nil || json.Unmarshal([]byte(resultJSON), &result) != nil {
+			continue
+		}
+		if result["health_status"] == "healthy" || args["target_version"] != strings.TrimSpace(reported.AgentVersion) {
+			continue
+		}
+		result["health_status"] = "healthy"
+		result["installed_version"] = strings.TrimSpace(reported.AgentVersion)
+		result["reconnect_verified_at"] = observedAt.UTC().Format(time.RFC3339Nano)
+		confirmations = append(confirmations, confirmation{commandID: commandID, result: result})
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range confirmations {
+		encoded, err := json.Marshal(item.result)
+		if err != nil {
+			return err
+		}
+		if _, err = s.db.ExecContext(ctx, `UPDATE commands SET result_json = ? WHERE id = ?`, string(encoded), item.commandID); err != nil {
+			return err
+		}
+		var rolloutID string
+		err = s.db.QueryRowContext(ctx, `SELECT rollout_id FROM agent_rollout_devices WHERE command_id = ? AND status = 'waiting_reconnect'`, item.commandID).Scan(&rolloutID)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err = s.db.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'completed', last_error = '' WHERE command_id = ? AND status = 'waiting_reconnect'`, item.commandID); err != nil {
+			return err
+		}
+		if err = s.queueRolloutBatch(ctx, rolloutID); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// ReconcileAgentRollouts pauses a rollout when an agent does not reconnect and
+// report the requested version within the configured safety window.
+func (s *Store) ReconcileAgentRollouts(ctx context.Context, reconnectTimeout time.Duration) (int64, error) {
+	if reconnectTimeout <= 0 {
+		reconnectTimeout = 5 * time.Minute
+	}
+	cutoff := time.Now().UTC().Add(-reconnectTimeout).Format(time.RFC3339Nano)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT d.rollout_id, d.device_id, d.command_id, c.result_json
+FROM agent_rollout_devices d
+JOIN commands c ON c.id = d.command_id
+WHERE d.status = 'waiting_reconnect'
+  AND c.completed_at IS NOT NULL
+  AND julianday(c.completed_at) <= julianday(?)
+`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	type timedOut struct{ rolloutID, deviceID, commandID, resultJSON string }
+	var expired []timedOut
+	for rows.Next() {
+		var item timedOut
+		if err := rows.Scan(&item.rolloutID, &item.deviceID, &item.commandID, &item.resultJSON); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		expired = append(expired, item)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	for _, item := range expired {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return 0, err
+		}
+		result := map[string]any{}
+		_ = json.Unmarshal([]byte(item.resultJSON), &result)
+		result["health_status"] = "reconnect_timeout"
+		result["health_error"] = "agent did not report the requested version before the reconnect deadline"
+		encoded, _ := json.Marshal(result)
+		if _, err = tx.ExecContext(ctx, `UPDATE commands SET result_json = ? WHERE id = ?`, string(encoded), item.commandID); err == nil {
+			_, err = tx.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'failed', last_error = 'agent reconnect verification timed out' WHERE rollout_id = ? AND device_id = ? AND status = 'waiting_reconnect'`, item.rolloutID, item.deviceID)
+		}
+		if err == nil {
+			_, err = tx.ExecContext(ctx, `UPDATE agent_rollouts SET failure_count = failure_count + 1, status = 'paused', updated_at = ? WHERE id = ? AND status = 'running'`, nowText(), item.rolloutID)
+		}
+		if err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+		if err = tx.Commit(); err != nil {
+			return 0, err
+		}
+	}
+	queuedRows, err := s.db.QueryContext(ctx, `
+SELECT d.rollout_id, d.device_id, d.command_id
+FROM agent_rollout_devices d
+JOIN commands c ON c.id = d.command_id
+WHERE d.status = 'queued'
+  AND c.status IN ('queued', 'claimed', 'expired')
+  AND julianday(c.created_at) <= julianday(?)
+`, cutoff)
+	if err != nil {
+		return int64(len(expired)), err
+	}
+	type staleCommand struct{ rolloutID, deviceID, commandID string }
+	var stale []staleCommand
+	for queuedRows.Next() {
+		var item staleCommand
+		if err := queuedRows.Scan(&item.rolloutID, &item.deviceID, &item.commandID); err != nil {
+			queuedRows.Close()
+			return int64(len(expired)), err
+		}
+		stale = append(stale, item)
+	}
+	if err := queuedRows.Close(); err != nil {
+		return int64(len(expired)), err
+	}
+	for _, item := range stale {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return int64(len(expired)), err
+		}
+		now := nowText()
+		if _, err = tx.ExecContext(ctx, `UPDATE commands SET status = 'expired', expired_at = COALESCE(expired_at, ?) WHERE id = ? AND status IN ('queued', 'claimed')`, now, item.commandID); err == nil {
+			_, err = tx.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'failed', last_error = 'agent did not claim or finish the update before the deadline' WHERE rollout_id = ? AND device_id = ? AND status = 'queued'`, item.rolloutID, item.deviceID)
+		}
+		if err == nil {
+			_, err = tx.ExecContext(ctx, `UPDATE agent_rollouts SET failure_count = failure_count + 1, status = 'paused', updated_at = ? WHERE id = ? AND status = 'running'`, now, item.rolloutID)
+		}
+		if err != nil {
+			tx.Rollback()
+			return int64(len(expired)), err
+		}
+		if err = tx.Commit(); err != nil {
+			return int64(len(expired)), err
+		}
+	}
+	return int64(len(expired) + len(stale)), nil
 }
 
 func (s *Store) updateRemoteSessionFromCommandResult(ctx context.Context, commandID, status string) error {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rmm-openwrt/server/internal/httpapi"
+	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
 	"rmm-openwrt/server/internal/updateinfo"
 )
@@ -18,7 +19,7 @@ import (
 var (
 	serverVersion      = "dev"
 	serverRevision     = "unknown"
-	stableAgentVersion = "0.6.8"
+	stableAgentVersion = "0.6.9"
 )
 
 func main() {
@@ -92,9 +93,9 @@ func main() {
 	manifestSignatureURL := env("RMM_UPDATE_MANIFEST_SIGNATURE_URL", "https://benya9669.github.io/openwrt-rmm/update-manifest.sig")
 	stableAgentFallback := env("RMM_STABLE_AGENT_VERSION", stableAgentVersion)
 	var stableAgentVersionProvider func() string
-	var compatibleAgentFeed func(string, string, string) (string, string, string, bool)
-	var candidateAgentFeed func(string, string, string) (string, string, string, bool)
-	var historicalAgentFeed func(context.Context, string, string, string, string, string) (string, string, string, bool)
+	var compatibleAgentFeed func(string, string, string) (model.AgentFeed, bool)
+	var candidateAgentFeed func(string, string, string) (model.AgentFeed, bool)
+	var historicalAgentFeed func(context.Context, string, string, string, string, string) (model.AgentFeed, bool)
 	manifestPublicKey := strings.TrimSpace(os.Getenv("RMM_UPDATE_MANIFEST_PUBLIC_KEY"))
 	if manifestPublicKey != "" {
 		resolver, resolverErr := updateinfo.NewResolver(
@@ -117,17 +118,17 @@ func main() {
 			log.Printf("update manifest refresh failed: %v", refreshErr)
 		})
 		stableAgentVersionProvider = resolver.Version
-		compatibleAgentFeed = func(openWrtRelease, target, packageManager string) (string, string, string, bool) {
+		compatibleAgentFeed = func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool) {
 			pkg, ok := resolver.CompatibleFeed(openWrtRelease, target, packageManager)
-			return resolver.TargetVersion(), pkg.FeedURL, pkg.PackageVersion, ok
+			return model.AgentFeed{TargetVersion: resolver.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: manifestURL, SignatureURL: manifestSignatureURL}, ok
 		}
-		historicalAgentFeed = func(ctx context.Context, historicalManifestURL, historicalSignatureURL, openWrtRelease, target, packageManager string) (string, string, string, bool) {
+		historicalAgentFeed = func(ctx context.Context, historicalManifestURL, historicalSignatureURL, openWrtRelease, target, packageManager string) (model.AgentFeed, bool) {
 			historical, err := updateinfo.NewChannelResolver(historicalManifestURL, historicalSignatureURL, manifestPublicKey, "", "stable")
 			if err != nil || historical.Refresh(ctx) != nil {
-				return "", "", "", false
+				return model.AgentFeed{}, false
 			}
 			pkg, ok := historical.CompatibleFeed(openWrtRelease, target, packageManager)
-			return historical.TargetVersion(), pkg.FeedURL, pkg.PackageVersion, ok
+			return model.AgentFeed{TargetVersion: historical.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: historicalManifestURL, SignatureURL: historicalSignatureURL}, ok
 		}
 	}
 	if candidateManifestURL := strings.TrimSpace(os.Getenv("RMM_CANDIDATE_UPDATE_MANIFEST_URL")); candidateManifestURL != "" {
@@ -145,12 +146,12 @@ func main() {
 				if refreshErr != nil {
 					log.Printf("candidate update manifest is unavailable: %v", refreshErr)
 				} else {
-					candidateAgentFeed = func(openWrtRelease, target, packageManager string) (string, string, string, bool) {
+					candidateAgentFeed = func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool) {
 						if !candidate.Available() {
-							return "", "", "", false
+							return model.AgentFeed{}, false
 						}
 						pkg, ok := candidate.CompatibleFeed(openWrtRelease, target, packageManager)
-						return candidate.TargetVersion(), pkg.FeedURL, pkg.PackageVersion, ok
+						return model.AgentFeed{TargetVersion: candidate.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: candidateManifestURL, SignatureURL: candidateSignatureURL}, ok
 					}
 					go candidate.Run(context.Background(), 15*time.Minute, func(refreshErr error) { log.Printf("candidate update manifest refresh failed: %v", refreshErr) })
 				}
@@ -167,6 +168,7 @@ func main() {
 		log.Printf("initial maintenance failed: %v", err)
 	}
 	go maintenanceLoop(st)
+	go agentRolloutHealthLoop(st, time.Duration(envInt("RMM_AGENT_RECONNECT_TIMEOUT_SECONDS", 300, 60, 3600))*time.Second)
 
 	handler := httpapi.NewHandler(st, httpapi.Config{
 		EnrollmentToken:            enrollmentToken,
@@ -221,6 +223,23 @@ type maintenanceStore interface {
 	PurgeExpiredSecurityData(ctx context.Context) error
 	PurgeMetricSamplesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	PurgeNotificationDeliveriesBefore(ctx context.Context, cutoff time.Time) (int64, error)
+}
+
+type agentRolloutHealthStore interface {
+	ReconcileAgentRollouts(ctx context.Context, reconnectTimeout time.Duration) (int64, error)
+}
+
+func agentRolloutHealthLoop(st agentRolloutHealthStore, reconnectTimeout time.Duration) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		if paused, err := st.ReconcileAgentRollouts(context.Background(), reconnectTimeout); err != nil {
+			log.Printf("agent rollout reconciliation failed: %v", err)
+		} else if paused > 0 {
+			log.Printf("agent rollout reconciliation paused %d timed-out device operations", paused)
+		}
+		<-ticker.C
+	}
 }
 
 func maintenanceLoop(st maintenanceStore) {

@@ -1,6 +1,6 @@
 # OpenWrt RMM Agent
 
-Current stable Go agent: `0.6.8`. It reports runtime health, pending command results,
+Current published Go agent: `0.6.9`; the next source version is `0.6.10`. It reports runtime health, pending command results,
 and the last heartbeat transport error after connectivity is restored. Its OpenWrt
 dependency uses the virtual `ip` provider, so either `ip-tiny` or `ip-full` can satisfy it.
 Production package upgrades restart an already running agent so the new binary takes effect.
@@ -38,6 +38,7 @@ SERVER_URL="https://rmm.example.com"
 ENROLLMENT_TOKEN="paste-a-one-time-grant-from-your-account"
 INTERVAL_SECONDS="30"
 TUNNEL_IDENTITY_FILE="/etc/rmm-agent/tunnel_key"
+UPDATE_MANIFEST_PUBLIC_KEY="/etc/rmm-agent/update-manifest.pem"
 ```
 
 After enrollment the agent writes:
@@ -86,8 +87,15 @@ The Go agent is available as the production OpenWrt package and supports the mig
 - `uci_restore`
 - `remote_ssh_reverse`
 - `remote_ssh_close`
+- `agent_update`
+- `agent_rollback`
 
 Other queued commands are reported as failed with a clear message.
+
+Managed package operations require at least 8192 KiB free on `/`. Agent `0.6.10` verifies the
+ECDSA-signed manifest against the packaged public key, requires an exact platform/feed/package
+match, relies on the native signed package index, and verifies the installed package version and
+executable before restarting. The final healthy state is confirmed by the server after reconnect.
 
 Build locally:
 

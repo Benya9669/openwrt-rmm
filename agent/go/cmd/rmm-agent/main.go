@@ -4,9 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,7 +30,10 @@ import (
 	"time"
 )
 
-const agentVersion = "0.6.9"
+const (
+	agentVersion          = "0.6.10"
+	maxUpdateManifestSize = 1 << 20
+)
 
 var stableVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 
@@ -79,6 +86,7 @@ type config struct {
 	BackupDir        string
 	TunnelIdentity   string
 	TunnelStateDir   string
+	UpdatePublicKey  string
 	CheckTargets     []string
 	HostnameOverride string
 	HostnameSuffix   string
@@ -178,6 +186,7 @@ func loadConfig(path string) (config, error) {
 		BackupDir:        envDefault("BACKUP_DIR", "/tmp/rmm-agent-backups"),
 		TunnelIdentity:   envDefault("TUNNEL_IDENTITY_FILE", "/etc/rmm-agent/tunnel_key"),
 		TunnelStateDir:   envDefault("TUNNEL_STATE_DIR", "/tmp/rmm-agent-tunnels"),
+		UpdatePublicKey:  envDefault("UPDATE_MANIFEST_PUBLIC_KEY", "/etc/rmm-agent/update-manifest.pem"),
 		CheckTargets:     splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
 		HostnameOverride: os.Getenv("HOSTNAME_OVERRIDE"),
 		HostnameSuffix:   os.Getenv("HOSTNAME_SUFFIX"),
@@ -220,6 +229,9 @@ func loadConfig(path string) (config, error) {
 	}
 	if value := values["TUNNEL_STATE_DIR"]; value != "" {
 		cfg.TunnelStateDir = value
+	}
+	if value := values["UPDATE_MANIFEST_PUBLIC_KEY"]; value != "" {
+		cfg.UpdatePublicKey = value
 	}
 	if value := values["CHECK_TARGETS"]; value != "" {
 		cfg.CheckTargets = splitWords(value)
@@ -264,6 +276,7 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "BACKUP_DIR", cfg.BackupDir)
 	writeConfigLine(&b, "TUNNEL_IDENTITY_FILE", cfg.TunnelIdentity)
 	writeConfigLine(&b, "TUNNEL_STATE_DIR", cfg.TunnelStateDir)
+	writeConfigLine(&b, "UPDATE_MANIFEST_PUBLIC_KEY", cfg.UpdatePublicKey)
 	if cfg.HostnameOverride != "" {
 		writeConfigLine(&b, "HOSTNAME_OVERRIDE", cfg.HostnameOverride)
 	}
@@ -449,7 +462,7 @@ func processCommand(ctx context.Context, client *http.Client, cfg config, cmd co
 	output, exitCode := runCommand(ctx, cfg, cmd)
 	resultDetails := commandMetadata()
 	if cmd.Type == "agent_update" || cmd.Type == "agent_rollback" {
-		output, exitCode, resultDetails = agentPackageOperation(ctx, cmd.Type, cmd.Args)
+		output, exitCode, resultDetails = agentPackageOperation(ctx, client, cfg, cmd.Type, cmd.Args)
 	}
 	status := "completed"
 	if exitCode != 0 {
@@ -589,11 +602,11 @@ func commandMetadata() map[string]any {
 	return map[string]any{"agent_version": agentVersion, "agent_runtime": "go"}
 }
 
-func agentPackageOperation(ctx context.Context, operation string, raw json.RawMessage) (string, int, map[string]any) {
+func agentPackageOperation(ctx context.Context, client *http.Client, cfg config, operation string, raw json.RawMessage) (string, int, map[string]any) {
 	result := commandMetadata()
 	result["operation"] = operation
 	args := map[string]string{}
-	if (operation != "agent_update" && operation != "agent_rollback") || json.Unmarshal(raw, &args) != nil || !validAgentPackageOperationArgs(args) || args["package"] != "rmm-agent-go-production" || !stableVersionPattern.MatchString(args["target_version"]) || !stableVersionPattern.MatchString(args["package_version"]) || !safeAgentFeedURL(args["feed_url"]) || (args["package_manager"] != "opkg" && args["package_manager"] != "apk") {
+	if (operation != "agent_update" && operation != "agent_rollback") || json.Unmarshal(raw, &args) != nil || !validAgentPackageOperationArgs(args) || args["package"] != "rmm-agent-go-production" || !stableVersionPattern.MatchString(args["target_version"]) || !stableVersionPattern.MatchString(args["package_version"]) || !safeAgentFeedURL(args["feed_url"]) || !safeAgentFeedURL(args["manifest_url"]) || !safeAgentFeedURL(args["signature_url"]) || (args["package_manager"] != "opkg" && args["package_manager"] != "apk") {
 		result["reason"] = "invalid package operation arguments"
 		return "agent package operation arguments are invalid\n", 2, result
 	}
@@ -601,6 +614,11 @@ func agentPackageOperation(ctx context.Context, operation string, raw json.RawMe
 		result["reason"] = "package manager does not match inventory"
 		return "agent package operation package manager does not match this router\n", 2, result
 	}
+	if err := verifyAgentUpdateManifest(ctx, client, cfg.UpdatePublicKey, args); err != nil {
+		result["reason"] = "manifest verification failed"
+		return "agent update manifest verification failed: " + err.Error() + "\n", 1, result
+	}
+	result["manifest_verified"] = true
 	availableKB, ok := rootAvailableKB()
 	result["available_kb"] = availableKB
 	if !ok || availableKB < 8192 {
@@ -612,6 +630,8 @@ func agentPackageOperation(ctx context.Context, operation string, raw json.RawMe
 	result["previous_version"] = agentVersion
 	result["target_version"] = args["target_version"]
 	result["package_version"] = args["package_version"]
+	result["health_status"] = "waiting_reconnect"
+	result["requires_reconnect"] = true
 	if args["package_manager"] == "apk" {
 		apkArgs := []string{"add"}
 		if operation == "agent_rollback" {
@@ -621,7 +641,7 @@ func agentPackageOperation(ctx context.Context, operation string, raw json.RawMe
 		}
 		apkArgs = append(apkArgs, "--repository", args["feed_url"], args["package"]+"="+args["package_version"])
 		output, code := execCommand(ctx, 2*time.Minute, "apk", apkArgs...)
-		return output, code, result
+		return finalizeAgentPackageOperation(ctx, args, output, code, result)
 	}
 	if err := configureManagedOpkgFeed(args["feed_url"]); err != nil {
 		result["reason"] = "configure managed feed"
@@ -632,18 +652,162 @@ func agentPackageOperation(ctx context.Context, operation string, raw json.RawMe
 		return updateOutput, updateCode, result
 	}
 	installOutput, installCode := execCommand(ctx, 2*time.Minute, "opkg", "install", args["package"]+"="+args["package_version"])
-	return updateOutput + installOutput, installCode, result
+	return finalizeAgentPackageOperation(ctx, args, updateOutput+installOutput, installCode, result)
+}
+
+func finalizeAgentPackageOperation(ctx context.Context, args map[string]string, output string, exitCode int, result map[string]any) (string, int, map[string]any) {
+	if exitCode != 0 {
+		result["reason"] = "package manager failed"
+		result["health_status"] = "install_failed"
+		return output, exitCode, result
+	}
+	installedVersion, ok := installedAgentPackageVersion(ctx, args["package_manager"], args["package"])
+	if !ok || installedVersion != args["package_version"] {
+		result["reason"] = "installed package version mismatch"
+		result["health_status"] = "package_health_failed"
+		return output + "installed agent package version does not match the signed manifest\n", 1, result
+	}
+	if info, err := os.Stat("/usr/bin/rmm-agent"); err != nil || info.Mode()&0o111 == 0 {
+		result["reason"] = "installed agent binary is unavailable"
+		result["health_status"] = "package_health_failed"
+		return output + "installed agent binary is unavailable or not executable\n", 1, result
+	}
+	result["installed_package_version"] = installedVersion
+	result["package_health"] = "verified"
+	return output, 0, result
+}
+
+func installedAgentPackageVersion(ctx context.Context, manager, packageName string) (string, bool) {
+	if manager == "opkg" {
+		output, code := execCommand(ctx, 15*time.Second, "opkg", "status", packageName)
+		if code != 0 {
+			return "", false
+		}
+		return parseInstalledPackageVersion(manager, packageName, output)
+	}
+	output, code := execCommand(ctx, 15*time.Second, "apk", "info", "-v", packageName)
+	if code != 0 {
+		return "", false
+	}
+	return parseInstalledPackageVersion(manager, packageName, output)
+}
+
+func parseInstalledPackageVersion(manager, packageName, output string) (string, bool) {
+	if manager == "opkg" {
+		for _, line := range strings.Split(output, "\n") {
+			if strings.HasPrefix(line, "Version:") {
+				version := strings.TrimSpace(strings.TrimPrefix(line, "Version:"))
+				return version, version != ""
+			}
+		}
+		return "", false
+	}
+	prefix := packageName + "-"
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix), true
+		}
+	}
+	return "", false
 }
 
 func validAgentPackageOperationArgs(args map[string]string) bool {
 	for key := range args {
 		switch key {
-		case "package", "target_version", "package_version", "feed_url", "package_manager", "rollout_id", "channel":
+		case "package", "target_version", "package_version", "feed_url", "package_manager", "manifest_url", "signature_url", "rollout_id", "channel":
 		default:
 			return false
 		}
 	}
 	return true
+}
+
+type agentUpdateManifest struct {
+	Schema  int    `json:"schema"`
+	Channel string `json:"channel"`
+	Agent   struct {
+		Version string `json:"version"`
+	} `json:"agent"`
+	Packages []struct {
+		OpenWrtRelease string `json:"openwrt_release"`
+		Target         string `json:"target"`
+		Format         string `json:"format"`
+		FeedURL        string `json:"feed_url"`
+		PackageVersion string `json:"package_version"`
+	} `json:"packages"`
+}
+
+func verifyAgentUpdateManifest(ctx context.Context, client *http.Client, publicKeyPath string, args map[string]string) error {
+	publicKeyData, err := os.ReadFile(publicKeyPath)
+	if err != nil {
+		return errors.New("trusted public key is unavailable")
+	}
+	manifestData, err := fetchUpdateMetadata(ctx, client, args["manifest_url"])
+	if err != nil {
+		return fmt.Errorf("download manifest: %w", err)
+	}
+	signature, err := fetchUpdateMetadata(ctx, client, args["signature_url"])
+	if err != nil {
+		return fmt.Errorf("download signature: %w", err)
+	}
+	return validateAgentUpdateManifest(manifestData, signature, publicKeyData, args, openwrtRelease(), openwrtTarget())
+}
+
+func validateAgentUpdateManifest(manifestData, signature, publicKeyData []byte, args map[string]string, release, target string) error {
+	block, _ := pem.Decode(publicKeyData)
+	if block == nil {
+		return errors.New("trusted public key is invalid")
+	}
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return errors.New("trusted public key is invalid")
+	}
+	publicKey, ok := parsed.(*ecdsa.PublicKey)
+	if !ok {
+		return errors.New("trusted public key is not ECDSA")
+	}
+	digest := sha256.Sum256(manifestData)
+	if !ecdsa.VerifyASN1(publicKey, digest[:], signature) {
+		return errors.New("signature is invalid")
+	}
+	var manifest agentUpdateManifest
+	if json.Unmarshal(manifestData, &manifest) != nil || manifest.Schema != 1 || manifest.Agent.Version != args["target_version"] {
+		return errors.New("manifest identity does not match the requested version")
+	}
+	wantFormat := map[string]string{"opkg": "ipk", "apk": "apk"}[args["package_manager"]]
+	for _, pkg := range manifest.Packages {
+		if pkg.OpenWrtRelease == release && pkg.Target == target && pkg.Format == wantFormat && pkg.FeedURL == args["feed_url"] && pkg.PackageVersion == args["package_version"] {
+			return nil
+		}
+	}
+	return errors.New("signed manifest does not contain this exact package feed")
+}
+
+func fetchUpdateMetadata(ctx context.Context, client *http.Client, endpoint string) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	metadataClient := *client
+	metadataClient.Timeout = 15 * time.Second
+	metadataClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := metadataClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP status %d", response.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxUpdateManifestSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 || len(data) > maxUpdateManifestSize {
+		return nil, errors.New("response is empty or too large")
+	}
+	return data, nil
 }
 
 func safeAgentFeedURL(raw string) bool {

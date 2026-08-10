@@ -100,7 +100,14 @@ const els = {
   deviceView: document.querySelector("#deviceView"),
   backToFleetBtn: document.querySelector("#backToFleetBtn"),
   updateAgentBtn: document.querySelector("#updateAgentBtn"),
+  rollbackAgentBtn: document.querySelector("#rollbackAgentBtn"),
   agentUpdateStatus: document.querySelector("#agentUpdateStatus"),
+  agentRollbackDialog: document.querySelector("#agentRollbackDialog"),
+  agentRollbackForm: document.querySelector("#agentRollbackForm"),
+  closeAgentRollbackBtn: document.querySelector("#closeAgentRollbackBtn"),
+  agentRollbackVersion: document.querySelector("#agentRollbackVersion"),
+  agentRollbackPreview: document.querySelector("#agentRollbackPreview"),
+  agentRollbackMessage: document.querySelector("#agentRollbackMessage"),
   quickDiagnosticBtn: document.querySelector("#quickDiagnosticBtn"),
   openLuciBtn: document.querySelector("#openLuciBtn"),
   remoteAccessPanel: document.querySelector("#remoteAccessPanel"),
@@ -519,6 +526,7 @@ function showApp(user) {
   document.querySelector(".operator-avatar").textContent = initial;
   els.addUserBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.profileAdminTab.classList.toggle("is-hidden", !user || user.role !== "admin");
+  els.rollbackAgentBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.loginView.classList.add("is-hidden");
   els.loginView.hidden = true;
   els.loginView.setAttribute("aria-hidden", "true");
@@ -606,6 +614,10 @@ function statusLabel(status) {
     failed: "Ошибка",
     cancelled: "Отменено",
     expired: "Истекло",
+    pending: "Ожидает batch",
+    waiting_reconnect: "Ожидает reconnect",
+    running: "Выполняется",
+    paused: "Приостановлено",
   }[status] || status || "-";
 }
 
@@ -638,6 +650,7 @@ function commandTypeLabel(type) {
     remote_ssh_reverse: "Открытие удаленного доступа",
     remote_ssh_close: "Закрытие удаленного доступа",
     agent_update: "Обновление агента",
+    agent_rollback: "Откат агента",
   }[type] || type || "-";
 }
 
@@ -981,6 +994,7 @@ function renderDeviceDetail(device) {
   els.deviceBadge.textContent = device.online ? "На связи" : "Не на связи";
   els.deviceBadge.className = `badge ${device.online ? "online" : "offline"}`;
   els.updateAgentBtn.classList.toggle("is-hidden", !hasAgentUpdateAvailable(device));
+  els.rollbackAgentBtn.classList.toggle("is-hidden", !(state.user && state.user.role === "admin" && supportsManagedAgentUpdate(device)));
   els.lastSeen.textContent = formatDate(device.last_seen_at);
   els.loadAvg.textContent = formatLoadAverage(device.metrics && device.metrics.loadavg);
   els.uptime.textContent = formatUptime(device.metrics && device.metrics.uptime);
@@ -1003,8 +1017,9 @@ function renderDeviceDetail(device) {
 }
 
 function renderAgentUpdateStatus() {
-  const command = state.commands.find((item) => item.type === "agent_update");
-  const pending = command && (command.status === "queued" || command.status === "claimed");
+  const operations = state.commands.filter((item) => item.type === "agent_update" || item.type === "agent_rollback").slice(0, 5);
+  const command = operations[0];
+  const pending = operations.some((item) => item.status === "queued" || item.status === "claimed" || (item.result && item.result.health_status === "waiting_reconnect"));
   els.updateAgentBtn.classList.toggle("is-hidden", !hasAgentUpdateAvailable(currentDevice()) || pending);
   if (!command) {
     els.agentUpdateStatus.classList.add("is-hidden");
@@ -1012,17 +1027,27 @@ function renderAgentUpdateStatus() {
     return;
   }
 
-  const running = pending;
+  const healthStatus = command.result && command.result.health_status;
+  const running = command.status === "queued" || command.status === "claimed" || healthStatus === "waiting_reconnect";
   const targetVersion = command.args && command.args.target_version;
   const output = command.output ? ` ${outputSummary(command.output)}` : "";
-  const title = running ? "Обновление агента выполняется" : `Обновление агента: ${statusLabel(command.status)}`;
+  const operationLabel = command.type === "agent_rollback" ? "Откат агента" : "Обновление агента";
+  const title = healthStatus === "waiting_reconnect"
+    ? `${operationLabel}: ожидание повторного подключения`
+    : running ? `${operationLabel} выполняется` : `${operationLabel}: ${statusLabel(command.status)}`;
   const detail = running
-    ? `${statusLabel(command.status)}${targetVersion ? ` до версии ${targetVersion}` : ""}. Попытка ${command.attempt_count || 0}/${command.max_attempts || 3}.${output}`
-    : `${targetVersion ? `Целевая версия ${targetVersion}. ` : ""}${output || "Смотрите результат в истории команд."}`;
+    ? `${healthStatus === "waiting_reconnect" ? "Пакет установлен, сервер ждёт heartbeat с новой версией" : statusLabel(command.status)}${targetVersion ? ` до версии ${targetVersion}` : ""}. Попытка ${command.attempt_count || 0}/${command.max_attempts || 3}.${output}`
+    : `${targetVersion ? `Целевая версия ${targetVersion}. ` : ""}${healthStatus === "healthy" ? `Подключение и версия подтверждены ${formatShortDate(command.result.reconnect_verified_at)}.` : healthStatus === "reconnect_timeout" ? "Роутер не подтвердил новую версию вовремя." : output || "Смотрите результат в истории команд."}`;
+  const history = operations.map((item) => {
+    const itemHealth = item.result && item.result.health_status;
+    const itemState = itemHealth === "healthy" ? "Подтверждено" : itemHealth === "waiting_reconnect" ? "Ожидается reconnect" : itemHealth === "reconnect_timeout" ? "Таймаут reconnect" : statusLabel(item.status);
+    return `<li><span>${escapeHtml(commandTypeLabel(item.type))} → ${escapeHtml((item.args && item.args.target_version) || "-")}</span><small>${escapeHtml(itemState)} · ${escapeHtml(formatShortDate(item.completed_at || item.created_at))}</small></li>`;
+  }).join("");
   els.agentUpdateStatus.classList.remove("is-hidden");
+  els.agentUpdateStatus.classList.toggle("is-running", running);
   els.agentUpdateStatus.innerHTML = `
-    <span class="operation-icon">${running ? "↻" : command.status === "completed" ? "✓" : "!"}</span>
-    <div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></div>
+    <span class="operation-icon">${running ? "↻" : healthStatus === "healthy" || command.status === "completed" ? "✓" : "!"}</span>
+    <div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small><ul class="agent-operation-history">${history}</ul></div>
   `;
 }
 
@@ -1689,7 +1714,10 @@ async function loadRollouts() {
   const response = await api("/api/agent-rollouts");
   els.rolloutChannel.querySelector('option[value="candidate"]').disabled = !response.candidate_available;
   els.rolloutChannel.title = response.candidate_available ? "" : "Candidate manifest is unavailable";
-  els.rolloutList.innerHTML = (response.rollouts || []).map((rollout) => `<article class="user-row"><div><strong>${escapeHtml(rollout.channel)} ${escapeHtml(rollout.target_version)}</strong><small>${escapeHtml(rollout.status)}: ${rollout.devices.length} устройств, ошибок ${rollout.failure_count}</small></div><div class="user-actions">${rollout.status === "running" ? `<button data-rollout-action="pause" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Пауза</button>` : ""}${rollout.status === "paused" ? `<button data-rollout-action="resume" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Продолжить</button>` : ""}${["running", "paused"].includes(rollout.status) ? `<button class="danger" data-rollout-action="cancel" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Отменить</button>` : ""}</div></article>`).join("") || inlineStateMarkup("Нет rollout", "Создайте первый rollout для явного списка устройств.");
+  els.rolloutList.innerHTML = (response.rollouts || []).map((rollout) => {
+    const devices = (rollout.devices || []).map((device) => `<li><span>${escapeHtml(device.device_id)} · batch ${device.batch || "-"}</span><small>${escapeHtml(statusLabel(device.status))}${device.last_error ? ` · ${escapeHtml(device.last_error)}` : ""}</small></li>`).join("");
+    return `<article class="rollout-card"><div class="rollout-card-header"><div><strong>${escapeHtml(rollout.channel)} → ${escapeHtml(rollout.target_version)}</strong><small>${escapeHtml(statusLabel(rollout.status))}: ${rollout.devices.length} устройств, ошибок ${rollout.failure_count}</small></div><div class="user-actions">${rollout.status === "running" ? `<button data-rollout-action="pause" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Пауза</button>` : ""}${rollout.status === "paused" ? `<button data-rollout-action="resume" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Продолжить</button>` : ""}${["running", "paused"].includes(rollout.status) ? `<button class="danger" data-rollout-action="cancel" data-rollout-id="${escapeHtml(rollout.id)}" type="button">Отменить</button>` : ""}</div></div><ul class="rollout-devices">${devices}</ul></article>`;
+  }).join("") || inlineStateMarkup("Нет rollout", "Создайте первый rollout для явного списка устройств.");
 }
 
 els.rolloutForm.addEventListener("submit", (event) => {
@@ -2474,7 +2502,7 @@ function prepareCloudAccessPopup(popup) {
   if (!popup) return;
   try {
     popup.document.open();
-    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=27"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
+    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=28"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
     popup.document.close();
     popup.opener = null;
   } catch {
@@ -2565,6 +2593,61 @@ async function queueAgentUpdate() {
   } finally {
     els.updateAgentBtn.disabled = false;
     els.updateAgentBtn.textContent = "Обновить агент";
+  }
+}
+
+function historicalAgentManifestURLs(version) {
+  const configured = state.releaseMetadata && state.releaseMetadata.update_manifest_url;
+  if (!configured) throw new Error("Сервер не сообщил адрес подписанного manifest");
+  const manifest = new URL(configured, location.origin);
+  const directory = manifest.pathname.slice(0, manifest.pathname.lastIndexOf("/") + 1);
+  const encodedVersion = encodeURIComponent(version);
+  manifest.pathname = `${directory}manifests/${encodedVersion}/update-manifest.json`;
+  manifest.search = "";
+  manifest.hash = "";
+  const signature = new URL(manifest.href);
+  signature.pathname = signature.pathname.replace(/\.json$/, ".sig");
+  return { manifest_url: manifest.href, signature_url: signature.href };
+}
+
+function openAgentRollbackDialog() {
+  const device = currentDevice();
+  if (!device || !state.user || state.user.role !== "admin") return;
+  const currentVersion = deviceAgentVersion(device);
+  els.agentRollbackVersion.value = "";
+  els.agentRollbackPreview.textContent = `Сейчас установлена версия ${currentVersion || "не определена"}.`;
+  setFormMessage(els.agentRollbackMessage, "", "");
+  els.agentRollbackDialog.showModal();
+  els.agentRollbackVersion.focus();
+}
+
+async function queueAgentRollback(event) {
+  event.preventDefault();
+  const device = currentDevice();
+  if (!device || !state.user || state.user.role !== "admin") return;
+  const targetVersion = els.agentRollbackVersion.value.trim();
+  const currentVersion = deviceAgentVersion(device);
+  const comparison = globalThis.RMMVersions && currentVersion ? globalThis.RMMVersions.compareSemVer(targetVersion, currentVersion) : null;
+  if (comparison === null || comparison >= 0) {
+    setFormMessage(els.agentRollbackMessage, "Целевая версия должна быть корректной и ниже установленной.", "error");
+    return;
+  }
+  const urls = historicalAgentManifestURLs(targetVersion);
+  els.agentRollbackPreview.textContent = urls.manifest_url;
+  if (!window.confirm(`Откатить агент с ${currentVersion} до ${targetVersion}? Rollout будет остановлен, если роутер не подтвердит reconnect.`)) return;
+  const submit = els.agentRollbackForm.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  try {
+    const command = await api(`/api/devices/${encodeURIComponent(device.id)}/agent-rollback`, { method: "POST", body: JSON.stringify(urls) });
+    state.commands = [command, ...state.commands.filter((item) => item.id !== command.id)];
+    renderCommands(state.commands);
+    els.agentRollbackDialog.close();
+    notify("Откат агента добавлен в очередь", "success");
+    await Promise.all([loadCommands(), loadAudit()]);
+  } catch (error) {
+    setFormMessage(els.agentRollbackMessage, error.message, "error");
+  } finally {
+    submit.disabled = false;
   }
 }
 
@@ -3205,6 +3288,9 @@ els.backToFleetBtn.addEventListener("click", showFleet);
 els.quickDiagnosticBtn.addEventListener("click", () => selectDeviceTab("operations"));
 els.openLuciBtn.addEventListener("click", openLuciOrRemoteAccess);
 els.updateAgentBtn.addEventListener("click", () => queueAgentUpdate().catch(reportError));
+els.rollbackAgentBtn.addEventListener("click", openAgentRollbackDialog);
+els.closeAgentRollbackBtn.addEventListener("click", () => els.agentRollbackDialog.close());
+els.agentRollbackForm.addEventListener("submit", (event) => queueAgentRollback(event).catch(reportError));
 els.runFullDiagnosticBtn.addEventListener("click", () => runFullDiagnostic().catch(reportError));
 els.loadMoreCommandsBtn.addEventListener("click", () => loadCommands({ append: true }).catch(reportError));
 els.loadMoreAuditBtn.addEventListener("click", () => loadAudit({ append: true }).catch(reportError));

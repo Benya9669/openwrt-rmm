@@ -39,6 +39,47 @@ test.describe("authenticated operator flows", () => {
   await expect(page.getByRole("tab", { name: "Безопасность" })).toBeFocused();
   await expect(page.locator("#passwordForm")).toBeVisible();
   });
+
+  test("admin can review a compatible agent rollback", async ({ page }) => {
+    await page.getByRole("button", { name: "Открыть роутер E2E OpenWrt" }).click();
+    await expect(page.locator("#rollbackAgentBtn")).toBeVisible();
+    await page.locator("#rollbackAgentBtn").click();
+    await expect(page.locator("#agentRollbackDialog")).toBeVisible();
+    await expect(page.locator("#agentRollbackPreview")).toContainText("0.6.10");
+
+    await page.locator("#agentRollbackVersion").fill("0.6.10");
+    await page.locator("#agentRollbackForm").press("Enter");
+    await expect(page.locator("#agentRollbackMessage")).toContainText("ниже установленной");
+
+    await page.locator("#agentRollbackVersion").fill("0.6.9");
+    await expect.poll(() => page.locator("#agentRollbackVersion").evaluate((input) => input.checkValidity())).toBe(true);
+    await expect.poll(() => page.locator("#agentRollbackDialog").evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+  });
+
+  test("agent update waits for a reconnect confirmation", async ({ page }) => {
+    await page.route("**/api/devices/*/commands?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          commands: [{
+            id: "cmd_waiting_reconnect",
+            type: "agent_update",
+            status: "completed",
+            args: { target_version: "0.6.10" },
+            result: { health_status: "waiting_reconnect", installed_package_version: "0.6.10-r1" },
+            attempt_count: 1,
+            max_attempts: 3,
+            created_at: new Date().toISOString(),
+          }],
+        }),
+      });
+    });
+    await page.getByRole("button", { name: "Открыть роутер E2E OpenWrt" }).click();
+    await expect(page.locator("#agentUpdateStatus")).toBeVisible();
+    await expect(page.locator("#agentUpdateStatus")).toContainText("ожидание повторного подключения");
+    await expect(page.locator("#agentUpdateStatus")).toContainText("сервер ждёт heartbeat");
+  });
 });
 
 for (const [name, viewport] of Object.entries({

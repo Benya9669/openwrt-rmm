@@ -5,8 +5,54 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
-- Added admin-only, per-device agent rollback using ECDSA-verified historical stable manifests,
-  trusted manifest URL boundaries, inventory compatibility checks, and immutable version-pinned packages.
+## server-v0.9.3
+
+Stabilization release for managed agent updates and rollback operations.
+
+### Added
+
+- Update and rollback history now exposes installation, reconnect verification, and final
+  health state on each router.
+- Rollouts wait for a heartbeat reporting the exact target version before advancing to the
+  next batch.
+- A reconciliation worker pauses rollouts when a queued operation or reconnect verification
+  exceeds its safety deadline.
+- Admin-only, per-device rollback uses ECDSA-verified historical stable manifests, trusted
+  manifest URL boundaries, inventory compatibility checks, and immutable version-pinned packages.
+
+### Fixed
+
+- The built-in stable-agent fallback now matches the published `0.6.9` release.
+- The release documentation now reflects `server-v0.9.1`, `server-v0.9.2`, and
+  `agent-v0.6.9` instead of describing already published releases as pending.
+- `server-v0.9.2` included the rollback endpoint while its release notes still described it
+  as unavailable; this release establishes the implemented behavior as supported.
+
+### Security and operations
+
+- Server commands include signed-manifest coordinates for agents capable of independent
+  verification while preserving the one-time compatibility path from agent `0.6.9`.
+- `RMM_AGENT_RECONNECT_TIMEOUT_SECONDS` controls the rollout safety deadline and defaults
+  to 300 seconds.
+
+## agent-v0.6.10
+
+Managed package verification and post-install health reporting.
+
+### Added
+
+- The agent independently downloads and verifies the ECDSA-signed update manifest and
+  requires an exact release, target, format, feed, and package-version match.
+- The production package installs the trusted ECDSA/APK and usign repository public keys.
+- Successful package-manager execution is followed by an installed-version and executable
+  binary health check before the agent restarts.
+- Update results explicitly enter `waiting_reconnect`; the server confirms `healthy` only
+  after the new agent reports the requested version.
+
+### Compatibility
+
+- Agent `0.6.9` remains able to perform its first managed upgrade without the new manifest
+  fields. Agent `0.6.10` and later require the signed manifest coordinates.
 
 ## server-v0.9.2
 

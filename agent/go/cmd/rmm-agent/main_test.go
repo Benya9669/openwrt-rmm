@@ -1,6 +1,12 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net"
@@ -13,7 +19,7 @@ import (
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.6.9" {
+	if agentVersion != "0.6.10" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
 }
@@ -32,13 +38,52 @@ func TestSafeAgentFeedURL(t *testing.T) {
 }
 
 func TestValidAgentPackageOperationArgs(t *testing.T) {
-	valid := map[string]string{"package": "rmm-agent-go-production", "target_version": "0.6.8", "package_version": "0.6.8-1", "feed_url": "https://packages.example.test/feed", "package_manager": "apk"}
+	valid := map[string]string{"package": "rmm-agent-go-production", "target_version": "0.6.10", "package_version": "0.6.10-r1", "feed_url": "https://packages.example.test/feed", "manifest_url": "https://packages.example.test/update-manifest.json", "signature_url": "https://packages.example.test/update-manifest.sig", "package_manager": "apk"}
 	if !validAgentPackageOperationArgs(valid) {
 		t.Fatal("expected exact package operation arguments to be accepted")
 	}
 	valid["unexpected"] = "value"
 	if validAgentPackageOperationArgs(valid) {
 		t.Fatal("unexpected package operation field was accepted")
+	}
+}
+
+func TestValidateAgentUpdateManifestRequiresExactSignedFeed(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER})
+	manifest := []byte(`{"schema":1,"channel":"stable","agent":{"version":"0.6.10"},"packages":[{"openwrt_release":"25.12.4","target":"ramips-mt7621","format":"apk","feed_url":"https://packages.example.test/feed","package_version":"0.6.10-r1"}]}`)
+	digest := sha256.Sum256(manifest)
+	signature, err := ecdsa.SignASN1(rand.Reader, privateKey, digest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]string{"target_version": "0.6.10", "feed_url": "https://packages.example.test/feed", "package_version": "0.6.10-r1", "package_manager": "apk"}
+	if err := validateAgentUpdateManifest(manifest, signature, publicPEM, args, "25.12.4", "ramips-mt7621"); err != nil {
+		t.Fatalf("valid signed manifest rejected: %v", err)
+	}
+	args["feed_url"] = "https://packages.example.test/other"
+	if err := validateAgentUpdateManifest(manifest, signature, publicPEM, args, "25.12.4", "ramips-mt7621"); err == nil {
+		t.Fatal("feed not present in the signed manifest was accepted")
+	}
+	manifest[0] ^= 1
+	if err := validateAgentUpdateManifest(manifest, signature, publicPEM, args, "25.12.4", "ramips-mt7621"); err == nil {
+		t.Fatal("tampered manifest was accepted")
+	}
+}
+
+func TestParseInstalledAgentPackageVersion(t *testing.T) {
+	if got, ok := parseInstalledPackageVersion("opkg", "rmm-agent-go-production", "Package: rmm-agent-go-production\nVersion: 0.6.10-1\nStatus: install ok installed\n"); !ok || got != "0.6.10-1" {
+		t.Fatalf("unexpected opkg version %q, %v", got, ok)
+	}
+	if got, ok := parseInstalledPackageVersion("apk", "rmm-agent-go-production", "rmm-agent-go-production-0.6.10-r1\n"); !ok || got != "0.6.10-r1" {
+		t.Fatalf("unexpected apk version %q, %v", got, ok)
 	}
 }
 

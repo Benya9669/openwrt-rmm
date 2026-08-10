@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 	"rmm-openwrt/server/internal/model"
@@ -24,7 +26,7 @@ func TestAgentRolloutQueuesSequentialBatchesAndPausesOnFailure(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		devices = append(devices, model.RolloutDevice{DeviceID: d.DeviceID, FeedURL: "https://packages.example.test/feed", PackageManager: "opkg"})
+		devices = append(devices, model.RolloutDevice{DeviceID: d.DeviceID, FeedURL: "https://packages.example.test/feed", PackageManager: "opkg", PackageVersion: "1.2.3-1"})
 	}
 	r, err := s.CreateAgentRollout(ctx, "stable", "1.2.3", 1, 1, devices)
 	if err != nil {
@@ -41,7 +43,23 @@ func TestAgentRolloutQueuesSequentialBatchesAndPausesOnFailure(t *testing.T) {
 	if queued != 1 {
 		t.Fatalf("initial batch = %#v", r.Devices)
 	}
+	if _, err := s.SaveCommandResult(ctx, first.CommandID, first.DeviceID, "completed", 0, "", json.RawMessage(`{"health_status":"waiting_reconnect"}`)); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.HandleAgentRolloutResult(ctx, first.CommandID, "completed", ""); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := s.GetAgentRollout(ctx, r.ID)
+	waitingStatus := ""
+	for _, device := range waiting.Devices {
+		if device.CommandID == first.CommandID {
+			waitingStatus = device.Status
+		}
+	}
+	if err != nil || waitingStatus != "waiting_reconnect" {
+		t.Fatalf("successful install must wait for reconnect confirmation: %#v, %v", waiting, err)
+	}
+	if _, err := s.SaveHeartbeat(ctx, first.DeviceID, json.RawMessage(`{"agent_version":"1.2.3"}`), json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 	r, err = s.GetAgentRollout(ctx, r.ID)
@@ -59,6 +77,9 @@ func TestAgentRolloutQueuesSequentialBatchesAndPausesOnFailure(t *testing.T) {
 	if queued != 1 {
 		t.Fatalf("second batch was not queued: %#v", r.Devices)
 	}
+	if _, err := s.SaveCommandResult(ctx, second.CommandID, second.DeviceID, "failed", 1, "update failed", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.HandleAgentRolloutResult(ctx, second.CommandID, "failed", "update failed"); err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +95,44 @@ func TestAgentRolloutQueuesSequentialBatchesAndPausesOnFailure(t *testing.T) {
 	}
 	if r.Status != "paused" || pending != 1 {
 		t.Fatalf("failure must pause without queueing: %#v", r)
+	}
+}
+
+func TestAgentRolloutReconnectTimeoutPausesRollout(t *testing.T) {
+	ctx := context.Background()
+	s, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "rollout-timeout.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	d, err := s.EnrollDevice(ctx, "router", "25.12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollout, err := s.CreateAgentRollout(ctx, "stable", "0.6.10", 1, 1, []model.RolloutDevice{{DeviceID: d.DeviceID, FeedURL: "https://packages.example.test/feed", PackageManager: "apk", PackageVersion: "0.6.10-r1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commandID := rollout.Devices[0].CommandID
+	if _, err := s.SaveCommandResult(ctx, commandID, d.DeviceID, "completed", 0, "", json.RawMessage(`{"health_status":"waiting_reconnect"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.HandleAgentRolloutResult(ctx, commandID, "completed", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE commands SET completed_at = ? WHERE id = ?`, time.Now().UTC().Add(-10*time.Minute).Format(time.RFC3339Nano), commandID); err != nil {
+		t.Fatal(err)
+	}
+	count, err := s.ReconcileAgentRollouts(ctx, 5*time.Minute)
+	if err != nil || count != 1 {
+		t.Fatalf("reconcile = %d, %v", count, err)
+	}
+	rollout, err = s.GetAgentRollout(ctx, rollout.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rollout.Status != "paused" || rollout.FailureCount != 1 || rollout.Devices[0].Status != "failed" {
+		t.Fatalf("timed-out rollout was not paused: %#v", rollout)
 	}
 }
 

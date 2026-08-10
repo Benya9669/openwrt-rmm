@@ -74,6 +74,14 @@ type AgentRollout struct {
 	Devices          []RolloutDevice `json:"devices"`
 }
 
+type AgentFeed struct {
+	TargetVersion  string `json:"target_version"`
+	FeedURL        string `json:"feed_url"`
+	PackageVersion string `json:"package_version"`
+	ManifestURL    string `json:"manifest_url"`
+	SignatureURL   string `json:"signature_url"`
+}
+
 type RolloutDevice struct {
 	DeviceID       string `json:"device_id"`
 	Status         string `json:"status"`
@@ -82,6 +90,8 @@ type RolloutDevice struct {
 	FeedURL        string `json:"feed_url"`
 	PackageManager string `json:"-"`
 	PackageVersion string `json:"package_version"`
+	ManifestURL    string `json:"manifest_url,omitempty"`
+	SignatureURL   string `json:"signature_url,omitempty"`
 	LastError      string `json:"last_error,omitempty"`
 }
 

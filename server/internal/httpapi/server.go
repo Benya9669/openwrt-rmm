@@ -135,9 +135,9 @@ type Config struct {
 	StableAgentVersion         string
 	StableAgentVersionProvider func() string
 	UpdateManifestURL          string
-	CompatibleAgentFeed        func(openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
-	CandidateAgentFeed         func(openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
-	HistoricalAgentFeed        func(ctx context.Context, manifestURL, signatureURL, openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
+	CompatibleAgentFeed        func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
+	CandidateAgentFeed         func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
+	HistoricalAgentFeed        func(ctx context.Context, manifestURL, signatureURL, openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
 }
 
 type App struct {
@@ -164,9 +164,9 @@ type App struct {
 	stableAgentVersion         string
 	stableAgentVersionProvider func() string
 	updateManifestURL          string
-	compatibleAgentFeed        func(openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
-	candidateAgentFeed         func(openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
-	historicalAgentFeed        func(ctx context.Context, manifestURL, signatureURL, openWrtRelease, target, packageManager string) (targetVersion, feedURL, packageVersion string, ok bool)
+	compatibleAgentFeed        func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
+	candidateAgentFeed         func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
+	historicalAgentFeed        func(ctx context.Context, manifestURL, signatureURL, openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
 	loginLimiter               *loginRateLimiter
 	passwordResetLimiter       *loginRateLimiter
 	loginSlots                 chan struct{}
@@ -687,6 +687,7 @@ func (a *App) handleAgentRollouts(w http.ResponseWriter, r *http.Request) {
 		var inv struct {
 			AgentRuntime   string `json:"agent_runtime"`
 			AgentPackage   string `json:"agent_package"`
+			AgentVersion   string `json:"agent_version"`
 			PackageManager string `json:"package_manager"`
 			OpenWrtRelease string `json:"openwrt_release"`
 			Target         string `json:"target"`
@@ -694,17 +695,21 @@ func (a *App) handleAgentRollouts(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(d.Inventory, &inv) != nil || inv.AgentRuntime != "go" || inv.AgentPackage != "rmm-agent-go-production" {
 			continue
 		}
-		v, feed, packageVersion, ok := resolver(strings.TrimSpace(inv.OpenWrtRelease), strings.TrimSpace(inv.Target), strings.TrimSpace(inv.PackageManager))
+		feed, ok := resolver(strings.TrimSpace(inv.OpenWrtRelease), strings.TrimSpace(inv.Target), strings.TrimSpace(inv.PackageManager))
 		if !ok {
 			continue
 		}
 		if version == "" {
-			version = v
+			version = feed.TargetVersion
 		}
-		if version != v {
+		if version != feed.TargetVersion {
 			continue
 		}
-		eligible = append(eligible, model.RolloutDevice{DeviceID: d.ID, FeedURL: feed, PackageManager: inv.PackageManager, PackageVersion: packageVersion})
+		if compareSemver(strings.TrimSpace(inv.AgentVersion), "0.6.10") < 0 {
+			feed.ManifestURL = ""
+			feed.SignatureURL = ""
+		}
+		eligible = append(eligible, model.RolloutDevice{DeviceID: d.ID, FeedURL: feed.FeedURL, PackageManager: inv.PackageManager, PackageVersion: feed.PackageVersion, ManifestURL: feed.ManifestURL, SignatureURL: feed.SignatureURL})
 	}
 	if len(eligible) == 0 {
 		writeError(w, http.StatusConflict, "no eligible supported devices with compatible immutable feeds")
@@ -929,6 +934,7 @@ func (a *App) handleCreateAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	var inventory struct {
 		AgentRuntime   string `json:"agent_runtime"`
 		AgentPackage   string `json:"agent_package"`
+		AgentVersion   string `json:"agent_version"`
 		PackageManager string `json:"package_manager"`
 		OpenWrtRelease string `json:"openwrt_release"`
 		Target         string `json:"target"`
@@ -937,14 +943,13 @@ func (a *App) handleCreateAgentUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "device does not support managed agent updates")
 		return
 	}
-	targetVersion, feedURL, packageVersion, ok := a.compatibleAgentFeed(strings.TrimSpace(inventory.OpenWrtRelease), strings.TrimSpace(inventory.Target), strings.TrimSpace(inventory.PackageManager))
+	feed, ok := a.compatibleAgentFeed(strings.TrimSpace(inventory.OpenWrtRelease), strings.TrimSpace(inventory.Target), strings.TrimSpace(inventory.PackageManager))
 	if !ok {
 		writeError(w, http.StatusConflict, "no compatible immutable agent feed is available")
 		return
 	}
-	c, _, err := a.store.CreateCommand(r.Context(), device.ID, "agent_update", mustJSON(map[string]string{
-		"target_version": targetVersion, "feed_url": feedURL, "package_version": packageVersion, "package_manager": inventory.PackageManager, "package": "rmm-agent-go-production",
-	}))
+	args := agentPackageCommandArgs(feed, inventory.PackageManager, inventory.AgentVersion)
+	c, _, err := a.store.CreateCommand(r.Context(), device.ID, "agent_update", mustJSON(args))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to queue agent update")
 		return
@@ -989,23 +994,22 @@ func (a *App) handleCreateAgentRollback(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusConflict, "device does not support managed agent rollbacks")
 		return
 	}
-	targetVersion, feedURL, packageVersion, ok := a.historicalAgentFeed(r.Context(), strings.TrimSpace(req.ManifestURL), strings.TrimSpace(req.SignatureURL), strings.TrimSpace(inventory.OpenWrtRelease), strings.TrimSpace(inventory.Target), strings.TrimSpace(inventory.PackageManager))
+	feed, ok := a.historicalAgentFeed(r.Context(), strings.TrimSpace(req.ManifestURL), strings.TrimSpace(req.SignatureURL), strings.TrimSpace(inventory.OpenWrtRelease), strings.TrimSpace(inventory.Target), strings.TrimSpace(inventory.PackageManager))
 	if !ok {
 		writeError(w, http.StatusConflict, "no compatible immutable rollback feed is available")
 		return
 	}
-	if compareSemver(targetVersion, strings.TrimSpace(inventory.AgentVersion)) >= 0 {
+	if compareSemver(feed.TargetVersion, strings.TrimSpace(inventory.AgentVersion)) >= 0 {
 		writeError(w, http.StatusConflict, "rollback target must be lower than the reported agent version")
 		return
 	}
-	c, _, err := a.store.CreateCommand(r.Context(), device.ID, "agent_rollback", mustJSON(map[string]string{
-		"target_version": targetVersion, "feed_url": feedURL, "package_version": packageVersion, "package_manager": inventory.PackageManager, "package": "rmm-agent-go-production",
-	}))
+	args := agentPackageCommandArgs(feed, inventory.PackageManager, inventory.AgentVersion)
+	c, _, err := a.store.CreateCommand(r.Context(), device.ID, "agent_rollback", mustJSON(args))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to queue agent rollback")
 		return
 	}
-	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "agent.rollback_queue", device.ID, c.ID, mustJSON(map[string]string{"target_version": targetVersion, "request_id": requestID(r.Context())}))
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "agent.rollback_queue", device.ID, c.ID, mustJSON(map[string]string{"target_version": feed.TargetVersion, "request_id": requestID(r.Context())}))
 	a.events.publish("devices")
 	writeJSON(w, http.StatusCreated, c)
 }
@@ -1021,6 +1025,21 @@ func trustedHistoricalManifestURL(configured, candidate string) bool {
 	}
 	prefix := base.Path[:strings.LastIndex(base.Path, "/")+1]
 	return strings.HasPrefix(u.Path, prefix) && !strings.Contains(u.Path, "..")
+}
+
+func agentPackageCommandArgs(feed model.AgentFeed, packageManager, currentAgentVersion string) map[string]string {
+	args := map[string]string{
+		"target_version":  feed.TargetVersion,
+		"feed_url":        feed.FeedURL,
+		"package_version": feed.PackageVersion,
+		"package_manager": strings.TrimSpace(packageManager),
+		"package":         "rmm-agent-go-production",
+	}
+	if compareSemver(strings.TrimSpace(currentAgentVersion), "0.6.10") >= 0 {
+		args["manifest_url"] = feed.ManifestURL
+		args["signature_url"] = feed.SignatureURL
+	}
+	return args
 }
 
 func compareSemver(left, right string) int {

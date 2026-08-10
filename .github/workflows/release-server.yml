@@ -91,7 +91,7 @@ jobs:
           build-args: |
             RMM_SERVER_VERSION=${{ steps.version.outputs.value }}
             RMM_SOURCE_REVISION=${{ github.sha }}
-            RMM_STABLE_AGENT_VERSION=0.6.8
+            RMM_STABLE_AGENT_VERSION=0.6.9
           cache-from: type=gha,scope=rmm-server
           cache-to: type=gha,mode=max,scope=rmm-server
           provenance: mode=max

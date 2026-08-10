@@ -1,10 +1,10 @@
 # Recent Progress
 
-Updated: 2026-07-31.
+Updated: 2026-08-10.
 
 ## Implemented in `main`
 
-- Go agent `0.6.8` with stable lock cleanup, tunnel endpoint validation and active LAN
+- Go agent `0.6.10` source with stable lock cleanup, tunnel endpoint validation, active LAN
   client probes.
 - OpenWrt IPK/APK packaging for the current matrix plus a manual legacy tier.
 - LuCI application with English as the default language and optional
@@ -22,22 +22,26 @@ Updated: 2026-07-31.
 - Separate Profile, Security, Notifications and administrator-only Users tabs.
 - LAN inventory filtering for failed/stale neighbour noise and IPv4 preference per MAC.
 - Cloud-only wildcard router addressing; legacy DirectDNS routes are removed.
+- Managed single-device updates, canary rollout, signed historical rollback, reconnect
+  verification and package health reporting.
 
 ## Release state
 
-- `server-v0.9.0` is published with the notification center, verified channels and LAN
-  client persistence.
-- `agent-v0.6.8` is a signed tag; its complete current OpenWrt matrix and Pages deployment
-  finished successfully.
-- `server-v0.9.1` is being prepared as a stabilization release for notification
-  operations, account navigation and LAN inventory cleanup.
+- `server-v0.9.0`, `server-v0.9.1`, and `server-v0.9.2` are published.
+- `agent-v0.6.9` is published with managed update support and immutable retained feeds.
+- `server-v0.9.3` and agent `0.6.10` are being prepared for verified update/rollback
+  operations and reconnect-aware rollout safety.
+- Local pre-release checks pass for the `0.9.3` server image and for unsigned OpenWrt
+  25.12.4 ramips/mt7621 APK artifacts (agent, LuCI, Russian i18n, and repository index).
+- The browser suite covers 12 login/profile/LuCI/update/rollback/responsive scenarios.
 
 ## Next
 
 The authoritative development order is maintained in `ROADMAP.md`. Immediate work is:
 
-1. publish the signed agent update manifest and verify package installation from the feed;
-2. publish and deploy `server-v0.9.1` after a production database backup;
-3. complete production notification, LAN-client and tunnel smoke tests;
-4. move per-device tunnel credentials and signed/replay-protected commands ahead of
+1. complete the signed 24.10/25.12 matrix and test `0.6.9 → 0.6.10` on a real router;
+2. test reconnect timeout, rollout pause/resume and signed historical rollback;
+3. publish `server-v0.9.3` and agent `0.6.10`, then deploy after a production database backup;
+4. complete production notification, LAN-client and tunnel smoke tests;
+5. move per-device tunnel credentials and signed/replay-protected commands ahead of
    backup/restore and remote update work.

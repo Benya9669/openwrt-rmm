@@ -11,7 +11,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=27">
+    <link rel="stylesheet" href="/styles.css?v=28">
   </head>
   <body class="account-page">
     <main id="loginView" class="landing-view">
@@ -235,6 +235,7 @@
             <div class="device-header-actions">
               <span id="deviceBadge" class="badge"></span>
               <button id="updateAgentBtn" class="primary is-hidden" type="button">Обновить агент</button>
+              <button id="rollbackAgentBtn" class="danger is-hidden" type="button">Откатить агент</button>
               <button id="quickDiagnosticBtn" type="button">Диагностика</button>
               <button id="openLuciBtn" class="primary" type="button">Открыть LuCI</button>
             </div>
@@ -979,6 +980,17 @@
       </div>
     </dialog>
 
+    <dialog id="agentRollbackDialog">
+      <form id="agentRollbackForm" class="login-form">
+        <div class="dialog-heading"><div><span class="eyebrow">Подписанная версия</span><h2>Откат агента</h2></div><button id="closeAgentRollbackBtn" class="icon-button" type="button" aria-label="Закрыть">×</button></div>
+        <p>Укажите ранее опубликованную версию. Сервер загрузит исторический manifest с доверенного package-сайта и проверит его подпись и совместимость.</p>
+        <label>Целевая версия<input id="agentRollbackVersion" type="text" inputmode="decimal" placeholder="0.6.9" pattern="[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?" required></label>
+        <p id="agentRollbackPreview" class="form-hint"></p>
+        <button class="danger" type="submit">Проверить и добавить откат в очередь</button>
+        <p id="agentRollbackMessage" class="form-message" role="status"></p>
+      </form>
+    </dialog>
+
     <dialog id="forgotPasswordDialog">
       <form id="forgotPasswordForm" class="login-form">
         <div class="dialog-heading"><div><span class="eyebrow">Восстановление доступа</span><h2>Сбросить пароль</h2></div><button id="closeForgotPasswordBtn" class="icon-button" type="button" aria-label="Закрыть">×</button></div>
@@ -1023,6 +1035,6 @@
 
     <script src="/landing-motion.js?v=2" defer></script>
     <script src="/version.js?v=1" defer></script>
-    <script src="/app.js?v=30" defer></script>
+    <script src="/app.js?v=31" defer></script>
   </body>
 </html>

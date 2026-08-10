@@ -2,6 +2,7 @@ const { defineConfig, devices } = require("@playwright/test");
 
 const port = 18081;
 const baseURL = `http://127.0.0.1:${port}`;
+const reuseExternalServer = process.env.RMM_E2E_REUSE_SERVER === "true";
 
 module.exports = defineConfig({
   testDir: "e2e",
@@ -21,6 +22,6 @@ module.exports = defineConfig({
     command: "node e2e/start-server.js",
     url: `${baseURL}/healthz`,
     timeout: 30_000,
-    reuseExistingServer: false,
+    reuseExistingServer: reuseExternalServer,
   },
 });

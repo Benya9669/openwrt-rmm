@@ -89,7 +89,7 @@ Authorization: Bearer <operator-api-token>
 {
   "server_version": "0.9.1",
   "server_revision": "0123456789abcdef",
-  "stable_agent_version": "0.6.8",
+  "stable_agent_version": "0.6.9",
   "update_manifest_url": "https://benya9669.github.io/openwrt-rmm/update-manifest.json"
 }
 ```
@@ -774,9 +774,14 @@ Webhook requests use `Content-Type: application/json`, `X-RMM-Timestamp` and
 - `online`: confirmed by Wi-Fi association, an active neighbour state or a successful safe ICMP probe;
 - `recent`: confirmed within the recent-presence window;
 - `unconfirmed`: known from DHCP or stale neighbour data but not actively confirmed.
-# API
+## Managed agent update and rollback
 
-## Agent rollback
+`POST /api/devices/{id}/agent-update` selects the exact compatible entry from the last
+server-verified stable manifest and queues an immutable `agent_update` command.
+
+`GET|POST /api/agent-rollouts` and `POST /api/agent-rollouts/{id}/{pause|resume|cancel}`
+are admin-only. A device moves through `pending`, `queued`, `waiting_reconnect`, and
+`completed`; a command failure or reconnect timeout pauses a running rollout.
 
 `POST /api/devices/{id}/agent-rollback` is admin-only. Its JSON body is:
 
@@ -784,4 +789,12 @@ Webhook requests use `Content-Type: application/json`, `X-RMM-Timestamp` and
 {"manifest_url":"https://packages.example.test/releases/0.6.8/manifest.json","signature_url":"https://packages.example.test/releases/0.6.8/manifest.sig"}
 ```
 
-Both URLs must be HTTPS, on the configured update manifest origin, and below its path prefix. The response is the queued, immutable `agent_rollback` command.
+Both URLs must be HTTPS, on the configured update manifest origin, and below its path prefix.
+The response is the queued, immutable `agent_rollback` command.
+
+For agent `0.6.10` and later, package-operation arguments include `manifest_url` and
+`signature_url`. The agent verifies the detached ECDSA signature and exact compatibility entry
+before invoking the package manager. A successful command result contains
+`health_status: waiting_reconnect`; after a heartbeat reports the target version, the server
+changes it to `healthy` and adds `reconnect_verified_at`. A missed deadline becomes
+`reconnect_timeout` and pauses the rollout.

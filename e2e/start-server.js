@@ -1,14 +1,23 @@
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const databasePath = path.join(process.cwd(), "test-results", "rmm-e2e.db");
+const serverPath = path.join(process.cwd(), "test-results", process.platform === "win32" ? "rmm-e2e-server.exe" : "rmm-e2e-server");
 fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 for (const suffix of ["", "-shm", "-wal"]) {
   fs.rmSync(`${databasePath}${suffix}`, { force: true });
 }
 
-const server = spawn("go", ["run", "./server/cmd/rmm-server"], {
+const build = spawnSync("go", ["build", "-o", serverPath, "./server/cmd/rmm-server"], {
+  cwd: process.cwd(),
+  env: process.env,
+  stdio: "inherit",
+});
+if (build.error) throw build.error;
+if (build.status !== 0) process.exit(build.status ?? 1);
+
+const server = spawn(serverPath, [], {
   cwd: process.cwd(),
   env: {
     ...process.env,
@@ -24,7 +33,12 @@ const server = spawn("go", ["run", "./server/cmd/rmm-server"], {
   stdio: "inherit",
 });
 
+let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => server.kill(signal));
+  process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    if (!server.kill(signal)) process.exit(0);
+  });
 }
-server.on("exit", (code) => process.exit(code ?? 1));
+server.on("exit", (code) => process.exit(stopping ? 0 : (code ?? 1)));

@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent-go-production
-PKG_VERSION:=0.6.9
+PKG_VERSION:=0.6.10
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=RMM OpenWrt
@@ -47,6 +47,12 @@ define Package/rmm-agent-go-production/install
 	$(INSTALL_BIN) ./files/etc/init.d/rmm-agent $(1)/etc/init.d/rmm-agent
 	$(INSTALL_DIR) $(1)/etc
 	$(INSTALL_CONF) ./files/etc/rmm-agent.conf $(1)/etc/rmm-agent.conf
+	$(INSTALL_DIR) $(1)/etc/rmm-agent
+	$(INSTALL_DATA) ./files/etc/rmm-agent/update-manifest.pem $(1)/etc/rmm-agent/update-manifest.pem
+	$(INSTALL_DIR) $(1)/etc/opkg/keys
+	$(INSTALL_DATA) ./files/etc/opkg/keys/7fb0908fb6bc82c8 $(1)/etc/opkg/keys/7fb0908fb6bc82c8
+	$(INSTALL_DIR) $(1)/etc/apk/keys
+	$(INSTALL_DATA) ./files/etc/apk/keys/rmm-openwrt.pem $(1)/etc/apk/keys/rmm-openwrt.pem
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/rmm-agent $(1)/etc/config/rmm-agent
 	$(INSTALL_DIR) $(1)/usr/libexec

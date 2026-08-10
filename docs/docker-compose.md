@@ -48,7 +48,8 @@ Telegram notifications use one server-side bot token and a per-user numeric Chat
 RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
 RMM_NOTIFICATION_MAX_ATTEMPTS=5
 RMM_NOTIFICATION_RETENTION_DAYS=90
-RMM_STABLE_AGENT_VERSION=0.6.8
+RMM_STABLE_AGENT_VERSION=0.6.9
+RMM_AGENT_RECONNECT_TIMEOUT_SECONDS=300
 RMM_UPDATE_MANIFEST_URL=https://benya9669.github.io/openwrt-rmm/update-manifest.json
 RMM_UPDATE_MANIFEST_SIGNATURE_URL=https://benya9669.github.io/openwrt-rmm/update-manifest.sig
 RMM_UPDATE_MANIFEST_PUBLIC_KEY=/app/keys/rmm-openwrt.pem
@@ -66,7 +67,7 @@ For a production deployment, pin the server release in `.env` and use the releas
 overlay. This pulls the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.9.1
+RMM_RELEASE_VERSION=0.9.3
 ```
 
 ```powershell

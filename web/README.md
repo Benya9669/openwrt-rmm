@@ -41,9 +41,16 @@ Current MVP features:
 - separate online, recently seen, and DHCP-only client presence states.
 - separate account tabs for profile, security, notifications, and administrator users;
 - notification queue metrics, channel diagnostics, and filtered delivery history.
+- reconnect-aware agent update/rollback status, per-router operation history, and
+  administrator rollout device states.
 
 ## Check
 
 ```sh
 npm.cmd run check:web
+npm.cmd run test:e2e
 ```
+
+On Windows, if Playwright cannot terminate its managed web-server process tree, start
+`node e2e/start-server.js` in a separate terminal and run the suite with
+`RMM_E2E_REUSE_SERVER=true`. Stop the separate server with `Ctrl+C` after the run.

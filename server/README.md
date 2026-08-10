@@ -29,6 +29,8 @@ Environment variables:
 - `RMM_NOTIFICATION_MAX_ATTEMPTS` - delivery attempt limit, default `5`
 - `RMM_NOTIFICATION_RETENTION_DAYS` - terminal delivery history retention, default `90`
 - `RMM_STABLE_AGENT_VERSION` - stable agent version reported to the dashboard
+- `RMM_AGENT_RECONNECT_TIMEOUT_SECONDS` - maximum update/rollback reconnect verification
+  window before a running rollout is paused, default `300`
 - `RMM_UPDATE_MANIFEST_URL` - public URL of the signed stable agent update manifest
 - `RMM_UPDATE_MANIFEST_SIGNATURE_URL` - detached ECDSA signature URL
 - `RMM_UPDATE_MANIFEST_PUBLIC_KEY` - PEM public key used to verify the manifest before
