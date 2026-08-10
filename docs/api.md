@@ -90,7 +90,7 @@ Authorization: Bearer <operator-api-token>
   "server_version": "0.9.1",
   "server_revision": "0123456789abcdef",
   "stable_agent_version": "0.6.9",
-  "update_manifest_url": "https://benya9669.github.io/openwrt-rmm/update-manifest.json"
+  "update_manifest_url": "https://packages.daemonlord.ru/update-manifest.json"
 }
 ```
 

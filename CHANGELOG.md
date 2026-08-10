@@ -5,6 +5,34 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+## server-v0.9.5
+
+Canonical package repository endpoint hotfix.
+
+### Fixed
+
+- The built-in stable manifest and signature URLs now use the configured GitHub Pages
+  custom domain directly instead of an address that responds with HTTP 301.
+- Signed-manifest refresh continues to reject cross-origin redirects while succeeding
+  against the canonical package origin.
+- The offline fallback now matches the published agent `0.6.12`, and successful startup
+  verification records the trusted manifest version in server logs.
+
+## agent-v0.6.13
+
+OpenWrt APK repository compatibility hotfix.
+
+### Fixed
+
+- Signed manifests now provide the direct `packages.adb` URL required by OpenWrt 25.12
+  instead of a directory that makes `apk` request Alpine-style `APKINDEX.tar.gz` paths.
+- All package, key, manifest, and feed metadata uses the canonical
+  `packages.daemonlord.ru` origin and therefore avoids GitHub Pages redirects.
+
+### Validation
+
+- Repository tests cover both the directory-style IPK feed and direct APK database URL.
+
 ## server-v0.9.4
 
 Notification center layout hotfix.

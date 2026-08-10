@@ -19,7 +19,7 @@ import (
 var (
 	serverVersion      = "dev"
 	serverRevision     = "unknown"
-	stableAgentVersion = "0.6.9"
+	stableAgentVersion = "0.6.12"
 )
 
 func main() {
@@ -89,8 +89,8 @@ func main() {
 		}
 		telegramSender = sender
 	}
-	manifestURL := env("RMM_UPDATE_MANIFEST_URL", "https://benya9669.github.io/openwrt-rmm/update-manifest.json")
-	manifestSignatureURL := env("RMM_UPDATE_MANIFEST_SIGNATURE_URL", "https://benya9669.github.io/openwrt-rmm/update-manifest.sig")
+	manifestURL := env("RMM_UPDATE_MANIFEST_URL", "https://packages.daemonlord.ru/update-manifest.json")
+	manifestSignatureURL := env("RMM_UPDATE_MANIFEST_SIGNATURE_URL", "https://packages.daemonlord.ru/update-manifest.sig")
 	stableAgentFallback := env("RMM_STABLE_AGENT_VERSION", stableAgentVersion)
 	var stableAgentVersionProvider func() string
 	var compatibleAgentFeed func(string, string, string) (model.AgentFeed, bool)
@@ -112,6 +112,8 @@ func main() {
 			defer cancelRefresh()
 			if refreshErr := resolver.Refresh(refreshContext); refreshErr != nil {
 				log.Printf("using stable agent fallback %s: %v", stableAgentFallback, refreshErr)
+			} else {
+				log.Printf("stable agent manifest loaded: version %s", resolver.Version())
 			}
 		}()
 		go resolver.Run(context.Background(), 15*time.Minute, func(refreshErr error) {

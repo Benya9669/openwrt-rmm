@@ -88,11 +88,15 @@ for artifact_dir in "$source_dir"/openwrt-*; do
   if [ -s "$manifest_entries" ]; then
     printf ',\n' >> "$manifest_entries"
   fi
+  feed_url="https://packages.daemonlord.ru/feeds/$agent_version/openwrt/$openwrt_release/$target_label"
+  if [ "$package_format" = "apk" ]; then
+    feed_url="$feed_url/packages.adb"
+  fi
   printf '    {"openwrt_release":"%s","target":"%s","format":"%s","feed_url":"%s","package_version":"%s"}' \
     "$openwrt_release" \
     "$target_label" \
     "$package_format" \
-    "https://benya9669.github.io/openwrt-rmm/feeds/$agent_version/openwrt/$openwrt_release/$target_label" \
+    "$feed_url" \
     "$package_version" \
     >> "$manifest_entries"
 
@@ -123,7 +127,7 @@ cat > "$output_dir/update-manifest.json" <<EOF
   "agent": {
     "version": "${agent_version}",
     "release_url": "https://github.com/Benya9669/openwrt-rmm/releases/tag/agent-v${agent_version}",
-    "feed_base_url": "https://benya9669.github.io/openwrt-rmm/feeds/${agent_version}/openwrt"
+    "feed_base_url": "https://packages.daemonlord.ru/feeds/${agent_version}/openwrt"
   },
   "packages": [
 EOF

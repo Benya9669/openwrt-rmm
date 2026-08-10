@@ -10,15 +10,15 @@ OpenWrt 21.02, 22.03 and 23.05 packages are added to an existing agent release b
 manual legacy workflow described below. The default public base URL is:
 
 ```text
-https://benya9669.github.io/openwrt-rmm/feeds/stable/openwrt
+https://packages.daemonlord.ru/feeds/stable/openwrt
 ```
 
 The same Pages deployment publishes the stable update metadata:
 
 ```text
-https://benya9669.github.io/openwrt-rmm/update-manifest.json
-https://benya9669.github.io/openwrt-rmm/update-manifest.sig
-https://benya9669.github.io/openwrt-rmm/update-manifest.sigstore.json
+https://packages.daemonlord.ru/update-manifest.json
+https://packages.daemonlord.ru/update-manifest.sig
+https://packages.daemonlord.ru/update-manifest.sigstore.json
 ```
 
 The manifest declares the stable agent version and compatible OpenWrt feed directories.
@@ -45,10 +45,10 @@ cosign verify-blob \
   update-manifest.json
 ```
 
-Before the first release, open **Repository settings → Pages** and select **GitHub
-Actions** as the deployment source. A custom domain such as `packages.daemonlord.ru`
-can be attached later in the same Pages settings; keep the GitHub Pages URL available
-until DNS and TLS for the custom domain have been verified.
+The Pages deployment uses the verified custom domain `packages.daemonlord.ru`. Runtime
+configuration and signed manifests must use this canonical origin directly because the
+underlying `github.io` address redirects to the custom domain and update verification
+intentionally rejects cross-origin redirects.
 
 ## Signing keys
 
@@ -140,8 +140,8 @@ Choose the directory matching the firmware release and target. For example MT762
 OpenWrt 24.10:
 
 ```sh
-feed='https://benya9669.github.io/openwrt-rmm/feeds/stable/openwrt/24.10.7/ramips-mt7621'
-key_base='https://benya9669.github.io/openwrt-rmm/keys/usign'
+feed='https://packages.daemonlord.ru/feeds/stable/openwrt/24.10.7/ramips-mt7621'
+key_base='https://packages.daemonlord.ru/keys/usign'
 key_id='7fb0908fb6bc82c8'
 
 wget -O "/etc/opkg/keys/${key_id}" "${key_base}/${key_id}"
@@ -161,7 +161,7 @@ The key ID is the filename published under `/keys/usign/`.
 For MT7621 on OpenWrt 25.12:
 
 ```sh
-base='https://benya9669.github.io/openwrt-rmm'
+base='https://packages.daemonlord.ru'
 repo="${base}/feeds/stable/openwrt/25.12.4/ramips-mt7621/packages.adb"
 
 wget -O /etc/apk/keys/rmm-openwrt.pem "${base}/keys/apk/rmm-openwrt.pem"
