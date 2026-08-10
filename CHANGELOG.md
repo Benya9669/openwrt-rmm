@@ -5,6 +5,38 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+## server-v0.9.4
+
+Notification center layout hotfix.
+
+### Fixed
+
+- Notification entries retain their intrinsic height inside the scrollable dialog instead
+  of shrinking and allowing their descriptions to overlap adjacent entries.
+- The notification center now stays within the dynamic viewport, prevents horizontal
+  overflow, and uses a compact two-column entry layout on phones.
+
+### Validation
+
+- Browser coverage now renders fifty long unread notifications at the reported 528×760
+  viewport and verifies separation, scrolling, and absence of horizontal overflow.
+
+## agent-v0.6.12
+
+UCI runtime-configuration synchronization hotfix.
+
+### Fixed
+
+- Synchronization no longer exits under `set -e` when an already enrolled router has no
+  `enrollment_token` option to delete.
+- Changes to multi-target connectivity checks now reach `/etc/rmm-agent.conf` after
+  enrollment instead of leaving the previous value in place.
+
+### Validation
+
+- A mocked UCI regression test covers the missing enrollment token and verifies that all
+  configured check targets and the existing device identity are preserved.
+
 ## agent-v0.6.11
 
 Release workflow correction for the verified package-update agent.

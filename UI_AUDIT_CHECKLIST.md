@@ -16,6 +16,8 @@
 - [x] Landing motion, scroll reveal и reduced-motion fallback проверены.
 - [x] Видимый focus, touch targets и внутренний scroll диалогов проверены.
 - [x] Notification profile и delivery history проверены локально на tablet/mobile.
+- [x] Notification center с 50 длинными записями проверен на 528×760: карточки не
+  пересекаются, список прокручивается и не создаёт горизонтальный overflow.
 - [x] Недоступные SMTP/Telegram channels блокируются с объяснением.
 - [x] Provider error отображается безопасно и не раскрывает destination/secret.
 

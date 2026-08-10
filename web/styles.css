@@ -473,18 +473,45 @@
   place-items: center; border: 2px solid var(--surface); border-radius: 999px; background: var(--bad);
   color: #fff; padding: 0 4px; font-size: 10px; font-weight: 800;
 }
-.notification-center-dialog { width: min(520px, calc(100vw - 24px)); max-height: min(760px, calc(100vh - 24px)); padding: 0; }
-.notification-center-sheet { display: grid; gap: 12px; padding: 20px; }
+.notification-center-dialog {
+  width: min(520px, calc(100vw - 24px));
+  max-height: min(760px, calc(100dvh - 24px));
+  overflow: hidden;
+  padding: 0;
+}
+.notification-center-sheet {
+  display: grid;
+  max-height: min(760px, calc(100dvh - 24px));
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 20px;
+}
 .notification-center-actions { display: flex; justify-content: flex-end; }
-.notification-center-list { display: grid; gap: 8px; overflow: auto; max-height: min(580px, 70vh); }
+.notification-center-list {
+  display: grid;
+  min-height: 0;
+  max-height: min(580px, 70dvh);
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
 .notification-center-item {
   display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start;
+  height: auto; min-height: 0; overflow: hidden;
   width: 100%; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-raised);
   color: var(--text); padding: 13px; text-align: left; transition: transform .18s ease, border-color .18s ease, background .18s ease;
 }
 .notification-center-item:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .notification-center-item.is-unread { background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised)); }
 .notification-center-item > span:nth-child(2) { display: grid; min-width: 0; gap: 4px; }
+.notification-center-item strong,
+.notification-center-item small { min-width: 0; overflow-wrap: anywhere; }
 .notification-center-item small { color: var(--muted); line-height: 1.4; }
 .notification-center-item time { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .notification-center-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--warn); }
@@ -4205,6 +4232,27 @@ dialog[open]::backdrop {
 }
 
 @media (max-width: 720px) {
+  .notification-center-dialog {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    margin: auto 10px 10px;
+    border-radius: 22px;
+  }
+
+  .notification-center-sheet {
+    max-height: calc(100dvh - 20px);
+    padding: 20px;
+  }
+
+  .notification-center-item {
+    grid-template-columns: 10px minmax(0, 1fr);
+  }
+
+  .notification-center-item time {
+    grid-column: 2;
+    justify-self: start;
+  }
+
   .profile-tabs {
     margin-inline: -4px;
     padding-inline: 4px;

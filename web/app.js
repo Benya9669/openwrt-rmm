@@ -2502,7 +2502,7 @@ function prepareCloudAccessPopup(popup) {
   if (!popup) return;
   try {
     popup.document.open();
-    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=28"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
+    popup.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение к LuCI — OpenWrt RMM</title><link rel="stylesheet" href="/styles.css?v=29"></head><body class="cloud-wait-page"><main><span class="cloud-wait-mark">R</span><p class="eyebrow">Защищённый доступ</p><h1>Подключаемся к LuCI</h1><p>Создаём временный туннель и проверяем ответ роутера. Эта вкладка откроется автоматически.</p><div class="cloud-wait-progress" aria-label="Подключение выполняется"><i></i></div></main></body></html>`);
     popup.document.close();
     popup.opener = null;
   } catch {

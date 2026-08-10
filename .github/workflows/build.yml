@@ -91,8 +91,10 @@ jobs:
         run: |
           set -euo pipefail
           bash -n \
+            scripts/test-agent-uci-sync.sh \
             scripts/prepare-package-repository.sh \
             scripts/unpack-release-package-assets.sh
+          bash scripts/test-agent-uci-sync.sh
 
           current_matrix="$(awk '
             /Tagged releases cover the current OpenWrt lines/ { in_matrix = 1 }

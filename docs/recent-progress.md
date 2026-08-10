@@ -4,8 +4,8 @@ Updated: 2026-08-10.
 
 ## Implemented in `main`
 
-- Go agent `0.6.11` source with stable lock cleanup, tunnel endpoint validation, active LAN
-  client probes.
+- Go agent `0.6.12` source with stable lock cleanup, tunnel endpoint validation, active LAN
+  client probes and resilient UCI-to-runtime configuration synchronization.
 - OpenWrt IPK/APK packaging for the current matrix plus a manual legacy tier.
 - LuCI application with English as the default language and optional
   `luci-i18n-rmm-agent-ru`.
@@ -32,18 +32,22 @@ Updated: 2026-08-10.
 - `server-v0.9.3` is published with verified update/rollback operations and
   reconnect-aware rollout safety.
 - The signed `agent-v0.6.10` tag produced no package release because the matrix used an
-  obsolete source-version parser. Agent `0.6.11` supersedes it with pre-tag validation.
+  obsolete source-version parser. The corrected `agent-v0.6.11` matrix was cancelled;
+  its published tag remains immutable and is superseded by `0.6.12`.
+- Agent `0.6.12` fixes post-enrollment UCI synchronization when the one-time enrollment
+  token has already been removed. Server `0.9.4` fixes compressed notification entries.
 - Local pre-release checks pass for the `0.9.3` server image and for unsigned OpenWrt
   25.12.4 ramips/mt7621 APK artifacts (agent, LuCI, Russian i18n, and repository index).
-- The browser suite covers 12 login/profile/LuCI/update/rollback/responsive scenarios.
+- The browser suite covers notification overflow in addition to the existing
+  login/profile/LuCI/update/rollback/responsive scenarios.
 
 ## Next
 
 The authoritative development order is maintained in `ROADMAP.md`. Immediate work is:
 
-1. publish the signed `agent-v0.6.11` 24.10/25.12 matrix and test `0.6.9 → 0.6.11` on a real router;
+1. publish the signed `agent-v0.6.12` 24.10/25.12 matrix and test `0.6.9 → 0.6.12` on a real router;
 2. test reconnect timeout, rollout pause/resume and signed historical rollback;
-3. deploy `server-v0.9.3` and agent `0.6.11` after a production database backup;
+3. deploy `server-v0.9.4` and agent `0.6.12` after a production database backup;
 4. complete production notification, LAN-client and tunnel smoke tests;
 5. move per-device tunnel credentials and signed/replay-protected commands ahead of
    backup/restore and remote update work.

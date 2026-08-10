@@ -5,7 +5,7 @@
 
 ## Состояние ветки `main`
 
-- [x] Go agent source и production package подготовлены с версией `0.6.11`.
+- [x] Go agent source и production package подготовлены с версией `0.6.12`.
 - [x] LuCI package `0.2.2` и отдельный `luci-i18n-rmm-agent-ru`.
 - [x] Notification center, verification, quiet hours, webhook, per-device overrides и incidents.
 - [x] Delivery metrics, channel diagnostics и server-side notification history filters.
@@ -22,7 +22,9 @@
 - [x] `agent-v0.6.9` опубликован, package feed и исторические manifests сохранены.
 - [x] `server-v0.9.3` опубликован из подписанного commit/tag.
 - [x] `agent-v0.6.10` подписан, но package matrix остановилась до сборки из-за устаревшего parser версии.
-- [ ] `agent-v0.6.11` подготовлен как неизменяемый исправляющий релиз.
+- [x] Matrix `agent-v0.6.11` отменена без завершённого package release; опубликованный tag не перемещать.
+- [ ] `agent-v0.6.12` подготовлен как hotfix UCI-sync и должен заменить `0.6.11`.
+- [ ] `server-v0.9.4` подготовлен как hotfix центра уведомлений.
 - [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
 ## Перед `agent-v*`

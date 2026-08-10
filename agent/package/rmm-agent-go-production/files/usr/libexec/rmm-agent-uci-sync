@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-UCI_CONFIG="rmm-agent"
-SHELL_CONFIG="/etc/rmm-agent.conf"
+UCI_CONFIG="${UCI_CONFIG:-rmm-agent}"
+SHELL_CONFIG="${SHELL_CONFIG:-/etc/rmm-agent.conf}"
 
 uci_get() {
 	uci -q get "$UCI_CONFIG.main.$1" 2>/dev/null || true
@@ -49,7 +49,7 @@ fi
 enrollment_token="$(uci_get enrollment_token)"
 if [ -n "$device_id" ] && [ -n "$device_token" ]; then
 	enrollment_token=""
-	uci -q delete "$UCI_CONFIG.main.enrollment_token"
+	uci -q delete "$UCI_CONFIG.main.enrollment_token" 2>/dev/null || true
 	uci -q commit "$UCI_CONFIG"
 fi
 

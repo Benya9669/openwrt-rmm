@@ -40,6 +40,40 @@ test.describe("authenticated operator flows", () => {
   await expect(page.locator("#passwordForm")).toBeVisible();
   });
 
+  test("notification center keeps long entries separated and scrollable", async ({ page }) => {
+    await page.setViewportSize({ width: 528, height: 760 });
+    const notifications = Array.from({ length: 50 }, (_, index) => ({
+      id: `notification-${index}`,
+      incident_id: `incident-${index}`,
+      device_id: null,
+      severity: index % 4 === 0 ? "critical" : "warning",
+      title: `Восстановлено: E2E OpenWrt ${index + 1}`,
+      body: "Проверка доступности завершена. Роутер снова отвечает, связанные события сгруппированы без наложения текста.",
+      created_at: new Date(Date.now() - index * 60_000).toISOString(),
+      read_at: null,
+    }));
+    await page.route("**/api/notification-center?limit=50", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ notifications, unread: 360 }),
+    }));
+
+    await page.locator('[data-mobile-route="notifications"]').click();
+    await expect(page.locator("#notificationCenterDialog")).toBeVisible();
+    await expect(page.locator("#notificationCenterSummary")).toHaveText("360 непрочитанных");
+    await expect(page.locator(".notification-center-item")).toHaveCount(50);
+    await expect.poll(() => page.locator("#notificationCenterDialog").evaluate(
+      (dialog) => dialog.scrollWidth <= dialog.clientWidth,
+    )).toBe(true);
+    await expect.poll(() => page.locator(".notification-center-item").evaluateAll((items) => items.every((item, index) => {
+      if (index === items.length - 1) return true;
+      return item.getBoundingClientRect().bottom <= items[index + 1].getBoundingClientRect().top;
+    }))).toBe(true);
+    await expect.poll(() => page.locator("#notificationCenterList").evaluate(
+      (list) => list.scrollHeight > list.clientHeight,
+    )).toBe(true);
+  });
+
   test("admin can review a compatible agent rollback", async ({ page }) => {
     await page.getByRole("button", { name: "Открыть роутер E2E OpenWrt" }).click();
     await expect(page.locator("#rollbackAgentBtn")).toBeVisible();

@@ -67,7 +67,7 @@ For a production deployment, pin the server release in `.env` and use the releas
 overlay. This pulls the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.9.3
+RMM_RELEASE_VERSION=0.9.4
 ```
 
 ```powershell
