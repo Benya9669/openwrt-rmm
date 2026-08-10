@@ -16,7 +16,7 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 ### Агент и OpenWrt-пакеты
 
-- [x] Go-агент `0.6.10` в `main`: enrollment, heartbeat, inventory, метрики, очередь команд
+- [x] Go-агент `0.6.11` в `main`: enrollment, heartbeat, inventory, метрики, очередь команд
   и проверяемые update/rollback операции; опубликованная стабильная версия — `0.6.9`.
 - [x] Allowlist операций, backoff, восстановление связи и очистка lock-файла.
 - [x] WAN, интерфейсы, DHCP/Wi-Fi-клиенты, память, диск и connectivity checks.
@@ -66,6 +66,8 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 - [x] Выпустить `server-v0.9.1`, `server-v0.9.2` и `agent-v0.6.9`.
 - [x] Подготовить `server-v0.9.3` и агент `0.6.10` с проверкой manifest, reconnect health
   и безопасной остановкой rollout.
+- [x] Исправить release version parser после остановившейся matrix `agent-v0.6.10` и
+  подготовить неизменяемый исправляющий tag `agent-v0.6.11`.
 - [x] Локально собрать и проверить server image `0.9.3` и APK-пакеты `0.6.10`/LuCI/i18n
   для OpenWrt 25.12.4 ramips/mt7621.
 - [ ] Проверить установку и обновление `rmm-agent-go-production`,

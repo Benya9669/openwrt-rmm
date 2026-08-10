@@ -5,6 +5,22 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+## agent-v0.6.11
+
+Release workflow correction for the verified package-update agent.
+
+### Fixed
+
+- Agent version extraction in both current and legacy package workflows now supports the
+  grouped Go `const` declaration used by the agent source.
+- The branch quality job now verifies that the source and production package versions are
+  non-empty and identical, so this failure is detected before a release tag is created.
+
+### Compatibility
+
+- Runtime behavior is unchanged from `0.6.10`; this version supersedes the signed
+  `agent-v0.6.10` tag whose package matrix stopped before producing release artifacts.
+
 ## server-v0.9.3
 
 Stabilization release for managed agent updates and rollback operations.

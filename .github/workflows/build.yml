@@ -61,6 +61,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source_version="$(sed -n 's/^[[:space:]]*agentVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' agent/go/cmd/rmm-agent/main.go)"
+          package_version="$(sed -n 's/^PKG_VERSION:=//p' agent/package/rmm-agent-go-production/Makefile)"
+          test -n "$source_version"
+          test "$source_version" = "$package_version"
           cmp LICENSES/AGPL-3.0-only.txt web/licenses/AGPL-3.0-only.txt
           for file in \
             agent/LICENSE \
@@ -165,7 +169,7 @@ jobs:
         run: |
           set -euo pipefail
           expected="${GITHUB_REF_NAME#agent-v}"
-          source_version="$(sed -n 's/^const agentVersion = "\([^"]*\)"/\1/p' agent/go/cmd/rmm-agent/main.go)"
+          source_version="$(sed -n 's/^[[:space:]]*agentVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' agent/go/cmd/rmm-agent/main.go)"
           package_version="$(sed -n 's/^PKG_VERSION:=//p' agent/package/rmm-agent-go-production/Makefile)"
           test "$source_version" = "$expected"
           test "$package_version" = "$expected"

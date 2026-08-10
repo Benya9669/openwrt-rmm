@@ -5,7 +5,7 @@
 
 ## Состояние ветки `main`
 
-- [x] Go agent source и production package подготовлены с версией `0.6.10`.
+- [x] Go agent source и production package подготовлены с версией `0.6.11`.
 - [x] LuCI package `0.2.2` и отдельный `luci-i18n-rmm-agent-ru`.
 - [x] Notification center, verification, quiet hours, webhook, per-device overrides и incidents.
 - [x] Delivery metrics, channel diagnostics и server-side notification history filters.
@@ -20,7 +20,9 @@
 
 - [x] `server-v0.9.0`, `server-v0.9.1` и `server-v0.9.2` опубликованы.
 - [x] `agent-v0.6.9` опубликован, package feed и исторические manifests сохранены.
-- [ ] `server-v0.9.3` и `agent-v0.6.10` подготовлены, но ещё не помечены подписанными тегами.
+- [x] `server-v0.9.3` опубликован из подписанного commit/tag.
+- [x] `agent-v0.6.10` подписан, но package matrix остановилась до сборки из-за устаревшего parser версии.
+- [ ] `agent-v0.6.11` подготовлен как неизменяемый исправляющий релиз.
 - [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
 ## Перед `agent-v*`
@@ -77,7 +79,7 @@
 
 ## Последняя подтверждённая проверка
 
-Незакоммиченная подготовка `server-v0.9.3` / `agent-v0.6.10`, 2026-08-10:
+Проверка функциональной подготовки `server-v0.9.3` / `agent-v0.6.10`, 2026-08-10:
 
 - [x] `gofmt`, `go test ./...` и `go vet ./...`.
 - [x] `npm run check:web`.

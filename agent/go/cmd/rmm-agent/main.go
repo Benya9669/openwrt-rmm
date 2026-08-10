@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	agentVersion          = "0.6.10"
+	agentVersion          = "0.6.11"
 	maxUpdateManifestSize = 1 << 20
 )
 
