@@ -72,6 +72,8 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
   наложение длинных записей центра уведомлений в server `0.9.4`.
 - [x] Убрать GitHub Pages 301 из server `0.9.5` и публиковать прямой `packages.adb`
   для OpenWrt 25.12 в agent `0.6.13`.
+- [ ] Исключить преждевременный restart package hook в agent `0.6.14` и подтверждать
+  фактически работающую целевую версию по heartbeat в server `0.9.6`.
 - [x] Локально собрать и проверить server image `0.9.3` и APK-пакеты `0.6.10`/LuCI/i18n
   для OpenWrt 25.12.4 ramips/mt7621.
 - [ ] Проверить установку и обновление `rmm-agent-go-production`,

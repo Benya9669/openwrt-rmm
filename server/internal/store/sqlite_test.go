@@ -96,6 +96,26 @@ func TestAgentRolloutQueuesSequentialBatchesAndPausesOnFailure(t *testing.T) {
 	if r.Status != "paused" || pending != 1 {
 		t.Fatalf("failure must pause without queueing: %#v", r)
 	}
+	if _, err := s.SaveHeartbeat(ctx, second.DeviceID, json.RawMessage(`{"agent_version":"1.2.3"}`), json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	r, err = s.GetAgentRollout(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued = 0
+	secondStatus := ""
+	for _, device := range r.Devices {
+		if device.Status == "queued" {
+			queued++
+		}
+		if device.CommandID == second.CommandID {
+			secondStatus = device.Status
+		}
+	}
+	if r.Status != "running" || r.FailureCount != 0 || secondStatus != "completed" || queued != 1 {
+		t.Fatalf("heartbeat recovery must resume rollout and queue the next batch: %#v", r)
+	}
 }
 
 func TestAgentRolloutReconnectTimeoutPausesRollout(t *testing.T) {
@@ -133,6 +153,40 @@ func TestAgentRolloutReconnectTimeoutPausesRollout(t *testing.T) {
 	}
 	if rollout.Status != "paused" || rollout.FailureCount != 1 || rollout.Devices[0].Status != "failed" {
 		t.Fatalf("timed-out rollout was not paused: %#v", rollout)
+	}
+}
+
+func TestHeartbeatRecoversFailedAgentUpdateWhenTargetVersionIsRunning(t *testing.T) {
+	ctx := context.Background()
+	s, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "agent-update-recovery.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	device, err := s.EnrollDevice(ctx, "router", "25.12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, _, err := s.CreateCommand(ctx, device.DeviceID, "agent_update", json.RawMessage(`{"target_version":"0.6.14"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveCommandResult(ctx, command.ID, device.DeviceID, "failed", 1, "package manager was interrupted", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveHeartbeat(ctx, device.DeviceID, json.RawMessage(`{"agent_version":"0.6.14"}`), json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	recovered, ok, err := s.GetCommand(ctx, device.DeviceID, command.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetCommand() = %#v, %v, %v", recovered, ok, err)
+	}
+	if recovered.Status != "completed" || recovered.ExitCode == nil || *recovered.ExitCode != 0 {
+		t.Fatalf("failed update was not reconciled from heartbeat: %#v", recovered)
+	}
+	var result map[string]any
+	if json.Unmarshal(recovered.Result, &result) != nil || result["health_status"] != "healthy" || result["recovered_from_failed_result"] != true {
+		t.Fatalf("unexpected reconciled result: %s", recovered.Result)
 	}
 }
 

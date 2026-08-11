@@ -1,11 +1,11 @@
 # Инженерный и release checklist
 
-Актуализировано: 2026-08-10. Порядок продуктовой разработки задаёт `ROADMAP.md`.
+Актуализировано: 2026-08-11. Порядок продуктовой разработки задаёт `ROADMAP.md`.
 Этот файл содержит только критерии готовности к merge/release/deploy.
 
 ## Состояние ветки `main`
 
-- [x] Go agent source и production package подготовлены с версией `0.6.13`.
+- [x] Go agent source и production package подготовлены с версией `0.6.14`.
 - [x] LuCI package `0.2.2` и отдельный `luci-i18n-rmm-agent-ru`.
 - [x] Notification center, verification, quiet hours, webhook, per-device overrides и incidents.
 - [x] Delivery metrics, channel diagnostics и server-side notification history filters.
@@ -25,8 +25,10 @@
 - [x] Matrix `agent-v0.6.11` отменена без завершённого package release; опубликованный tag не перемещать.
 - [x] `agent-v0.6.12` опубликован; production upgrade `0.6.9 → 0.6.12` завершён.
 - [x] `server-v0.9.4` опубликован как hotfix центра уведомлений.
-- [ ] `agent-v0.6.13` подготовлен с прямым OpenWrt APK `packages.adb` URL.
-- [ ] `server-v0.9.5` подготовлен с canonical package manifest origin.
+- [x] `agent-v0.6.13` опубликован с прямым OpenWrt APK `packages.adb` URL; production upgrade выполнен.
+- [x] `server-v0.9.5` опубликован с canonical package manifest origin.
+- [ ] `agent-v0.6.14` подготовлен без преждевременного restart при managed update.
+- [ ] `server-v0.9.6` подготовлен с heartbeat reconciliation ложного результата update.
 - [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
 ## Перед `agent-v*`

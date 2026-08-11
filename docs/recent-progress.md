@@ -1,10 +1,10 @@
 # Recent Progress
 
-Updated: 2026-08-10.
+Updated: 2026-08-11.
 
 ## Implemented in `main`
 
-- Go agent `0.6.13` source with stable lock cleanup, tunnel endpoint validation, active LAN
+- Go agent `0.6.14` source with stable lock cleanup, tunnel endpoint validation, active LAN
   client probes and resilient UCI-to-runtime configuration synchronization.
 - OpenWrt IPK/APK packaging for the current matrix plus a manual legacy tier.
 - LuCI application with English as the default language and optional
@@ -39,6 +39,9 @@ Updated: 2026-08-10.
 - The production `0.6.9 → 0.6.12` upgrade completed, exposing a redirected manifest origin
   and an Alpine-style APK index lookup; `0.9.5`/`0.6.13` use the canonical origin and
   direct OpenWrt `packages.adb` URL.
+- Agent `0.6.13` is published and running in production. Its successful APK installation
+  exposed a package-hook restart race; `0.6.14` defers the restart until after result delivery,
+  while server `0.9.6` reconciles the outcome from the reported running version.
 - Local pre-release checks pass for the `0.9.3` server image and for unsigned OpenWrt
   25.12.4 ramips/mt7621 APK artifacts (agent, LuCI, Russian i18n, and repository index).
 - The browser suite covers notification overflow in addition to the existing
@@ -48,9 +51,9 @@ Updated: 2026-08-10.
 
 The authoritative development order is maintained in `ROADMAP.md`. Immediate work is:
 
-1. publish `server-v0.9.5` and signed `agent-v0.6.13`, then verify an index-clean upgrade on OpenWrt 25.12;
+1. publish `server-v0.9.6` and signed `agent-v0.6.14`, then verify a clean successful update result on OpenWrt 25.12;
 2. test reconnect timeout, rollout pause/resume and signed historical rollback;
-3. deploy `server-v0.9.5` and agent `0.6.13` after a production database backup;
+3. deploy `server-v0.9.6` and agent `0.6.14` after a production database backup;
 4. complete production notification, LAN-client and tunnel smoke tests;
 5. move per-device tunnel credentials and signed/replay-protected commands ahead of
    backup/restore and remote update work.

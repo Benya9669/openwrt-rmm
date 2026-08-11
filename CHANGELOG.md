@@ -5,6 +5,37 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+## server-v0.9.6
+
+Agent update result reconciliation hotfix.
+
+### Fixed
+
+- A heartbeat that reports the exact requested agent version now reconciles an interrupted
+  update result as successful, because the running version is the authoritative health check.
+- Recovered rollout devices no longer remain failed or keep a rollout paused after the target
+  version has reconnected successfully.
+
+### Validation
+
+- Store coverage reproduces an interrupted package-manager result followed by a heartbeat from
+  the requested agent version.
+
+## agent-v0.6.14
+
+Self-update completion reporting hotfix.
+
+### Fixed
+
+- Managed APK and IPK upgrades mark their package-manager process as a self-update so package
+  hooks do not restart the agent before it reports the successful command result.
+- Manual package upgrades retain the existing automatic service restart behavior.
+
+### Validation
+
+- Go tests cover command-result reconciliation, while the package matrix validates both package
+  formats and their installation hooks.
+
 ## server-v0.9.5
 
 Canonical package repository endpoint hotfix.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -19,9 +20,26 @@ import (
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.6.13" {
+	if agentVersion != "0.6.14" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
+}
+
+func TestExecCommandWithEnvPassesSelfUpdateMarker(t *testing.T) {
+	output, code := execCommandWithEnv(context.Background(), 5*time.Second,
+		[]string{"GO_WANT_AGENT_ENV_HELPER=1", "RMM_AGENT_SELF_UPDATE=1"},
+		os.Args[0], "-test.run=TestAgentEnvHelperProcess")
+	if code != 0 || strings.TrimSpace(output) != "1" {
+		t.Fatalf("self-update environment marker was not passed: output=%q code=%d", output, code)
+	}
+}
+
+func TestAgentEnvHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_AGENT_ENV_HELPER") != "1" {
+		return
+	}
+	_, _ = os.Stdout.WriteString(os.Getenv("RMM_AGENT_SELF_UPDATE"))
+	os.Exit(0)
 }
 
 func TestSafeAgentFeedURL(t *testing.T) {

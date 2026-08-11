@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent-go-production
-PKG_VERSION:=0.6.13
+PKG_VERSION:=0.6.14
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=RMM OpenWrt
@@ -35,7 +35,7 @@ endef
 
 define Package/rmm-agent-go-production/postinst
 #!/bin/sh
-if [ -z "$${IPKG_INSTROOT:-}" ] && /etc/init.d/rmm-agent running; then
+if [ -z "$${IPKG_INSTROOT:-}" ] && [ "$${RMM_AGENT_SELF_UPDATE:-0}" != "1" ] && /etc/init.d/rmm-agent running; then
 	/etc/init.d/rmm-agent restart
 fi
 endef

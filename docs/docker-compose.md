@@ -48,7 +48,7 @@ Telegram notifications use one server-side bot token and a per-user numeric Chat
 RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
 RMM_NOTIFICATION_MAX_ATTEMPTS=5
 RMM_NOTIFICATION_RETENTION_DAYS=90
-RMM_STABLE_AGENT_VERSION=0.6.12
+RMM_STABLE_AGENT_VERSION=0.6.13
 RMM_AGENT_RECONNECT_TIMEOUT_SECONDS=300
 RMM_UPDATE_MANIFEST_URL=https://packages.daemonlord.ru/update-manifest.json
 RMM_UPDATE_MANIFEST_SIGNATURE_URL=https://packages.daemonlord.ru/update-manifest.sig

@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	agentVersion          = "0.6.13"
+	agentVersion          = "0.6.14"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -640,7 +640,7 @@ func agentPackageOperation(ctx context.Context, client *http.Client, cfg config,
 			apkArgs = append(apkArgs, "--upgrade")
 		}
 		apkArgs = append(apkArgs, "--repository", args["feed_url"], args["package"]+"="+args["package_version"])
-		output, code := execCommand(ctx, 2*time.Minute, "apk", apkArgs...)
+		output, code := execCommandWithEnv(ctx, 2*time.Minute, []string{"RMM_AGENT_SELF_UPDATE=1"}, "apk", apkArgs...)
 		return finalizeAgentPackageOperation(ctx, args, output, code, result)
 	}
 	if err := configureManagedOpkgFeed(args["feed_url"]); err != nil {
@@ -651,7 +651,7 @@ func agentPackageOperation(ctx context.Context, client *http.Client, cfg config,
 	if updateCode != 0 {
 		return updateOutput, updateCode, result
 	}
-	installOutput, installCode := execCommand(ctx, 2*time.Minute, "opkg", "install", args["package"]+"="+args["package_version"])
+	installOutput, installCode := execCommandWithEnv(ctx, 2*time.Minute, []string{"RMM_AGENT_SELF_UPDATE=1"}, "opkg", "install", args["package"]+"="+args["package_version"])
 	return finalizeAgentPackageOperation(ctx, args, updateOutput+installOutput, installCode, result)
 }
 
@@ -1594,9 +1594,16 @@ func packageManager() string {
 }
 
 func execCommand(ctx context.Context, timeout time.Duration, name string, args ...string) (string, int) {
+	return execCommandWithEnv(ctx, timeout, nil, name, args...)
+}
+
+func execCommandWithEnv(ctx context.Context, timeout time.Duration, environment []string, name string, args ...string) (string, int) {
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, name, args...)
+	if len(environment) > 0 {
+		cmd.Env = append(os.Environ(), environment...)
+	}
 	data, err := cmd.CombinedOutput()
 	output := string(data)
 	if cmdCtx.Err() == context.DeadlineExceeded {

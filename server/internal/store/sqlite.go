@@ -859,10 +859,10 @@ func (s *Store) confirmAgentPackageOperation(ctx context.Context, deviceID strin
 		return nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, args_json, result_json
+SELECT id, args_json, result_json, status
 FROM commands
-WHERE device_id = ? AND type IN ('agent_update', 'agent_rollback') AND status = 'completed'
-ORDER BY completed_at DESC
+WHERE device_id = ? AND type IN ('agent_update', 'agent_rollback') AND status IN ('completed', 'failed')
+ORDER BY COALESCE(completed_at, created_at) DESC
 LIMIT 10
 `, deviceID)
 	if err != nil {
@@ -871,18 +871,25 @@ LIMIT 10
 	type confirmation struct {
 		commandID string
 		result    map[string]any
+		recovered bool
 	}
 	var confirmations []confirmation
 	for rows.Next() {
-		var commandID, argsJSON, resultJSON string
-		if err := rows.Scan(&commandID, &argsJSON, &resultJSON); err != nil {
+		var commandID, argsJSON, resultJSON, status string
+		if err := rows.Scan(&commandID, &argsJSON, &resultJSON, &status); err != nil {
 			rows.Close()
 			return err
 		}
 		args := map[string]string{}
 		result := map[string]any{}
-		if json.Unmarshal([]byte(argsJSON), &args) != nil || json.Unmarshal([]byte(resultJSON), &result) != nil {
+		if json.Unmarshal([]byte(argsJSON), &args) != nil {
 			continue
+		}
+		if strings.TrimSpace(resultJSON) != "" {
+			_ = json.Unmarshal([]byte(resultJSON), &result)
+		}
+		if result == nil {
+			result = map[string]any{}
 		}
 		if result["health_status"] == "healthy" || args["target_version"] != strings.TrimSpace(reported.AgentVersion) {
 			continue
@@ -890,7 +897,10 @@ LIMIT 10
 		result["health_status"] = "healthy"
 		result["installed_version"] = strings.TrimSpace(reported.AgentVersion)
 		result["reconnect_verified_at"] = observedAt.UTC().Format(time.RFC3339Nano)
-		confirmations = append(confirmations, confirmation{commandID: commandID, result: result})
+		if status == "failed" {
+			result["recovered_from_failed_result"] = true
+		}
+		confirmations = append(confirmations, confirmation{commandID: commandID, result: result, recovered: status == "failed"})
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -900,19 +910,30 @@ LIMIT 10
 		if err != nil {
 			return err
 		}
-		if _, err = s.db.ExecContext(ctx, `UPDATE commands SET result_json = ? WHERE id = ?`, string(encoded), item.commandID); err != nil {
+		if _, err = s.db.ExecContext(ctx, `UPDATE commands SET status = 'completed', exit_code = 0, result_json = ?, completed_at = COALESCE(completed_at, ?) WHERE id = ?`, string(encoded), observedAt.UTC().Format(time.RFC3339Nano), item.commandID); err != nil {
 			return err
 		}
 		var rolloutID string
-		err = s.db.QueryRowContext(ctx, `SELECT rollout_id FROM agent_rollout_devices WHERE command_id = ? AND status = 'waiting_reconnect'`, item.commandID).Scan(&rolloutID)
+		err = s.db.QueryRowContext(ctx, `SELECT rollout_id FROM agent_rollout_devices WHERE command_id = ? AND status IN ('waiting_reconnect', 'failed')`, item.commandID).Scan(&rolloutID)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		if _, err = s.db.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'completed', last_error = '' WHERE command_id = ? AND status = 'waiting_reconnect'`, item.commandID); err != nil {
+		if _, err = s.db.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'completed', last_error = '' WHERE command_id = ? AND status IN ('waiting_reconnect', 'failed')`, item.commandID); err != nil {
 			return err
+		}
+		if item.recovered {
+			if _, err = s.db.ExecContext(ctx, `
+UPDATE agent_rollouts
+SET failure_count = MAX(failure_count - 1, 0),
+    status = CASE WHEN status = 'paused' AND failure_count - 1 < failure_threshold THEN 'running' ELSE status END,
+    updated_at = ?
+WHERE id = ?
+`, nowText(), rolloutID); err != nil {
+				return err
+			}
 		}
 		if err = s.queueRolloutBatch(ctx, rolloutID); err != nil {
 			return err
