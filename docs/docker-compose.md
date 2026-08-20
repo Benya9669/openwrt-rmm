@@ -48,7 +48,7 @@ Telegram notifications use one server-side bot token and a per-user numeric Chat
 RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
 RMM_NOTIFICATION_MAX_ATTEMPTS=5
 RMM_NOTIFICATION_RETENTION_DAYS=90
-RMM_STABLE_AGENT_VERSION=0.6.13
+RMM_STABLE_AGENT_VERSION=0.7.0
 RMM_AGENT_RECONNECT_TIMEOUT_SECONDS=300
 RMM_UPDATE_MANIFEST_URL=https://packages.daemonlord.ru/update-manifest.json
 RMM_UPDATE_MANIFEST_SIGNATURE_URL=https://packages.daemonlord.ru/update-manifest.sig
@@ -67,7 +67,7 @@ For a production deployment, pin the server release in `.env` and use the releas
 overlay. This pulls the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.9.5
+RMM_RELEASE_VERSION=0.10.0
 ```
 
 ```powershell
@@ -99,7 +99,7 @@ For HTTPS and domain-based access, use [npmplus.md](npmplus.md) or the optional 
 
 ## 3. Enable Per-device Tunnel Keys
 
-The secure mode does not distribute one shared private key. Agent `0.6.15` creates
+The secure mode does not distribute one shared private key. Agent `0.7.0` creates
 `/etc/rmm-agent/tunnel_device_key` locally with mode `0600` and reports only its public
 key during heartbeat.
 
@@ -240,4 +240,4 @@ docker compose cp rmm-server:/data/rmm.db .\tmp\rmm-backup.db
 - SSH shell, PTY and SFTP sessions are disabled on the tunnel account; only remote forwarding is allowed.
 - Keep `RMM_TUNNEL_AUTH_TOKEN` independent from user, device, enrollment and session tokens.
 - Never commit the authorization token, tunnel host private key or router device keys.
-- Roll out secure mode in two stages; enabling it before agent `0.6.15` heartbeats will intentionally reject legacy shared-key authentication.
+- Roll out secure mode in two stages; enabling it before agent `0.7.0` heartbeats will intentionally reject legacy shared-key authentication.

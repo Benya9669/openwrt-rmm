@@ -5,23 +5,76 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
-### Cloud tunnel security
+No unreleased changes.
 
-- Routers generate a unique Ed25519 tunnel identity and register only the public key with
-  the control plane.
-- The SSH sidecar authorizes device fingerprints through a token-protected internal API and
-  restricts each key to the ports reserved by its non-expired remote session.
-- Agents pin the persistent tunnel host key and refuse secure mode when OpenSSH or the
-  per-device identity is unavailable.
-- Device transfers advance the tunnel-key epoch, revoke the old key, and cause the agent to
-  stop existing tunnels and rotate its identity on the next heartbeat.
-- Remote session creation now reserves ports transactionally, limits concurrent sessions,
-  and rate-limits repeated session creation per router.
+## server-v0.10.0
+
+Secure cloud tunnels and responsive LAN inventory.
+
+### Added
+
+- The control plane stores a unique Ed25519 public-key fingerprint and rotation epoch for
+  every router while the private key remains on the device.
+- The SSH sidecar resolves authorized keys through a token-protected internal endpoint and
+  limits each credential to the ports of its active, non-expired remote session.
+- Remote session creation reserves ports transactionally and enforces per-device concurrent
+  session and creation-rate limits.
+- Device transfers revoke the previous tunnel credential and advance its key epoch so the
+  router rotates its identity on the next heartbeat.
+
+### Changed
+
+- Secure tunnel commands include the persistent SSH host public key and require strict host-key
+  verification from compatible agents.
+- The stable agent advertised by server images is now `0.7.0`.
+- The LAN client table uses flexible columns at 1366×768, keeps status markers aligned, and
+  truncates long values without introducing horizontal scrolling.
+
+### Fixed
+
+- WAN neighbours are no longer presented as LAN clients.
+- Duplicate tunnel-port reservations are rejected instead of allowing ambiguous forwarding.
+
+### Deployment
+
+- Deploy server and agent `0.7.0` first with `RMM_TUNNEL_AUTH_TOKEN` empty, wait for router
+  heartbeats to register per-device keys, then configure the shared internal auth token and
+  persistent `RMM_TUNNEL_HOST_PUBLIC_KEY` during a maintenance window.
 
 ### Validation
 
-- Go tests cover key epochs, transfer revocation, port authorization, duplicate port
-  rejection, authenticated key lookup, host-key pinning, and explicit reverse-forward binds.
+- Go tests cover credential registration, epoch rotation, transfer revocation, authenticated
+  key lookup, port collisions and session limits.
+- Browser tests cover the LAN client table at Full HD and 1366×768 without page or list overflow.
+
+## agent-v0.7.0
+
+Per-device tunnel identity and strict server authentication.
+
+### Added
+
+- Routers generate a unique Ed25519 tunnel identity and register only the public key with
+  the control plane.
+- The heartbeat reports the public credential and key epoch needed for server-side authorization.
+
+### Security
+
+- Secure tunnel commands pin the persistent server host key, enable strict host-key checking,
+  use only the device identity and bind reverse forwards explicitly.
+- Secure mode requires OpenSSH and fails closed when its host key or per-device identity is
+  missing; the legacy client remains available only during the staged migration.
+- A server epoch change stops existing tunnel processes and rotates the router identity before
+  the next session is accepted.
+
+### Packaging
+
+- Production UCI synchronization preserves device identity state, migrates the previous default
+  key path and exposes the tunnel credential epoch without storing private material in UCI.
+
+### Validation
+
+- Go tests cover key generation, epoch mismatch handling, host-key pinning, strict SSH arguments
+  and explicit reverse-forward binds.
 
 ## server-v0.9.6
 

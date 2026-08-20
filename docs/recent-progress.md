@@ -4,7 +4,7 @@ Updated: 2026-08-20.
 
 ## Implemented in `main`
 
-- Go agent `0.6.15` source with stable lock cleanup, tunnel endpoint validation, active LAN
+- Go agent `0.7.0` source with stable lock cleanup, tunnel endpoint validation, active LAN
   client probes and resilient UCI-to-runtime configuration synchronization.
 - OpenWrt IPK/APK packaging for the current matrix plus a manual legacy tier.
 - LuCI application with English as the default language and optional
@@ -44,6 +44,9 @@ Updated: 2026-08-20.
 - Agent `0.6.14` and server `0.9.6` are published. The agent defers package-hook restart
   until after result delivery, while the server reconciles the outcome from the reported
   running version. The production update completed successfully.
+- Server `0.10.0` and agent `0.7.0` are prepared as the secure-tunnel release pair. They
+  add per-device SSH identities, port-scoped authorization, host-key pinning, credential
+  rotation, session limits, WAN neighbour filtering and a compact 1366×768 client table.
 - Local pre-release checks pass for the `0.9.3` server image and for unsigned OpenWrt
   25.12.4 ramips/mt7621 APK artifacts (agent, LuCI, Russian i18n, and repository index).
 - The browser suite covers notification overflow in addition to the existing

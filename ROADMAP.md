@@ -16,8 +16,8 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 ### Агент и OpenWrt-пакеты
 
-- [x] Go-агент `0.6.15` в `main`: enrollment, heartbeat, inventory, метрики, очередь команд
-  и проверяемые update/rollback операции; опубликованная стабильная версия — `0.6.14`.
+- [x] Go-агент `0.7.0` в `main`: enrollment, heartbeat, inventory, метрики, очередь команд,
+  проверяемые update/rollback операции и персональный tunnel credential.
 - [x] Allowlist операций, backoff, восстановление связи и очистка lock-файла.
 - [x] WAN, интерфейсы, DHCP/Wi-Fi-клиенты, память, диск и connectivity checks.
 - [x] Безопасная активная проверка до 32 IPv4 DHCP-клиентов и передача результатов серверу.
@@ -74,6 +74,8 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
   для OpenWrt 25.12 в agent `0.6.13`.
 - [x] Исключить преждевременный restart package hook в agent `0.6.14` и подтверждать
   фактически работающую целевую версию по heartbeat в server `0.9.6`.
+- [x] Подготовить `server-v0.10.0` и `agent-v0.7.0` с изоляцией tunnel credentials,
+  привязкой портов к сессии и исправленным client layout на 1366×768.
 - [x] Локально собрать и проверить server image `0.9.3` и APK-пакеты `0.6.10`/LuCI/i18n
   для OpenWrt 25.12.4 ramips/mt7621.
 - [ ] Проверить установку и обновление `rmm-agent-go-production`,
