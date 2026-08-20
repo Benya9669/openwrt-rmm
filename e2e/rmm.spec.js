@@ -126,8 +126,8 @@ test.describe("authenticated operator flows", () => {
       await expect(page.locator("#clientList .client-row")).toHaveCount(16);
       await expect(page.locator("#clientList .client-online-label")).toHaveCount(16);
       await expect.poll(() => page.locator("#clientList").evaluate(
-        (list) => list.scrollWidth <= list.clientWidth,
-      )).toBe(true);
+        (list) => list.scrollWidth - list.clientWidth,
+      )).toBeLessThanOrEqual(0);
       await expect.poll(() => page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
       )).toBe(true);

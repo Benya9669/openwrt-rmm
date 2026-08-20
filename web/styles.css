@@ -1712,8 +1712,10 @@ select {
 
 .client-online {
   display: inline-flex;
+  min-width: 0;
   gap: 7px;
   align-items: center;
+  overflow: hidden;
   color: var(--good);
   font-weight: 700;
   white-space: nowrap;
@@ -1722,8 +1724,16 @@ select {
 .client-online i {
   width: 7px;
   height: 7px;
+  flex: 0 0 7px;
   border-radius: 50%;
   background: currentColor;
+}
+
+.client-online-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .client-online.recent {
