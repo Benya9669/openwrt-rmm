@@ -1639,7 +1639,7 @@ select {
 .client-table-head,
 .client-row {
   display: grid;
-  grid-template-columns: minmax(170px, 1.3fr) minmax(105px, .72fr) minmax(135px, .9fr) minmax(115px, .82fr) minmax(150px, 1.05fr) minmax(145px, .78fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, .72fr) minmax(0, .9fr) minmax(0, .82fr) minmax(0, 1.05fr) minmax(120px, .78fr);
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -1648,6 +1648,13 @@ select {
 .client-table-head > *,
 .client-row > * {
   min-width: 0;
+}
+
+.client-table-head > *,
+.client-row > span:not(.client-online) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .client-table-head,
