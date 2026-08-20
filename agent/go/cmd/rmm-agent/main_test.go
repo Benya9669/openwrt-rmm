@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,15 +13,18 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.6.14" {
+	if agentVersion != "0.6.15" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
 }
@@ -351,4 +355,65 @@ func TestEffectiveCheckTargetsAddsServerTarget(t *testing.T) {
 	if len(got) != 2 || got[1] != "10.10.10.10" {
 		t.Fatalf("expected server target to be appended, got %#v", got)
 	}
+}
+
+func TestSecureRemoteSSHArgsRequirePinnedHostKey(t *testing.T) {
+	base := map[string]string{
+		"session_id": "ras_secure123", "server_host": "rmm.example.test", "server_port": "2222",
+		"remote_port": "22040", "luci_port": "22140", "credential_mode": "device",
+	}
+	if _, _, ok := parseRemoteSSHArgs(base); ok {
+		t.Fatal("device credential mode accepted without pinned host key")
+	}
+	base["server_host_key"] = testSSHHostPublicKey(t)
+	parsed, output, ok := parseRemoteSSHArgs(base)
+	if !ok || output != "" || parsed.CredentialMode != "device" {
+		t.Fatalf("secure tunnel args rejected: parsed=%#v output=%q ok=%v", parsed, output, ok)
+	}
+}
+
+func TestSecureRemoteSSHCommandPinsHostAndRequestsExplicitBind(t *testing.T) {
+	if _, err := exec.LookPath("ssh"); err != nil {
+		t.Skip("OpenSSH client is unavailable")
+	}
+	dir := t.TempDir()
+	identity := filepath.Join(dir, "device-key")
+	if err := os.WriteFile(identity, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{TunnelIdentity: identity, TunnelStateDir: dir}
+	args := remoteSSHArgs{
+		SessionID: "ras_secure123", ServerHost: "rmm.example.test", ServerPort: 2222,
+		RemotePort: 22040, LuCIPort: 22140, LuCILocalPort: 80, LocalHost: "127.0.0.1", LocalPort: 22,
+		ServerUser: "rmm-tunnel", CredentialMode: "device", ServerHostKey: testSSHHostPublicKey(t),
+	}
+	_, commandArgs, err := remoteSSHCommand(cfg, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(commandArgs, " ")
+	for _, expected := range []string{
+		"StrictHostKeyChecking=yes", "UserKnownHostsFile=", "0.0.0.0:22040:127.0.0.1:22", "0.0.0.0:22140:127.0.0.1:80",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("secure SSH command misses %q: %s", expected, joined)
+		}
+	}
+	knownHosts, err := os.ReadFile(remoteSSHKnownHostsFile(cfg, args.SessionID))
+	if err != nil || !strings.Contains(string(knownHosts), "[rmm.example.test]:2222 ssh-ed25519") {
+		t.Fatalf("pinned known_hosts = %q err=%v", knownHosts, err)
+	}
+}
+
+func testSSHHostPublicKey(t *testing.T) string {
+	t.Helper()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := ssh.NewPublicKey(privateKey.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicKey)))
 }

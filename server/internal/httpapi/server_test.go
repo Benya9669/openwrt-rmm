@@ -3,6 +3,8 @@ package httpapi_test
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -14,11 +16,74 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"rmm-openwrt/server/internal/httpapi"
 	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
 )
+
+func TestTunnelAuthorizedKeyEndpointUsesDeviceCredentialAndSessionPorts(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "tunnel-auth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	device, err := st.EnrollDevice(ctx, "router", "OpenWrt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := ssh.NewPublicKey(privateKey.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicKey)))
+	fingerprint := ssh.FingerprintSHA256(publicKey)
+	if _, updated, err := st.SyncTunnelCredential(ctx, device.DeviceID, 1, normalized, fingerprint); err != nil || !updated {
+		t.Fatalf("register credential: updated=%v err=%v", updated, err)
+	}
+	if _, found, err := st.CreateRemoteSession(ctx, model.RemoteSession{
+		DeviceID: device.DeviceID, Status: "requested", RemotePort: 22055, LuCIPort: 22155,
+		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
+	}); err != nil || !found {
+		t.Fatalf("create session: found=%v err=%v", found, err)
+	}
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
+		OperatorUsername: "admin", OperatorPassword: "operator-password-123", TunnelAuthToken: "0123456789abcdef0123456789abcdef",
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/internal/tunnel/authorized-key", nil)
+	req.Header.Set("Authorization", "Bearer 0123456789abcdef0123456789abcdef")
+	req.Header.Set("X-RMM-Key-Fingerprint", fingerprint)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `permitlisten="*:22055"`) || !strings.Contains(string(body), `permitlisten="*:22155"`) || !strings.Contains(string(body), normalized) {
+		t.Fatalf("authorized key response status=%d body=%q", resp.StatusCode, body)
+	}
+
+	unauthorized, _ := http.NewRequest(http.MethodGet, srv.URL+"/internal/tunnel/authorized-key", nil)
+	unauthorized.Header.Set("X-RMM-Key-Fingerprint", fingerprint)
+	unauthorizedResponse, err := http.DefaultClient.Do(unauthorized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unauthorizedResponse.Body.Close()
+	if unauthorizedResponse.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", unauthorizedResponse.StatusCode)
+	}
+}
 
 func TestAgentOperatorSmokeFlow(t *testing.T) {
 	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "test.db"))

@@ -24,6 +24,9 @@ operators.
   and key/value secret forms.
 - SSH tunnel accounts allow remote forwarding but no shell, PTY, agent forwarding, tunnel
   device, stream-local forwarding or SFTP sessions.
+- Secure tunnel mode uses a unique router-generated Ed25519 key, pins the SSH server host
+  key and authorizes only ports reserved by a live server-side session. The internal key
+  lookup requires a separate random bearer token and never receives a private key.
 - Metric history defaults to 30-day retention. Expired authentication/access rows are
   removed by scheduled maintenance.
 - SMTP credentials and the Telegram bot token are read only from the deployment
@@ -56,8 +59,8 @@ operators.
 
 ## Remaining hardening work
 
-- Issue a distinct SSH key or short-lived SSH certificate per device instead of sharing one
-  persistent tunnel key.
+- Add an administrative emergency tunnel-key rotation action that explicitly terminates
+  any currently authenticated SSH connection after confirmation.
 - Add device-token rotation/revocation and optional mTLS or signed requests.
 - Add command approval policies for reboot, package changes, restore, UCI commit and remote
   access.

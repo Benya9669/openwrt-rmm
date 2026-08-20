@@ -15,7 +15,11 @@ if [ ! -f /data/ssh_host_rsa_key ]; then
 	ssh-keygen -q -t rsa -b 3072 -N '' -f /data/ssh_host_rsa_key
 fi
 
-if [ -f /bootstrap/router_tunnel_key.pub ]; then
+if [ -n "${RMM_TUNNEL_AUTH_TOKEN:-}" ] || [ -n "${RMM_TUNNEL_AUTH_TOKEN_FILE:-}" ]; then
+	# Per-device keys are resolved for each authentication attempt. Keep the static
+	# file present but empty so a previously shared bootstrap key cannot bypass revocation.
+	: > /data/authorized_keys
+elif [ -f /bootstrap/router_tunnel_key.pub ]; then
 	printf 'restrict,port-forwarding %s\n' "$(cat /bootstrap/router_tunnel_key.pub)" > /data/authorized_keys
 else
 	if [ ! -f /data/router_tunnel_key ]; then

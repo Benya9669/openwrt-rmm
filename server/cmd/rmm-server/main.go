@@ -183,6 +183,8 @@ func main() {
 		TunnelHTTPHost:             env("RMM_TUNNEL_HTTP_HOST", "tunnel-ssh"),
 		TunnelPublicHost:           strings.TrimSpace(os.Getenv("RMM_TUNNEL_PUBLIC_HOST")),
 		TunnelPublicPort:           envInt("RMM_TUNNEL_PUBLIC_PORT", 2222, 1, 65535),
+		TunnelAuthToken:            strings.TrimSpace(os.Getenv("RMM_TUNNEL_AUTH_TOKEN")),
+		TunnelHostPublicKey:        strings.TrimSpace(os.Getenv("RMM_TUNNEL_HOST_PUBLIC_KEY")),
 		DeviceDomain:               strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
 		PublicScheme:               env("RMM_PUBLIC_SCHEME", "https"),
 		PublicURL:                  publicURL,

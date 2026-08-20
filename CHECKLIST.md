@@ -1,11 +1,11 @@
 # Инженерный и release checklist
 
-Актуализировано: 2026-08-11. Порядок продуктовой разработки задаёт `ROADMAP.md`.
+Актуализировано: 2026-08-20. Порядок продуктовой разработки задаёт `ROADMAP.md`.
 Этот файл содержит только критерии готовности к merge/release/deploy.
 
 ## Состояние ветки `main`
 
-- [x] Go agent source и production package подготовлены с версией `0.6.14`.
+- [x] Go agent source и production package подготовлены с версией `0.6.15`.
 - [x] LuCI package `0.2.2` и отдельный `luci-i18n-rmm-agent-ru`.
 - [x] Notification center, verification, quiet hours, webhook, per-device overrides и incidents.
 - [x] Delivery metrics, channel diagnostics и server-side notification history filters.
@@ -15,6 +15,7 @@
 - [x] Подписанные IPK/APK repositories, SBOM/provenance и Cosign для server images.
 - [x] Stable update manifest с package compatibility, ECDSA signature и Sigstore bundle.
 - [x] DirectDNS удалён; cloud access использует wildcard domain и исходящий tunnel.
+- [x] Secure tunnel mode: per-device Ed25519 keys, pinned host key, dynamic port-scoped authorization и key epoch rotation.
 
 ## Текущее состояние релизов
 
@@ -27,8 +28,8 @@
 - [x] `server-v0.9.4` опубликован как hotfix центра уведомлений.
 - [x] `agent-v0.6.13` опубликован с прямым OpenWrt APK `packages.adb` URL; production upgrade выполнен.
 - [x] `server-v0.9.5` опубликован с canonical package manifest origin.
-- [ ] `agent-v0.6.14` подготовлен без преждевременного restart при managed update.
-- [ ] `server-v0.9.6` подготовлен с heartbeat reconciliation ложного результата update.
+- [x] `agent-v0.6.14` опубликован без преждевременного restart при managed update; production update подтверждён.
+- [x] `server-v0.9.6` опубликован с heartbeat reconciliation ложного результата update.
 - [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
 ## Перед `agent-v*`

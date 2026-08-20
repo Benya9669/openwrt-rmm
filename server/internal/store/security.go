@@ -528,8 +528,14 @@ func (s *Store) TransferDevice(ctx context.Context, deviceID, targetUserID, requ
 	if !targetAvailable {
 		return model.Device{}, false, errors.New("target user is unavailable")
 	}
-	query := `UPDATE devices SET owner_user_id = ? WHERE id = ? AND owner_user_id != ?`
-	args := []any{targetUserID, deviceID, targetUserID}
+	query := `UPDATE devices
+SET owner_user_id = ?,
+    tunnel_public_key = '',
+    tunnel_key_fingerprint = '',
+    tunnel_key_epoch = tunnel_key_epoch + 1,
+    tunnel_credential_updated_at = ?
+WHERE id = ? AND owner_user_id != ?`
+	args := []any{targetUserID, nowText(), deviceID, targetUserID}
 	if !admin {
 		query += ` AND owner_user_id = ?`
 		args = append(args, requesterUserID)

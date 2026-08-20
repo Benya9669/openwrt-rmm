@@ -53,6 +53,15 @@ if [ -n "$device_id" ] && [ -n "$device_token" ]; then
 	uci -q commit "$UCI_CONFIG"
 fi
 
+tunnel_identity="$(uci_get tunnel_identity_file)"
+if [ -z "$tunnel_identity" ] || [ "$tunnel_identity" = "/etc/rmm-agent/tunnel_key" ]; then
+	tunnel_identity="/etc/rmm-agent/tunnel_device_key"
+	uci -q set "$UCI_CONFIG.main.tunnel_identity_file=$tunnel_identity"
+	uci -q commit "$UCI_CONFIG"
+fi
+tunnel_key_epoch="$(shell_get TUNNEL_KEY_EPOCH)"
+[ -n "$tunnel_key_epoch" ] || tunnel_key_epoch="1"
+
 umask 077
 temporary="${SHELL_CONFIG}.tmp"
 {
@@ -60,7 +69,8 @@ temporary="${SHELL_CONFIG}.tmp"
 	printf 'ENROLLMENT_TOKEN="%s"\n' "$(escape_value "$enrollment_token")"
 	printf 'INTERVAL_SECONDS="%s"\n' "$(escape_value "$(uci_get interval_seconds)")"
 	printf 'CHECK_TARGETS="%s"\n' "$(escape_value "$(uci_get check_targets)")"
-	printf 'TUNNEL_IDENTITY_FILE="%s"\n' "$(escape_value "$(uci_get tunnel_identity_file)")"
+	printf 'TUNNEL_DEVICE_IDENTITY_FILE="%s"\n' "$(escape_value "$tunnel_identity")"
+	printf 'TUNNEL_KEY_EPOCH="%s"\n' "$(escape_value "$tunnel_key_epoch")"
 	printf 'DEVICE_ID="%s"\n' "$(escape_value "$device_id")"
 	printf 'DEVICE_TOKEN="%s"\n' "$(escape_value "$device_token")"
 } > "$temporary"

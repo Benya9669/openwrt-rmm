@@ -104,6 +104,10 @@ CREATE TABLE IF NOT EXISTS devices (
 	id TEXT PRIMARY KEY,
 	token TEXT NOT NULL UNIQUE,
 	token_hash TEXT NOT NULL DEFAULT '',
+	tunnel_public_key TEXT NOT NULL DEFAULT '',
+	tunnel_key_fingerprint TEXT NOT NULL DEFAULT '',
+	tunnel_key_epoch INTEGER NOT NULL DEFAULT 1,
+	tunnel_credential_updated_at TEXT NOT NULL DEFAULT '',
 	owner_user_id TEXT NOT NULL DEFAULT '',
 	dns_label TEXT NOT NULL DEFAULT '',
 	hostname TEXT NOT NULL,
@@ -416,6 +420,10 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`ALTER TABLE devices ADD COLUMN group_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE devices ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN tunnel_public_key TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN tunnel_key_fingerprint TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN tunnel_key_epoch INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE devices ADD COLUMN tunnel_credential_updated_at TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN dns_label TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE commands ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`,
@@ -472,6 +480,7 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`CREATE INDEX IF NOT EXISTS idx_device_access_sessions_device_expires ON device_access_sessions(device_id, expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_device_created_at ON remote_sessions(device_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_remote_sessions_status_expires_at ON remote_sessions(status, expires_at)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_tunnel_key_fingerprint ON devices(tunnel_key_fingerprint) WHERE tunnel_key_fingerprint != ''`,
 		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_created ON notification_deliveries(user_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_created ON notification_deliveries(status, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_ready ON notification_deliveries(status, next_attempt_at, lease_expires_at)`,
@@ -1538,19 +1547,63 @@ func (s *Store) PurgeCommands(ctx context.Context, opts PurgeOptions) (int64, er
 }
 
 func (s *Store) CreateRemoteSession(ctx context.Context, session model.RemoteSession) (model.RemoteSession, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.RemoteSession{}, false, err
+	}
+	defer tx.Rollback()
+	now := nowText()
+	if _, err := tx.ExecContext(ctx, `
+UPDATE remote_sessions SET status = 'expired', closed_at = ?, updated_at = ?
+WHERE status IN ('requested', 'queued', 'active') AND julianday(expires_at) <= julianday(?)
+`, now, now, now); err != nil {
+		return model.RemoteSession{}, false, err
+	}
 	var exists bool
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM devices WHERE id = ?)`, session.DeviceID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM devices WHERE id = ?)`, session.DeviceID).Scan(&exists); err != nil {
 		return model.RemoteSession{}, false, err
 	}
 	if !exists {
 		return model.RemoteSession{}, false, nil
+	}
+	var activeSessions int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(1) FROM remote_sessions
+WHERE device_id = ? AND status IN ('requested', 'queued', 'active')
+`, session.DeviceID).Scan(&activeSessions); err != nil {
+		return model.RemoteSession{}, false, err
+	}
+	if activeSessions >= 2 {
+		return model.RemoteSession{}, false, ErrTunnelSessionLimit
+	}
+	var recentSessions int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(1) FROM remote_sessions
+WHERE device_id = ? AND julianday(created_at) >= julianday(?, '-10 minutes')
+`, session.DeviceID, now).Scan(&recentSessions); err != nil {
+		return model.RemoteSession{}, false, err
+	}
+	if recentSessions >= 10 {
+		return model.RemoteSession{}, false, ErrTunnelRateLimit
+	}
+	var portReserved bool
+	if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS(
+  SELECT 1 FROM remote_sessions
+  WHERE status IN ('requested', 'queued', 'active')
+    AND (remote_port IN (?, ?) OR luci_port IN (?, ?))
+)
+`, session.RemotePort, session.LuCIPort, session.RemotePort, session.LuCIPort).Scan(&portReserved); err != nil {
+		return model.RemoteSession{}, false, err
+	}
+	if portReserved {
+		return model.RemoteSession{}, false, ErrTunnelPortUnavailable
 	}
 
 	id, err := randomID("ras")
 	if err != nil {
 		return model.RemoteSession{}, false, err
 	}
-	now := nowText()
 	session.ID = id
 	session.Status = strings.TrimSpace(session.Status)
 	if session.Status == "" {
@@ -1580,11 +1633,14 @@ func (s *Store) CreateRemoteSession(ctx context.Context, session model.RemoteSes
 		session.ExpiresAt = time.Now().UTC().Add(15 * time.Minute)
 	}
 
-	_, err = s.db.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO remote_sessions (id, device_id, target, status, server_host, server_port, remote_port, luci_port, luci_scheme, local_host, local_port, command_id, created_at, expires_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, session.ID, session.DeviceID, session.Target, session.Status, session.ServerHost, session.ServerPort, session.RemotePort, session.LuCIPort, session.LuCIScheme, session.LocalHost, session.LocalPort, session.CommandID, session.CreatedAt.Format(time.RFC3339Nano), session.ExpiresAt.Format(time.RFC3339Nano), now)
 	if err != nil {
+		return model.RemoteSession{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
 		return model.RemoteSession{}, false, err
 	}
 	return session, true, nil

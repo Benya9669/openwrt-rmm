@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"rmm-openwrt/server/internal/authn"
 	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
@@ -106,6 +108,10 @@ type Store interface {
 	ListAgentRollouts(ctx context.Context) ([]model.AgentRollout, error)
 	SetAgentRolloutStatus(ctx context.Context, id, status string) (model.AgentRollout, error)
 	HandleAgentRolloutResult(ctx context.Context, commandID, status, output string) error
+	SyncTunnelCredential(ctx context.Context, deviceID string, epoch int, publicKey, fingerprint string) (int, bool, error)
+	TunnelKeyEpoch(ctx context.Context, deviceID string) (int, error)
+	TunnelCredentialReady(ctx context.Context, deviceID string) (bool, error)
+	TunnelAuthorization(ctx context.Context, fingerprint string, at time.Time) (store.TunnelAuthorization, bool, error)
 }
 
 type Config struct {
@@ -120,6 +126,8 @@ type Config struct {
 	TunnelHTTPHost             string
 	TunnelPublicHost           string
 	TunnelPublicPort           int
+	TunnelAuthToken            string
+	TunnelHostPublicKey        string
 	DeviceDomain               string
 	PublicScheme               string
 	PublicURL                  string
@@ -151,6 +159,8 @@ type App struct {
 	tunnelHTTPHost             string
 	tunnelPublicHost           string
 	tunnelPublicPort           int
+	tunnelAuthToken            string
+	tunnelHostPublicKey        string
 	deviceDomain               string
 	publicScheme               string
 	publicURL                  string
@@ -197,7 +207,8 @@ type heartbeatRequest struct {
 }
 
 type heartbeatResponse struct {
-	Commands []model.Command `json:"commands"`
+	Commands       []model.Command `json:"commands"`
+	TunnelKeyEpoch int             `json:"tunnel_key_epoch"`
 }
 
 type commandRequest struct {
@@ -318,6 +329,9 @@ func NewHandler(s Store, cfg Config) http.Handler {
 			panic("password recovery requires an absolute RMM public URL without query or fragment")
 		}
 	}
+	if token := strings.TrimSpace(cfg.TunnelAuthToken); token != "" && !validTunnelAuthToken(token) {
+		panic("tunnel authorization token must contain 32-256 URL-safe characters")
+	}
 	passwordHash, err := authn.HashPassword(cfg.OperatorPassword)
 	if err != nil {
 		panic("invalid bootstrap operator password: " + err.Error())
@@ -340,6 +354,8 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		tunnelHTTPHost:             strings.TrimSpace(cfg.TunnelHTTPHost),
 		tunnelPublicHost:           strings.TrimSpace(cfg.TunnelPublicHost),
 		tunnelPublicPort:           cfg.TunnelPublicPort,
+		tunnelAuthToken:            strings.TrimSpace(cfg.TunnelAuthToken),
+		tunnelHostPublicKey:        normalizeSSHPublicKey(cfg.TunnelHostPublicKey),
 		deviceDomain:               strings.Trim(strings.ToLower(strings.TrimSpace(cfg.DeviceDomain)), "."),
 		publicScheme:               strings.ToLower(strings.TrimSpace(cfg.PublicScheme)),
 		publicURL:                  strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),
@@ -393,6 +409,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /internal/tunnel/authorized-key", a.handleTunnelAuthorizedKey)
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.HandleFunc("POST /api/auth/password-reset/request", a.handlePasswordResetRequest)
 	mux.HandleFunc("POST /api/auth/password-reset/confirm", a.handlePasswordResetConfirm)
@@ -508,6 +525,17 @@ func (a *App) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	tunnelKeyEpoch, err := a.syncHeartbeatTunnelCredential(r.Context(), req.DeviceID, req.Inventory)
+	if err != nil {
+		logStructured(map[string]any{
+			"event":      "tunnel.credential_sync_failed",
+			"request_id": requestID(r.Context()),
+			"device_id":  req.DeviceID,
+			"error":      err.Error(),
+		})
+		writeError(w, http.StatusInternalServerError, "failed to register tunnel credential")
+		return
+	}
 
 	commands, err := a.store.SaveHeartbeat(r.Context(), req.DeviceID, req.Inventory, req.Metrics)
 	if err != nil {
@@ -527,7 +555,79 @@ func (a *App) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	a.events.publish("devices")
 
-	writeJSON(w, http.StatusOK, heartbeatResponse{Commands: commands})
+	writeJSON(w, http.StatusOK, heartbeatResponse{Commands: commands, TunnelKeyEpoch: tunnelKeyEpoch})
+}
+
+func (a *App) syncHeartbeatTunnelCredential(ctx context.Context, deviceID string, inventory json.RawMessage) (int, error) {
+	var reported struct {
+		TunnelPublicKey string `json:"tunnel_public_key"`
+		TunnelKeyEpoch  int    `json:"tunnel_key_epoch"`
+	}
+	if len(inventory) > 0 && json.Unmarshal(inventory, &reported) != nil {
+		return 0, errors.New("invalid inventory JSON")
+	}
+	if strings.TrimSpace(reported.TunnelPublicKey) == "" {
+		return a.store.TunnelKeyEpoch(ctx, deviceID)
+	}
+	if len(reported.TunnelPublicKey) > 1024 || reported.TunnelKeyEpoch <= 0 {
+		return a.store.TunnelKeyEpoch(ctx, deviceID)
+	}
+	publicKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(reported.TunnelPublicKey))
+	if err != nil || publicKey.Type() != ssh.KeyAlgoED25519 {
+		return a.store.TunnelKeyEpoch(ctx, deviceID)
+	}
+	normalized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicKey)))
+	expected, _, err := a.store.SyncTunnelCredential(ctx, deviceID, reported.TunnelKeyEpoch, normalized, ssh.FingerprintSHA256(publicKey))
+	return expected, err
+}
+
+func (a *App) handleTunnelAuthorizedKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if a.tunnelAuthToken == "" {
+		http.NotFound(w, r)
+		return
+	}
+	presented := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if presented == "" || !constantTimeEqual(presented, a.tunnelAuthToken) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="rmm-tunnel"`)
+		writeError(w, http.StatusUnauthorized, "invalid tunnel authorization")
+		return
+	}
+	fingerprint := strings.TrimSpace(r.Header.Get("X-RMM-Key-Fingerprint"))
+	if len(fingerprint) > 128 || !strings.HasPrefix(fingerprint, "SHA256:") {
+		writeError(w, http.StatusBadRequest, "invalid SSH key fingerprint")
+		return
+	}
+	auth, found, err := a.store.TunnelAuthorization(r.Context(), fingerprint, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to authorize tunnel key")
+		return
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	options := []string{"restrict", "port-forwarding"}
+	for _, port := range auth.Ports {
+		options = append(options, fmt.Sprintf(`permitlisten="*:%d"`, port))
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintf(w, "%s %s\n", strings.Join(options, ","), auth.PublicKey)
+}
+
+func normalizeSSHPublicKey(value string) string {
+	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.TrimSpace(value)))
+	if err != nil || (key.Type() != ssh.KeyAlgoED25519 && key.Type() != ssh.KeyAlgoRSA) {
+		return ""
+	}
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+}
+
+func validTunnelAuthToken(value string) bool {
+	if len(value) < 32 || len(value) > 256 {
+		return false
+	}
+	return strings.Trim(value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._~-") == ""
 }
 
 func (a *App) handleNextCommand(w http.ResponseWriter, r *http.Request) {
@@ -1926,6 +2026,18 @@ func (a *App) handleCreateRemoteSession(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, req remoteSessionRequest, fallbackHost string) (model.RemoteSession, error) {
+	if a.tunnelAuthToken != "" {
+		if a.tunnelHostPublicKey == "" {
+			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusConflict, "secure tunnel host key is not configured"}
+		}
+		ready, err := a.store.TunnelCredentialReady(ctx, deviceID)
+		if err != nil {
+			return model.RemoteSession{}, err
+		}
+		if !ready {
+			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusConflict, "router has not registered its per-device tunnel key yet"}
+		}
+	}
 	target := strings.TrimSpace(req.Target)
 	if target == "" {
 		target = "ssh"
@@ -1955,11 +2067,9 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 	if localPort <= 0 {
 		localPort = 22
 	}
+	autoRemotePort := req.RemotePort <= 0
 	remotePort := req.RemotePort
-	if remotePort <= 0 {
-		remotePort = randomRemotePort()
-	}
-	luciPort := randomLuCIPort()
+	luciPort := 0
 	luciScheme := strings.ToLower(strings.TrimSpace(req.LuCIScheme))
 	if luciScheme == "" {
 		luciScheme = "http"
@@ -1967,24 +2077,45 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 	if luciScheme != "http" && luciScheme != "https" {
 		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "luci_scheme must be http or https"}
 	}
-	if !validTCPPort(serverPort) || !validTCPPort(localPort) || !validTCPPort(remotePort) || !validTCPPort(luciPort) {
+	if !validTCPPort(serverPort) || !validTCPPort(localPort) || (!autoRemotePort && !validTCPPort(remotePort)) {
 		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "ports must be between 1 and 65535"}
 	}
 
 	expiresAt := time.Now().UTC().Add(time.Duration(duration) * time.Second)
-	session, found, err := a.store.CreateRemoteSession(ctx, model.RemoteSession{
-		DeviceID:   deviceID,
-		Target:     target,
-		Status:     "requested",
-		ServerHost: serverHost,
-		ServerPort: serverPort,
-		RemotePort: remotePort,
-		LuCIPort:   luciPort,
-		LuCIScheme: luciScheme,
-		LocalHost:  "127.0.0.1",
-		LocalPort:  localPort,
-		ExpiresAt:  expiresAt,
-	})
+	var session model.RemoteSession
+	var found bool
+	var err error
+	for attempt := 0; attempt < 20; attempt++ {
+		if autoRemotePort {
+			remotePort = randomRemotePort()
+		}
+		luciPort = randomLuCIPort()
+		session, found, err = a.store.CreateRemoteSession(ctx, model.RemoteSession{
+			DeviceID:   deviceID,
+			Target:     target,
+			Status:     "requested",
+			ServerHost: serverHost,
+			ServerPort: serverPort,
+			RemotePort: remotePort,
+			LuCIPort:   luciPort,
+			LuCIScheme: luciScheme,
+			LocalHost:  "127.0.0.1",
+			LocalPort:  localPort,
+			ExpiresAt:  expiresAt,
+		})
+		if !errors.Is(err, store.ErrTunnelPortUnavailable) {
+			break
+		}
+		if !autoRemotePort {
+			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusConflict, "requested remote port is already reserved"}
+		}
+	}
+	if errors.Is(err, store.ErrTunnelPortUnavailable) {
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusServiceUnavailable, "no tunnel port is currently available"}
+	}
+	if errors.Is(err, store.ErrTunnelSessionLimit) || errors.Is(err, store.ErrTunnelRateLimit) {
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusTooManyRequests, err.Error()}
+	}
 	if err != nil {
 		return model.RemoteSession{}, err
 	}
@@ -1995,6 +2126,10 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 	luciLocalPort := "80"
 	if session.LuCIScheme == "https" {
 		luciLocalPort = "443"
+	}
+	credentialMode := "legacy"
+	if a.tunnelAuthToken != "" {
+		credentialMode = "device"
 	}
 	args := mustJSON(map[string]any{
 		"session_id":       session.ID,
@@ -2008,6 +2143,8 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 		"server_user":      "rmm-tunnel",
 		"duration_seconds": strconv.Itoa(duration),
 		"expires_at":       session.ExpiresAt.Format(time.RFC3339Nano),
+		"server_host_key":  a.tunnelHostPublicKey,
+		"credential_mode":  credentialMode,
 	})
 	command, commandFound, err := a.store.CreateCommand(ctx, deviceID, "remote_ssh_reverse", args)
 	if err != nil {

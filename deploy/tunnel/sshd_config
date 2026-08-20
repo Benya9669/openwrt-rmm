@@ -9,11 +9,13 @@ KbdInteractiveAuthentication no
 PermitRootLogin no
 PubkeyAuthentication yes
 AuthorizedKeysFile /data/authorized_keys
+AuthorizedKeysCommand /usr/local/bin/tunnel-authorized-key %u %f
+AuthorizedKeysCommandUser nobody
 
 AllowUsers rmm-tunnel
 AllowTcpForwarding remote
 AllowStreamLocalForwarding no
-GatewayPorts yes
+GatewayPorts clientspecified
 PermitTunnel no
 PermitTTY no
 MaxSessions 0

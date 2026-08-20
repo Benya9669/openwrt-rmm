@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 FROM alpine:3.21
 
-RUN apk add --no-cache openssh-server netcat-openbsd
+RUN apk add --no-cache curl openssh-server netcat-openbsd
 
 COPY sshd_config /etc/ssh/sshd_config
 COPY entrypoint.sh /usr/local/bin/tunnel-entrypoint
-RUN chmod 0755 /usr/local/bin/tunnel-entrypoint
+COPY authorized-key.sh /usr/local/bin/tunnel-authorized-key
+RUN chmod 0755 /usr/local/bin/tunnel-entrypoint /usr/local/bin/tunnel-authorized-key
 
 EXPOSE 22 22000-22099
 VOLUME ["/data"]

@@ -97,7 +97,50 @@ The SQLite database and SSH keys are stored in named Docker volumes.
 
 For HTTPS and domain-based access, use [npmplus.md](npmplus.md) or the optional Caddy overlay described in [reverse-proxy.md](reverse-proxy.md). The wildcard device-domain setup is documented in [keendns.md](keendns.md).
 
-## 3. Generate And Install The Tunnel Key
+## 3. Enable Per-device Tunnel Keys
+
+The secure mode does not distribute one shared private key. Agent `0.6.15` creates
+`/etc/rmm-agent/tunnel_device_key` locally with mode `0600` and reports only its public
+key during heartbeat.
+
+Use a staged migration so existing routers do not lose remote access:
+
+1. Deploy the new server, tunnel image and agent while `RMM_TUNNEL_AUTH_TOKEN` is empty.
+2. Wait until every online router has sent at least one heartbeat with its per-device key.
+3. Read the persistent SSH host public key:
+
+```sh
+docker compose exec tunnel-ssh cat /data/ssh_host_ed25519_key.pub
+```
+
+4. Generate an independent internal authorization token:
+
+```sh
+openssl rand -hex 32
+```
+
+5. Put both values in `.env`; quote the host-key line because it contains spaces:
+
+```dotenv
+RMM_TUNNEL_AUTH_TOKEN=<64 hexadecimal characters>
+RMM_TUNNEL_HOST_PUBLIC_KEY="ssh-ed25519 AAAA..."
+```
+
+6. Recreate only the two affected services during a maintenance window. This terminates
+   currently open tunnel sessions but does not touch the database volume:
+
+```sh
+docker compose up -d --force-recreate rmm-server tunnel-ssh
+```
+
+When the authorization token is set, the SSH sidecar empties the legacy static
+`authorized_keys` file. New authentications are resolved by key fingerprint through the
+internal server API and are restricted to the ports of a non-expired session.
+
+### Legacy rollback
+
+If migration must be rolled back, remove `RMM_TUNNEL_AUTH_TOKEN` from both services and
+recreate them. The following shared-key procedure is retained only for that rollback.
 
 Generate the router tunnel key before starting Compose:
 
@@ -121,7 +164,7 @@ Install the key without `scp` or SFTP:
 Get-Content -Raw .\secrets\router_tunnel_key | ssh root@10.10.10.1 "umask 077; mkdir -p /etc/rmm-agent; cat > /etc/rmm-agent/tunnel_key; chmod 600 /etc/rmm-agent/tunnel_key"
 ```
 
-Update `/etc/rmm-agent.conf`:
+Legacy agents use this setting in `/etc/rmm-agent.conf`:
 
 ```sh
 TUNNEL_IDENTITY_FILE="/etc/rmm-agent/tunnel_key"
@@ -190,9 +233,11 @@ docker compose cp rmm-server:/data/rmm.db .\tmp\rmm-backup.db
 
 ## Security Notes
 
-- Restrict ports `18080`, `2222`, and `22000-22999` with the host firewall.
+- Restrict ports `18080`, `2222`, and `22000-22199` with the host firewall.
 - Port `2222` must be reachable by managed routers.
 - Ports `22000-22099` should only be reachable by trusted operators or VPN clients.
 - Use long random enrollment/operator tokens.
 - SSH shell, PTY and SFTP sessions are disabled on the tunnel account; only remote forwarding is allowed.
-- The current stack still uses one persistent router tunnel key. Per-device SSH certificates are the next hardening step.
+- Keep `RMM_TUNNEL_AUTH_TOKEN` independent from user, device, enrollment and session tokens.
+- Never commit the authorization token, tunnel host private key or router device keys.
+- Roll out secure mode in two stages; enabling it before agent `0.6.15` heartbeats will intentionally reject legacy shared-key authentication.

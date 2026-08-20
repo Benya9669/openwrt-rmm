@@ -74,6 +74,9 @@ Current security:
 - LuCI is isolated on wildcard device subdomains and uses one-time access grants;
 - server only queues allowlisted command types;
 - agent also checks its own command allowlist.
+- secure reverse tunnels use a router-generated Ed25519 identity, pinned SSH host key and
+  dynamic authorization limited to the ports reserved by the current remote session;
+- device transfer advances a tunnel-key epoch so the previous public key cannot reconnect.
 
 Required before production:
 
@@ -81,7 +84,7 @@ Required before production:
 - token rotation;
 - command signatures;
 - replay protection;
-- per-device SSH tunnel credentials;
+- explicit emergency termination of an already authenticated compromised tunnel;
 - organization-level tenancy and MFA.
 
 ## Transport

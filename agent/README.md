@@ -1,6 +1,6 @@
 # OpenWrt RMM Agent
 
-Current published Go agent: `0.6.13`; the next source version is `0.6.14`. The signed `agent-v0.6.10`
+Current published Go agent: `0.6.14`; the next source version is `0.6.15`. The signed `agent-v0.6.10`
 tag did not publish packages because its release workflow used an obsolete version parser. The agent reports runtime health, pending command results,
 and the last heartbeat transport error after connectivity is restored. Its OpenWrt
 dependency uses the virtual `ip` provider, so either `ip-tiny` or `ip-full` can satisfy it.
@@ -39,7 +39,8 @@ Example:
 SERVER_URL="https://rmm.example.com"
 ENROLLMENT_TOKEN="paste-a-one-time-grant-from-your-account"
 INTERVAL_SECONDS="30"
-TUNNEL_IDENTITY_FILE="/etc/rmm-agent/tunnel_key"
+TUNNEL_DEVICE_IDENTITY_FILE="/etc/rmm-agent/tunnel_device_key"
+TUNNEL_KEY_EPOCH="1"
 UPDATE_MANIFEST_PUBLIC_KEY="/etc/rmm-agent/update-manifest.pem"
 ```
 
@@ -184,4 +185,6 @@ The shell package installs `/usr/bin/rmm-agent`, `/etc/init.d/rmm-agent`, and `/
 The Go package installs `/usr/bin/rmm-agent-go`, `/etc/init.d/rmm-agent-go`, and `/etc/rmm-agent-go.conf`.
 The production Go package installs `/usr/bin/rmm-agent`, `/etc/init.d/rmm-agent`, and `/etc/rmm-agent.conf` using the Go runtime instead of the shell script.
 
-For Docker Compose reverse SSH access, install the generated tunnel private key at `/etc/rmm-agent/tunnel_key` with mode `600`. The agent automatically uses it for `remote_ssh_reverse`.
+For secure Docker Compose reverse SSH access, the agent generates a unique Ed25519 key at
+`/etc/rmm-agent/tunnel_device_key` with mode `600`. Only its public key is reported to the
+server. The old manually installed `/etc/rmm-agent/tunnel_key` is used only by legacy agents.

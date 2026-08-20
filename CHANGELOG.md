@@ -5,6 +5,24 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+### Cloud tunnel security
+
+- Routers generate a unique Ed25519 tunnel identity and register only the public key with
+  the control plane.
+- The SSH sidecar authorizes device fingerprints through a token-protected internal API and
+  restricts each key to the ports reserved by its non-expired remote session.
+- Agents pin the persistent tunnel host key and refuse secure mode when OpenSSH or the
+  per-device identity is unavailable.
+- Device transfers advance the tunnel-key epoch, revoke the old key, and cause the agent to
+  stop existing tunnels and rotate its identity on the next heartbeat.
+- Remote session creation now reserves ports transactionally, limits concurrent sessions,
+  and rate-limits repeated session creation per router.
+
+### Validation
+
+- Go tests cover key epochs, transfer revocation, port authorization, duplicate port
+  rejection, authenticated key lookup, host-key pinning, and explicit reverse-forward binds.
+
 ## server-v0.9.6
 
 Agent update result reconciliation hotfix.

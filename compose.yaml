@@ -18,6 +18,8 @@ services:
       RMM_TUNNEL_HTTP_HOST: tunnel-ssh
       RMM_TUNNEL_PUBLIC_HOST: "${RMM_TUNNEL_PUBLIC_HOST:-}"
       RMM_TUNNEL_PUBLIC_PORT: "${RMM_TUNNEL_PUBLIC_PORT:-2222}"
+      RMM_TUNNEL_AUTH_TOKEN: "${RMM_TUNNEL_AUTH_TOKEN:-}"
+      RMM_TUNNEL_HOST_PUBLIC_KEY: "${RMM_TUNNEL_HOST_PUBLIC_KEY:-}"
       RMM_DEVICE_DOMAIN: "${RMM_DEVICE_DOMAIN:-}"
       RMM_PUBLIC_SCHEME: "${RMM_PUBLIC_SCHEME:-https}"
       RMM_PUBLIC_URL: "${RMM_PUBLIC_URL:-}"
@@ -61,6 +63,9 @@ services:
     ports:
       - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:${RMM_TUNNEL_SSH_PORT:-2222}:22"
       - "${RMM_TUNNEL_OPERATOR_BIND_IP:-127.0.0.1}:22000-22099:22000-22099"
+    environment:
+      RMM_TUNNEL_AUTH_TOKEN: "${RMM_TUNNEL_AUTH_TOKEN:-}"
+      RMM_TUNNEL_AUTH_URL: "http://rmm-server:8080/internal/tunnel/authorized-key"
     volumes:
       - tunnel-data:/data
       - "${RMM_TUNNEL_KEY_PATH:-./secrets/router_tunnel_key.pub}:/bootstrap/router_tunnel_key.pub:ro"

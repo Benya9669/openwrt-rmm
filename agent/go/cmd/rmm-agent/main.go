@@ -28,10 +28,12 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 const (
-	agentVersion          = "0.6.14"
+	agentVersion          = "0.6.15"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -85,6 +87,7 @@ type config struct {
 	SpoolDir         string
 	BackupDir        string
 	TunnelIdentity   string
+	TunnelKeyEpoch   int
 	TunnelStateDir   string
 	UpdatePublicKey  string
 	CheckTargets     []string
@@ -100,7 +103,8 @@ type command struct {
 }
 
 type heartbeatResponse struct {
-	Commands []command `json:"commands"`
+	Commands       []command `json:"commands"`
+	TunnelKeyEpoch int       `json:"tunnel_key_epoch"`
 }
 
 type enrollResponse struct {
@@ -148,11 +152,17 @@ func main() {
 		clearUCIEnrollmentGrant(ctx)
 		logf("enrolled as %s", cfg.DeviceID)
 	}
+	if cfg.TunnelKeyEpoch <= 0 {
+		cfg.TunnelKeyEpoch = 1
+	}
+	if err := ensureTunnelIdentity(cfg.TunnelIdentity); err != nil {
+		logf("tunnel identity warning: %v", err)
+	}
 
 	backoff := time.Duration(cfg.IntervalSeconds) * time.Second
 	health := &agentRuntimeHealth{StartedAt: time.Now().UTC()}
 	for {
-		if err := heartbeatOnce(ctx, client, cfg, health.snapshot(cfg.SpoolDir)); err != nil {
+		if err := heartbeatOnce(ctx, client, &cfg, health.snapshot(cfg.SpoolDir)); err != nil {
 			health.recordFailure(err)
 			logf("heartbeat failed: %v", err)
 			backoff *= 2
@@ -184,7 +194,8 @@ func loadConfig(path string) (config, error) {
 		LockFile:         envDefault("LOCK_FILE", "/tmp/rmm-agent-go.lock"),
 		SpoolDir:         envDefault("SPOOL_DIR", "/tmp/rmm-agent-go-results"),
 		BackupDir:        envDefault("BACKUP_DIR", "/tmp/rmm-agent-backups"),
-		TunnelIdentity:   envDefault("TUNNEL_IDENTITY_FILE", "/etc/rmm-agent/tunnel_key"),
+		TunnelIdentity:   envDefault("TUNNEL_DEVICE_IDENTITY_FILE", "/etc/rmm-agent/tunnel_device_key"),
+		TunnelKeyEpoch:   intDefault(os.Getenv("TUNNEL_KEY_EPOCH"), 1),
 		TunnelStateDir:   envDefault("TUNNEL_STATE_DIR", "/tmp/rmm-agent-tunnels"),
 		UpdatePublicKey:  envDefault("UPDATE_MANIFEST_PUBLIC_KEY", "/etc/rmm-agent/update-manifest.pem"),
 		CheckTargets:     splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
@@ -224,8 +235,11 @@ func loadConfig(path string) (config, error) {
 	if value := values["BACKUP_DIR"]; value != "" {
 		cfg.BackupDir = value
 	}
-	if value := values["TUNNEL_IDENTITY_FILE"]; value != "" {
+	if value := values["TUNNEL_DEVICE_IDENTITY_FILE"]; value != "" {
 		cfg.TunnelIdentity = value
+	}
+	if value := values["TUNNEL_KEY_EPOCH"]; value != "" {
+		cfg.TunnelKeyEpoch = intDefault(value, cfg.TunnelKeyEpoch)
 	}
 	if value := values["TUNNEL_STATE_DIR"]; value != "" {
 		cfg.TunnelStateDir = value
@@ -274,7 +288,8 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "INTERVAL_SECONDS", strconv.Itoa(cfg.IntervalSeconds))
 	writeConfigLine(&b, "CHECK_TARGETS", strings.Join(cfg.CheckTargets, " "))
 	writeConfigLine(&b, "BACKUP_DIR", cfg.BackupDir)
-	writeConfigLine(&b, "TUNNEL_IDENTITY_FILE", cfg.TunnelIdentity)
+	writeConfigLine(&b, "TUNNEL_DEVICE_IDENTITY_FILE", cfg.TunnelIdentity)
+	writeConfigLine(&b, "TUNNEL_KEY_EPOCH", strconv.Itoa(cfg.TunnelKeyEpoch))
 	writeConfigLine(&b, "TUNNEL_STATE_DIR", cfg.TunnelStateDir)
 	writeConfigLine(&b, "UPDATE_MANIFEST_PUBLIC_KEY", cfg.UpdatePublicKey)
 	if cfg.HostnameOverride != "" {
@@ -330,27 +345,37 @@ func enroll(ctx context.Context, client *http.Client, cfg *config) error {
 	return nil
 }
 
-func heartbeatOnce(ctx context.Context, client *http.Client, cfg config, agentHealth map[string]any) error {
-	if err := flushSpooledResults(ctx, client, cfg); err != nil {
+func heartbeatOnce(ctx context.Context, client *http.Client, cfg *config, agentHealth map[string]any) error {
+	if err := flushSpooledResults(ctx, client, *cfg); err != nil {
 		logf("spool flush warning: %v", err)
 	}
 	body := map[string]any{
 		"device_id": cfg.DeviceID,
-		"inventory": buildInventory(cfg),
-		"metrics":   buildMetrics(cfg, agentHealth),
+		"inventory": buildInventory(*cfg),
+		"metrics":   buildMetrics(*cfg, agentHealth),
 	}
 	var resp heartbeatResponse
 	if err := postJSON(ctx, client, cfg.ServerURL+"/api/agent/heartbeat", cfg.DeviceToken, body, &resp); err != nil {
 		return err
 	}
+	if resp.TunnelKeyEpoch > 0 && resp.TunnelKeyEpoch != cfg.TunnelKeyEpoch {
+		stopAllRemoteSSHSessions(*cfg)
+		if err := rotateTunnelIdentity(cfg.TunnelIdentity); err != nil {
+			return fmt.Errorf("rotate tunnel identity: %w", err)
+		}
+		cfg.TunnelKeyEpoch = resp.TunnelKeyEpoch
+		if err := saveConfig(*cfg); err != nil {
+			return fmt.Errorf("save tunnel key epoch: %w", err)
+		}
+	}
 	for _, cmd := range resp.Commands {
-		processCommand(ctx, client, cfg, cmd)
+		processCommand(ctx, client, *cfg, cmd)
 	}
 	return nil
 }
 
 func buildInventory(cfg config) map[string]any {
-	return map[string]any{
+	inventory := map[string]any{
 		"hostname":        cfg.displayHostname(),
 		"openwrt_version": openwrtVersion(),
 		"agent_version":   agentVersion,
@@ -368,6 +393,64 @@ func buildInventory(cfg config) map[string]any {
 		"wifi_clients":    wifiClients(),
 		"client_probes":   clientProbes(),
 	}
+	if publicKey := tunnelPublicKey(cfg.TunnelIdentity); publicKey != "" {
+		inventory["tunnel_public_key"] = publicKey
+		inventory["tunnel_key_epoch"] = cfg.TunnelKeyEpoch
+	}
+	return inventory
+}
+
+func ensureTunnelIdentity(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("tunnel device identity path is empty")
+	}
+	if fileExists(path) {
+		_ = os.Chmod(path, 0o600)
+		if tunnelPublicKey(path) != "" {
+			return nil
+		}
+		output, code := execCommand(context.Background(), 10*time.Second, "ssh-keygen", "-y", "-f", path)
+		if code != 0 {
+			return fmt.Errorf("derive tunnel public key: %s", strings.TrimSpace(output))
+		}
+		return os.WriteFile(path+".pub", []byte(strings.TrimSpace(output)+"\n"), 0o600)
+	}
+	return rotateTunnelIdentity(path)
+}
+
+func rotateTunnelIdentity(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temporary := path + ".new"
+	_ = os.Remove(temporary)
+	_ = os.Remove(temporary + ".pub")
+	output, code := execCommand(context.Background(), 15*time.Second, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "rmm-device-tunnel", "-f", temporary)
+	if code != 0 {
+		return fmt.Errorf("generate Ed25519 tunnel key: %s", strings.TrimSpace(output))
+	}
+	if err := os.Chmod(temporary, 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(temporary+".pub", 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		return err
+	}
+	return os.Rename(temporary+".pub", path+".pub")
+}
+
+func tunnelPublicKey(identityPath string) string {
+	data, err := os.ReadFile(identityPath + ".pub")
+	if err != nil || len(data) > 1024 {
+		return ""
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 2 || fields[0] != "ssh-ed25519" {
+		return ""
+	}
+	return fields[0] + " " + fields[1]
 }
 
 func openwrtRelease() string {
@@ -1175,15 +1258,19 @@ type remoteSSHArgs struct {
 	LocalHost       string
 	LocalPort       int
 	ServerUser      string
+	ServerHostKey   string
+	CredentialMode  string
 	DurationSeconds int
 }
 
 func parseRemoteSSHArgs(args map[string]string) (remoteSSHArgs, string, bool) {
 	parsed := remoteSSHArgs{
-		SessionID:  args["session_id"],
-		ServerHost: args["server_host"],
-		LocalHost:  valueDefault(args["local_host"], "127.0.0.1"),
-		ServerUser: valueDefault(args["server_user"], "rmm-tunnel"),
+		SessionID:      args["session_id"],
+		ServerHost:     args["server_host"],
+		LocalHost:      valueDefault(args["local_host"], "127.0.0.1"),
+		ServerUser:     valueDefault(args["server_user"], "rmm-tunnel"),
+		ServerHostKey:  strings.TrimSpace(args["server_host_key"]),
+		CredentialMode: valueDefault(args["credential_mode"], "legacy"),
 	}
 	var ok bool
 	if parsed.ServerPort, ok = parsePort(args["server_port"], 22); !ok {
@@ -1207,7 +1294,24 @@ func parseRemoteSSHArgs(args map[string]string) (remoteSSHArgs, string, bool) {
 	if !safeSessionID(parsed.SessionID) || !safeHostName(parsed.ServerHost) || !safeHostName(parsed.LocalHost) || !safeUserName(parsed.ServerUser) {
 		return parsed, "remote tunnel host or user is invalid\n", false
 	}
+	if parsed.CredentialMode != "legacy" && parsed.CredentialMode != "device" {
+		return parsed, "remote tunnel credential mode is invalid\n", false
+	}
+	if parsed.CredentialMode == "device" && !validSSHHostPublicKey(parsed.ServerHostKey) {
+		return parsed, "remote tunnel host key is invalid\n", false
+	}
 	return parsed, "", true
+}
+
+func validSSHHostPublicKey(value string) bool {
+	if len(value) == 0 || len(value) > 1024 || strings.ContainsAny(value, "\r\n") {
+		return false
+	}
+	key, _, _, rest, err := ssh.ParseAuthorizedKey([]byte(value))
+	if err != nil || len(strings.TrimSpace(string(rest))) != 0 {
+		return false
+	}
+	return key.Type() == ssh.KeyAlgoED25519 || key.Type() == ssh.KeyAlgoRSA
 }
 
 func remoteSSHReverseOutput(ctx context.Context, cfg config, args map[string]string) (string, int) {
@@ -1422,17 +1526,36 @@ func orderLocalInterfaceIPv4Candidates(values []localInterfaceIPv4) []string {
 
 func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) {
 	if sshPath, err := exec.LookPath("ssh"); err == nil {
-		cmdArgs := []string{"-N", "-o", "StrictHostKeyChecking=accept-new", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2"}
+		cmdArgs := []string{"-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "-o", "IdentitiesOnly=yes"}
+		if args.CredentialMode == "device" {
+			if !fileExists(cfg.TunnelIdentity) {
+				return "", nil, errors.New("per-device tunnel identity is unavailable")
+			}
+			knownHosts := remoteSSHKnownHostsFile(cfg, args.SessionID)
+			hostPattern := args.ServerHost
+			if args.ServerPort != 22 {
+				hostPattern = fmt.Sprintf("[%s]:%d", args.ServerHost, args.ServerPort)
+			}
+			if err := os.WriteFile(knownHosts, []byte(hostPattern+" "+args.ServerHostKey+"\n"), 0o600); err != nil {
+				return "", nil, fmt.Errorf("write pinned tunnel host key: %w", err)
+			}
+			cmdArgs = append(cmdArgs, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+knownHosts)
+		} else {
+			cmdArgs = append(cmdArgs, "-o", "StrictHostKeyChecking=accept-new")
+		}
 		if fileExists(cfg.TunnelIdentity) {
 			cmdArgs = append(cmdArgs, "-i", cfg.TunnelIdentity)
 		}
 		cmdArgs = append(cmdArgs,
-			"-R", fmt.Sprintf("%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort),
-			"-R", fmt.Sprintf("%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort),
+			"-R", fmt.Sprintf("0.0.0.0:%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort),
+			"-R", fmt.Sprintf("0.0.0.0:%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort),
 			"-p", strconv.Itoa(args.ServerPort),
 			args.ServerUser+"@"+args.ServerHost,
 		)
 		return sshPath, cmdArgs, nil
+	}
+	if args.CredentialMode == "device" {
+		return "", nil, errors.New("secure remote tunnel requires OpenSSH client")
 	}
 	if dbclientPath, err := exec.LookPath("dbclient"); err == nil {
 		cmdArgs := []string{"-N", "-y"}
@@ -1440,8 +1563,8 @@ func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) 
 			cmdArgs = append(cmdArgs, "-i", cfg.TunnelIdentity)
 		}
 		cmdArgs = append(cmdArgs,
-			"-R", fmt.Sprintf("%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort),
-			"-R", fmt.Sprintf("%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort),
+			"-R", fmt.Sprintf("0.0.0.0:%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort),
+			"-R", fmt.Sprintf("0.0.0.0:%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort),
 			"-p", strconv.Itoa(args.ServerPort),
 			args.ServerUser+"@"+args.ServerHost,
 		)
@@ -1480,14 +1603,42 @@ func remoteSSHStopSession(cfg config, sessionID string, remotePort int) (string,
 func remoteSSHStopPID(cfg config, sessionID string, pid int) {
 	if pid <= 0 {
 		_ = os.Remove(remoteSSHPIDFile(cfg, sessionID))
+		_ = os.Remove(remoteSSHKnownHostsFile(cfg, sessionID))
 		return
 	}
 	_ = signalProcess(pid, "TERM")
 	_ = os.Remove(remoteSSHPIDFile(cfg, sessionID))
+	_ = os.Remove(remoteSSHKnownHostsFile(cfg, sessionID))
 }
 
 func remoteSSHPIDFile(cfg config, sessionID string) string {
 	return filepath.Join(cfg.TunnelStateDir, sessionID+".pid")
+}
+
+func remoteSSHKnownHostsFile(cfg config, sessionID string) string {
+	return filepath.Join(cfg.TunnelStateDir, sessionID+".known_hosts")
+}
+
+func stopAllRemoteSSHSessions(cfg config) {
+	entries, err := os.ReadDir(cfg.TunnelStateDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pid") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(entry.Name(), ".pid")
+		if !safeSessionID(sessionID) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(cfg.TunnelStateDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+		remoteSSHStopPID(cfg, sessionID, pid)
+	}
 }
 
 func processRunning(pid int) bool {

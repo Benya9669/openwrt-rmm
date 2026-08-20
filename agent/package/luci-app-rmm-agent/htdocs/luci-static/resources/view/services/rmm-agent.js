@@ -75,7 +75,7 @@ return view.extend({
 		section.addremove = false;
 
 		option = section.option(form.Value, 'tunnel_identity_file', _('Tunnel identity file'));
-		option.placeholder = '/etc/rmm-agent/tunnel_key';
+		option.placeholder = '/etc/rmm-agent/tunnel_device_key';
 		option.rmempty = false;
 
 		option = section.option(form.Flag, 'allow_insecure_http', _('Allow insecure HTTP'));
