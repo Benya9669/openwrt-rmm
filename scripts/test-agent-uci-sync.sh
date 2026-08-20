@@ -17,6 +17,7 @@ case "$*" in
 	"-q get rmm-agent.main.interval_seconds") printf '%s\n' 60 ;;
 	"-q get rmm-agent.main.check_targets") printf '%s\n' '1.1.1.1 8.8.8.8 9.9.9.9' ;;
 	"-q get rmm-agent.main.tunnel_identity_file") printf '%s\n' /etc/rmm-agent/tunnel_key ;;
+	"-q set rmm-agent.main.tunnel_identity_file=/etc/rmm-agent/tunnel_device_key") exit 0 ;;
 	"-q delete rmm-agent.main.enrollment_token") exit 1 ;;
 	"-q commit rmm-agent") exit 0 ;;
 	*) printf 'unexpected uci call: %s\n' "$*" >&2; exit 2 ;;
@@ -46,4 +47,10 @@ EOF
 	grep -Fxq 'CHECK_TARGETS="1.1.1.1 8.8.8.8 9.9.9.9"' "$runtime_config"
 	grep -Fxq 'DEVICE_ID="router-1"' "$runtime_config"
 	grep -Fxq 'DEVICE_TOKEN="device-secret"' "$runtime_config"
+	case "$sync_script" in
+		*go-production*)
+			grep -Fxq 'TUNNEL_DEVICE_IDENTITY_FILE="/etc/rmm-agent/tunnel_device_key"' "$runtime_config"
+			grep -Fxq 'TUNNEL_KEY_EPOCH="1"' "$runtime_config"
+			;;
+	esac
 done
