@@ -76,6 +76,8 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
   фактически работающую целевую версию по heartbeat в server `0.9.6`.
 - [x] Подготовить `server-v0.10.0` и `agent-v0.7.0` с изоляцией tunnel credentials,
   привязкой портов к сессии и исправленным client layout на 1366×768.
+- [x] Подготовить `server-v0.10.1` с single-file GitOps Compose, явным повторным
+  подключением существующих volumes и отображением версии сервера в UI.
 - [x] Локально собрать и проверить server image `0.9.3` и APK-пакеты `0.6.10`/LuCI/i18n
   для OpenWrt 25.12.4 ramips/mt7621.
 - [ ] Проверить установку и обновление `rmm-agent-go-production`,

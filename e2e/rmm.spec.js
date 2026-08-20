@@ -11,6 +11,7 @@ test.describe("authenticated operator flows", () => {
 
   test("login, fleet, router details, and LuCI unavailable state", async ({ page }) => {
   await expect(page.locator("#operatorName")).toHaveText("e2e-admin");
+  await expect(page.locator("#serverVersion")).toHaveText(" · сервер dev");
   await expect(page.locator("#fleetTotalCount")).toHaveText("1");
   await page.getByRole("button", { name: "Открыть роутер E2E OpenWrt" }).click();
   await expect(page.locator("#deviceView")).toBeVisible();

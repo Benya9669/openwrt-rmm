@@ -1,8 +1,7 @@
 services:
   rmm-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-0.10.1}"
+    pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     environment:
       RMM_ADDR: ":8080"
       RMM_DB_PATH: /data/rmm.db
@@ -58,8 +57,8 @@ services:
     restart: unless-stopped
 
   tunnel-ssh:
-    build:
-      context: ./deploy/tunnel
+    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-0.10.1}"
+    pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     ports:
       - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:${RMM_TUNNEL_SSH_PORT:-2222}:22"
       - "${RMM_TUNNEL_OPERATOR_BIND_IP:-127.0.0.1}:22000-22099:22000-22099"
@@ -75,4 +74,6 @@ services:
 
 volumes:
   rmm-data:
+    name: "${RMM_DATA_VOLUME:-openwrt-rmm_rmm-data}"
   tunnel-data:
+    name: "${RMM_TUNNEL_DATA_VOLUME:-openwrt-rmm_tunnel-data}"

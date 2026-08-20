@@ -1,0 +1,13 @@
+services:
+  rmm-server:
+    image: openwrt-rmm-server:dev
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+  tunnel-ssh:
+    image: openwrt-rmm-tunnel:dev
+    pull_policy: build
+    build:
+      context: ./deploy/tunnel

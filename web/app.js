@@ -71,6 +71,7 @@ const els = {
   profileBtn: document.querySelector("#profileBtn"),
   logoutBtn: document.querySelector("#logoutBtn"),
   apiState: document.querySelector("#apiState"),
+  serverVersion: document.querySelector("#serverVersion"),
   refreshBtn: document.querySelector("#refreshBtn"),
   addRouterBtn: document.querySelector("#addRouterBtn"),
   addUserBtn: document.querySelector("#addUserBtn"),
@@ -785,6 +786,11 @@ async function loadReleaseMetadata(force = false) {
   } catch {
     state.releaseMetadata = null;
   }
+  const version = state.releaseMetadata && state.releaseMetadata.server_version
+    ? String(state.releaseMetadata.server_version)
+    : "";
+  els.serverVersion.textContent = version ? ` · сервер ${version}` : "";
+  els.serverVersion.title = version ? `Версия сервера: ${version}` : "";
 }
 
 function deviceClientCount(device) {

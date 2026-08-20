@@ -59,9 +59,9 @@ Copy the example configuration and follow the production deployment guide:
 
 ```sh
 cp .env.example .env
-docker compose -f compose.yaml -f compose.release.yaml pull
-docker compose -f compose.yaml -f compose.release.yaml up -d
-docker compose -f compose.yaml -f compose.release.yaml ps
+docker compose pull
+docker compose up -d
+docker compose ps
 ```
 
 Do not start production with the example secrets. Generate the tunnel key and configure

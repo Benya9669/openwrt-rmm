@@ -7,6 +7,32 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.10.1
+
+Single-file GitOps deployment and visible server version.
+
+### Added
+
+- The authenticated dashboard displays the running server build version next to API health.
+- `compose.dev.yaml` preserves explicit source builds while production GitOps uses published images.
+
+### Changed
+
+- The base `compose.yaml` now pulls matching versioned server and tunnel images without requiring
+  a release overlay.
+- Database and tunnel volumes have configurable explicit names so a GitOps project rename can
+  reattach existing state instead of silently creating empty project-scoped volumes.
+
+### Documentation
+
+- The deployment guide includes a non-destructive Arcane migration procedure with database and
+  tunnel-key backups, exact-volume discovery, recreation and verification steps.
+
+### Validation
+
+- Compose configuration is validated in production and development-image modes.
+- Browser coverage verifies that release metadata is rendered in the authenticated sidebar.
+
 ## server-v0.10.0
 
 Secure cloud tunnels and responsive LAN inventory.

@@ -32,6 +32,7 @@
 - [x] `server-v0.9.6` опубликован с heartbeat reconciliation ложного результата update.
 - [x] `server-v0.10.0` и `agent-v0.7.0` подготовлены с per-device tunnel credentials и исправлением LAN client layout.
 - [ ] CI опубликовал images, IPK/APK и подписанные feed indexes для `server-v0.10.0` / `agent-v0.7.0`.
+- [x] `server-v0.10.1` подготовлен для single-file Arcane GitOps, стабильных volume names и отображения server version.
 - [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
 ## Перед `agent-v*`

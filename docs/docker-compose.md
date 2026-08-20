@@ -5,6 +5,10 @@ The Compose stack contains two services:
 - `rmm-server`: Go API, web UI, and persistent SQLite database.
 - `tunnel-ssh`: SSH endpoint used by routers for reverse SSH tunnels.
 
+The base `compose.yaml` pulls versioned GHCR images and is self-contained for GitOps
+controllers that accept only one Compose file. `compose.release.yaml` remains compatible
+with older deployments but is no longer required. Source builds use `compose.dev.yaml`.
+
 Published ports:
 
 - `18080/tcp`: RMM API and web UI.
@@ -67,13 +71,13 @@ For a production deployment, pin the server release in `.env` and use the releas
 overlay. This pulls the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.10.0
+RMM_RELEASE_VERSION=0.10.1
 ```
 
 ```powershell
-docker compose -f compose.yaml -f compose.release.yaml pull
-docker compose -f compose.yaml -f compose.release.yaml up -d
-docker compose -f compose.yaml -f compose.release.yaml ps
+docker compose pull
+docker compose up -d
+docker compose ps
 ```
 
 Keep the exact version instead of `latest` so an upgrade is deliberate and reversible.
@@ -81,10 +85,49 @@ The base Compose file remains buildable from source for development and emergenc
 recovery:
 
 ```powershell
-docker compose up -d --build
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 docker compose ps
 docker compose logs --tail 100
 ```
+
+### Recreate a GitOps stack without losing data
+
+The SQLite database and persistent SSH host keys live in two named volumes. Before moving
+the stack to Arcane or changing its project name, pause automatic reconciliation and find
+the exact existing volume names:
+
+```sh
+docker inspect "$(docker ps -q --filter label=com.docker.compose.service=rmm-server | head -n1)" \
+  --format '{{range .Mounts}}{{println .Name .Destination}}{{end}}'
+docker inspect "$(docker ps -q --filter label=com.docker.compose.service=tunnel-ssh | head -n1)" \
+  --format '{{range .Mounts}}{{println .Name .Destination}}{{end}}'
+```
+
+Back up both volumes while the two services are stopped. Replace the example names below
+with the names reported by `docker inspect`:
+
+```sh
+mkdir -p backups
+docker stop openwrt-rmm-rmm-server-1 openwrt-rmm-tunnel-ssh-1
+docker run --rm -v openwrt-rmm_rmm-data:/source:ro -v "$PWD/backups:/backup" \
+  alpine:3.22 sh -c 'tar czf /backup/rmm-data.tgz -C /source .'
+docker run --rm -v openwrt-rmm_tunnel-data:/source:ro -v "$PWD/backups:/backup" \
+  alpine:3.22 sh -c 'tar czf /backup/tunnel-data.tgz -C /source .'
+tar tzf backups/rmm-data.tgz | head
+tar tzf backups/tunnel-data.tgz | head
+```
+
+Configure Arcane with the existing volume names and the exact image release:
+
+```dotenv
+RMM_RELEASE_VERSION=0.10.1
+RMM_DATA_VOLUME=openwrt-rmm_rmm-data
+RMM_TUNNEL_DATA_VOLUME=openwrt-rmm_tunnel-data
+```
+
+Arcane can now delete and recreate the containers and network. Do not select an option that
+deletes volumes, and never run `docker compose down -v`. After deployment, verify the mounts,
+health endpoint, router list, and the server version displayed below the OpenWrt RMM logo.
 
 For a local HTTP-only lab, explicitly set `RMM_INSECURE_DEV_MODE=true` and
 `RMM_COOKIE_SECURE=false`. Production should use the HTTPS overlays. Open:

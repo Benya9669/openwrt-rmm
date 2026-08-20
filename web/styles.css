@@ -776,6 +776,10 @@ select {
   color: var(--muted);
 }
 
+.server-version {
+  white-space: nowrap;
+}
+
 .workspace {
   min-width: 0;
   padding: 0 28px 28px;

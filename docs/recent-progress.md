@@ -47,6 +47,9 @@ Updated: 2026-08-20.
 - Server `0.10.0` and agent `0.7.0` are prepared as the secure-tunnel release pair. They
   add per-device SSH identities, port-scoped authorization, host-key pinning, credential
   rotation, session limits, WAN neighbour filtering and a compact 1366×768 client table.
+- Server `0.10.1` is prepared as a deployment patch: the base Compose file pulls published
+  images directly, preserves existing data through explicit volume names, and shows the
+  running server version in the authenticated UI.
 - Local pre-release checks pass for the `0.9.3` server image and for unsigned OpenWrt
   25.12.4 ramips/mt7621 APK artifacts (agent, LuCI, Russian i18n, and repository index).
 - The browser suite covers notification overflow in addition to the existing

@@ -59,9 +59,9 @@ OpenWrt-роутер ──исходящие HTTPS/SSH─────┘
 
 ```sh
 cp .env.example .env
-docker compose -f compose.yaml -f compose.release.yaml pull
-docker compose -f compose.yaml -f compose.release.yaml up -d
-docker compose -f compose.yaml -f compose.release.yaml ps
+docker compose pull
+docker compose up -d
+docker compose ps
 ```
 
 Не запускайте прод с примерными секретами. Сначала создайте ключ туннеля и заполните
