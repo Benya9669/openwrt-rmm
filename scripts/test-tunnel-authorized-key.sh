@@ -28,7 +28,7 @@ env -i \
 	PATH="$fixture/bin:/usr/bin:/bin" \
 	OUTPUT_CONFIG="$fixture/curl-config" \
 	OUTPUT_ARGS="$fixture/curl-args" \
-	"$repository_root/deploy/tunnel/authorized-key.sh" \
+	sh "$repository_root/deploy/tunnel/authorized-key.sh" \
 	rmm-tunnel "$fingerprint" "$fixture/auth-token" "$fixture/auth-url"
 
 grep -Fxq "header = \"Authorization: Bearer $token\"" "$fixture/curl-config"
@@ -42,7 +42,7 @@ if env -i \
 	PATH="$fixture/bin:/usr/bin:/bin" \
 	OUTPUT_CONFIG="$fixture/rejected-config" \
 	OUTPUT_ARGS="$fixture/rejected-args" \
-	"$repository_root/deploy/tunnel/authorized-key.sh" \
+	sh "$repository_root/deploy/tunnel/authorized-key.sh" \
 	rmm-tunnel "$fingerprint" "$fixture/auth-token" "$fixture/auth-url"; then
 	echo "empty tunnel authorization token was accepted" >&2
 	exit 1
