@@ -38,6 +38,10 @@ func (s *Store) SyncLANClients(ctx context.Context, deviceID string, inventory j
 		byKey[key] = &observed{key: key, mac: mac, ip: ip, hostname: cleanHostname(lease["hostname"]), connection: "dhcp", confirmation: "lease"}
 	}
 	for _, neighbor := range payload.Neighbors {
+		iface := strings.TrimSpace(neighbor["interface"])
+		if isWANClientInterface(iface) {
+			continue
+		}
 		mac := normalizeMAC(neighbor["mac"])
 		ip := strings.TrimSpace(neighbor["ip"])
 		key := clientKey(mac, ip)
@@ -57,7 +61,7 @@ func (s *Store) SyncLANClients(ctx context.Context, deviceID string, inventory j
 			byKey[key] = item
 		}
 		item.ip = preferredClientIP(item.ip, ip)
-		item.iface = strings.TrimSpace(neighbor["interface"])
+		item.iface = iface
 		if activeNeighborState(state) {
 			item.confirmed = true
 			item.confirmation = "neighbor:" + strings.ToLower(state)
@@ -102,6 +106,19 @@ func (s *Store) SyncLANClients(ctx context.Context, deviceID string, inventory j
 		}
 	}
 	now := notificationTimeText(checkedAt.UTC())
+	if _, err := s.db.ExecContext(ctx, `
+DELETE FROM lan_clients
+WHERE device_id = ?
+  AND (
+    lower(interface) IN ('wan', 'wan6')
+    OR lower(interface) LIKE 'wan.%'
+    OR lower(interface) LIKE 'wan\_%' ESCAPE '\'
+    OR lower(interface) LIKE 'pppoe-wan%'
+    OR lower(interface) LIKE 'wwan%'
+  )
+`, deviceID); err != nil {
+		return err
+	}
 	if _, err := s.db.ExecContext(ctx, `
 DELETE FROM lan_clients
 WHERE device_id = ?
@@ -206,6 +223,13 @@ func activeNeighborState(state string) bool {
 	default:
 		return false
 	}
+}
+
+func isWANClientInterface(value string) bool {
+	name := strings.ToLower(strings.TrimSpace(value))
+	return name == "wan" || name == "wan6" ||
+		strings.HasPrefix(name, "wan.") || strings.HasPrefix(name, "wan_") ||
+		strings.HasPrefix(name, "pppoe-wan") || strings.HasPrefix(name, "wwan")
 }
 
 func preferredClientIP(current, candidate string) string {

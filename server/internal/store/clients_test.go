@@ -76,6 +76,57 @@ func TestLANClientSyncIgnoresUnconfirmedNeighborNoise(t *testing.T) {
 	}
 }
 
+func TestLANClientSyncExcludesWANNeighborsAndRemovesExistingWANRows(t *testing.T) {
+	ctx := context.Background()
+	st, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "clients.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	device, err := st.EnrollDevice(ctx, "router", "OpenWrt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := notificationTimeText(time.Now().UTC())
+	if _, err := st.db.ExecContext(ctx, `
+INSERT INTO lan_clients (
+  device_id, client_key, mac, ip, hostname, interface, connection, confirmation,
+  first_seen_at, last_seen_at, last_checked_at
+) VALUES (?, 'mac:28:99:3a:a6:74:a3', '28:99:3a:a6:74:a3', '77.239.226.33', '', 'wan', 'wired', 'neighbor:reachable', ?, ?, ?)
+`, device.DeviceID, now, now, now); err != nil {
+		t.Fatal(err)
+	}
+	inventory, _ := json.Marshal(map[string]any{
+		"neighbors": []map[string]string{
+			{"ip": "77.239.226.33", "mac": "28:99:3a:a6:74:a3", "interface": "wan", "state": "REACHABLE"},
+			{"ip": "10.10.10.2", "mac": "10:ff:e0:21:bc:b9", "interface": "br-lan", "state": "REACHABLE"},
+		},
+	})
+	if err := st.SyncLANClients(ctx, device.DeviceID, inventory, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	clients, found, err := st.ListLANClients(ctx, device.DeviceID, 30*time.Minute)
+	if err != nil || !found || len(clients) != 1 {
+		t.Fatalf("unexpected clients after WAN filtering: found=%v clients=%#v err=%v", found, clients, err)
+	}
+	if clients[0].IP != "10.10.10.2" || clients[0].Interface != "br-lan" {
+		t.Fatalf("WAN client remained or LAN client was lost: %#v", clients)
+	}
+}
+
+func TestWANClientInterfaceClassification(t *testing.T) {
+	for _, name := range []string{"wan", "wan6", "wan.10", "wan_backup", "pppoe-wan", "wwan0"} {
+		if !isWANClientInterface(name) {
+			t.Fatalf("expected %q to be classified as WAN", name)
+		}
+	}
+	for _, name := range []string{"br-lan", "lan", "eth0", "phy0-ap0"} {
+		if isWANClientInterface(name) {
+			t.Fatalf("expected %q to remain a LAN client interface", name)
+		}
+	}
+}
+
 func TestLANClientSyncKeepsLeaseAndPrefersIPv4(t *testing.T) {
 	ctx := context.Background()
 	st, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "clients.db"))

@@ -1338,7 +1338,7 @@ function renderClients(device) {
       <code>${escapeHtml(client.mac)}</code>
       <span>${escapeHtml(client.connection)}</span>
       <span>${escapeHtml([client.signal, client.rate, client.lastSeenAt ? `был ${formatDate(client.lastSeenAt)}` : ""].filter(Boolean).join(" · ") || "-")}</span>
-      <span class="client-online ${presence}"><i></i>${presenceLabel}</span>
+      <span class="client-online ${presence}"><i></i><span class="client-online-label">${presenceLabel}</span></span>
     `;
     els.clientList.appendChild(row);
   }

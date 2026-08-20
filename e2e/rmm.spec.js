@@ -114,6 +114,41 @@ test.describe("authenticated operator flows", () => {
     await expect(page.locator("#agentUpdateStatus")).toContainText("ожидание повторного подключения");
     await expect(page.locator("#agentUpdateStatus")).toContainText("сервер ждёт heartbeat");
   });
+
+  for (const [name, viewport] of Object.entries({
+    fullHD: { width: 1920, height: 1080 },
+    laptop16x9: { width: 1366, height: 768 },
+  })) {
+    test(`network clients keep a compact aligned layout at ${name}`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.getByRole("button", { name: "Открыть роутер E2E OpenWrt" }).click();
+      await page.getByRole("tab", { name: "Клиенты" }).click();
+      await expect(page.locator("#clientList .client-row")).toHaveCount(16);
+      await expect(page.locator("#clientList .client-online-label")).toHaveCount(16);
+      await expect.poll(() => page.locator("#clientList").evaluate(
+        (list) => list.scrollWidth <= list.clientWidth,
+      )).toBe(true);
+      await expect.poll(() => page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      )).toBe(true);
+      const statusLayout = await page.locator("#clientList .client-online").evaluateAll((statuses) => statuses.map((status) => {
+        const dot = status.querySelector("i").getBoundingClientRect();
+        const bounds = status.getBoundingClientRect();
+        const lineHeight = parseFloat(getComputedStyle(status).lineHeight);
+        return {
+          delta: Math.abs((dot.top + dot.height / 2) - (bounds.top + bounds.height / 2)),
+          wraps: bounds.height > lineHeight * 1.5,
+        };
+      }));
+      expect(statusLayout.every(({ delta }) => delta <= 2)).toBe(true);
+      expect(statusLayout.every(({ wraps }) => !wraps)).toBe(true);
+      if (viewport.width >= 1280) {
+        await expect(page.locator(".client-table-head")).toBeVisible();
+        const rowHeight = await page.locator("#clientList .client-row").first().evaluate((row) => row.getBoundingClientRect().height);
+        expect(rowHeight).toBeLessThan(90);
+      }
+    });
+  }
 });
 
 for (const [name, viewport] of Object.entries({

@@ -34,6 +34,16 @@ module.exports = async () => {
           model: "Test Router",
           release: { version: "25.12.4", target: "x86/64" },
         },
+        dhcp_leases: Array.from({ length: 16 }, (_, index) => ({
+          mac: `02:00:00:00:00:${String(index + 1).padStart(2, "0")}`,
+          ip: index === 0 ? "77.239.226.33" : `10.10.10.${index + 1}`,
+          hostname: index === 0 ? "77.239.226.33" : `E2E client ${index + 1}`,
+        })),
+        client_probes: Array.from({ length: 9 }, (_, index) => ({
+          mac: `02:00:00:00:00:${String(index + 1).padStart(2, "0")}`,
+          ip: index === 0 ? "77.239.226.33" : `10.10.10.${index + 1}`,
+          reachable: "true",
+        })),
       },
       metrics: { loadavg: "0.00 0.01 0.02", memory_percent: 32 },
     },
