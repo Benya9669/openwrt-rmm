@@ -7,6 +7,29 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.10.2
+
+Secure tunnel authorization compatibility hotfix.
+
+### Fixed
+
+- The SSH sidecar now materializes its internal authorization token and endpoint in protected
+  runtime files because OpenSSH intentionally sanitizes the `AuthorizedKeysCommand` environment.
+- Per-device tunnel authentication no longer fails before contacting the server with
+  `Permission denied (publickey)` after secure mode is enabled.
+
+### Security
+
+- Runtime authorization files remain root-owned, are group-readable only by the unprivileged
+  command user, and use mode `0440` inside a `0750` directory.
+- The token and authorization URL are removed from the long-running `sshd` process environment.
+- The legacy shared-key file remains empty whenever secure per-device authorization is enabled.
+
+### Validation
+
+- A regression test invokes the authorization helper with a sanitized environment and verifies
+  the exact bearer-token and key-fingerprint request without making a network call.
+
 ## server-v0.10.1
 
 Single-file GitOps deployment and visible server version.

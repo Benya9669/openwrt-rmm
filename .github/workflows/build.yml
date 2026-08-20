@@ -93,10 +93,12 @@ jobs:
           bash -n \
             scripts/test-agent-uci-sync.sh \
             scripts/test-package-repository.sh \
+            scripts/test-tunnel-authorized-key.sh \
             scripts/prepare-package-repository.sh \
             scripts/unpack-release-package-assets.sh
           bash scripts/test-agent-uci-sync.sh
           bash scripts/test-package-repository.sh
+          bash scripts/test-tunnel-authorized-key.sh
 
           current_matrix="$(awk '
             /Tagged releases cover the current OpenWrt lines/ { in_matrix = 1 }

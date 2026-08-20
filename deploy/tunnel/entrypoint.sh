@@ -8,6 +8,60 @@ if ! id rmm-tunnel >/dev/null 2>&1; then
 fi
 passwd -d rmm-tunnel >/dev/null 2>&1 || true
 
+auth_dir="/run/rmm-tunnel"
+auth_token_file="$auth_dir/auth-token"
+auth_url_file="$auth_dir/auth-url"
+token="${RMM_TUNNEL_AUTH_TOKEN:-}"
+if [ -n "${RMM_TUNNEL_AUTH_TOKEN_FILE:-}" ]; then
+	[ -r "$RMM_TUNNEL_AUTH_TOKEN_FILE" ] || {
+		echo "Tunnel authorization token file is not readable." >&2
+		exit 1
+	}
+	token="$(tr -d '\r\n' < "$RMM_TUNNEL_AUTH_TOKEN_FILE")"
+fi
+endpoint="${RMM_TUNNEL_AUTH_URL:-http://rmm-server:8080/internal/tunnel/authorized-key}"
+
+if [ -n "$token" ]; then
+	if [ "${#token}" -lt 32 ] || [ "${#token}" -gt 256 ]; then
+		echo "Tunnel authorization token length is invalid." >&2
+		exit 1
+	fi
+	case "$token" in
+		*[!A-Za-z0-9._~-]*)
+			echo "Tunnel authorization token contains invalid characters." >&2
+			exit 1
+			;;
+	esac
+	case "$endpoint" in
+		http://*|https://*) ;;
+		*)
+			echo "Tunnel authorization URL is invalid." >&2
+			exit 1
+			;;
+	esac
+	case "$endpoint" in
+		*[[:space:]]*)
+			echo "Tunnel authorization URL contains whitespace." >&2
+			exit 1
+			;;
+	esac
+
+	mkdir -p "$auth_dir"
+	printf '%s' "$token" > "$auth_token_file"
+	printf '%s' "$endpoint" > "$auth_url_file"
+	nobody_gid="$(id -g nobody)"
+	chown "0:$nobody_gid" "$auth_dir" "$auth_token_file" "$auth_url_file"
+	chmod 0750 "$auth_dir"
+	chmod 0440 "$auth_token_file" "$auth_url_file"
+else
+	rm -f "$auth_token_file" "$auth_url_file"
+fi
+
+# OpenSSH intentionally sanitizes the environment of AuthorizedKeysCommand.
+# The command reads the root-created runtime files above instead, so the
+# authorization token is not inherited by the long-running sshd process.
+unset RMM_TUNNEL_AUTH_TOKEN RMM_TUNNEL_AUTH_TOKEN_FILE RMM_TUNNEL_AUTH_URL
+
 if [ ! -f /data/ssh_host_ed25519_key ]; then
 	ssh-keygen -q -t ed25519 -N '' -f /data/ssh_host_ed25519_key
 fi
@@ -15,7 +69,7 @@ if [ ! -f /data/ssh_host_rsa_key ]; then
 	ssh-keygen -q -t rsa -b 3072 -N '' -f /data/ssh_host_rsa_key
 fi
 
-if [ -n "${RMM_TUNNEL_AUTH_TOKEN:-}" ] || [ -n "${RMM_TUNNEL_AUTH_TOKEN_FILE:-}" ]; then
+if [ -n "$token" ]; then
 	# Per-device keys are resolved for each authentication attempt. Keep the static
 	# file present but empty so a previously shared bootstrap key cannot bypass revocation.
 	: > /data/authorized_keys

@@ -33,6 +33,7 @@
 - [x] `server-v0.10.0` и `agent-v0.7.0` подготовлены с per-device tunnel credentials и исправлением LAN client layout.
 - [ ] CI опубликовал images, IPK/APK и подписанные feed indexes для `server-v0.10.0` / `agent-v0.7.0`.
 - [x] `server-v0.10.1` подготовлен для single-file Arcane GitOps, стабильных volume names и отображения server version.
+- [x] `server-v0.10.2` передаёт token в `AuthorizedKeysCommand` через защищённые runtime-файлы и покрывает очищенное окружение регрессионным тестом.
 - [ ] Production закреплён на точной `RMM_RELEASE_VERSION`, а не `latest`.
 
 ## Перед `agent-v*`

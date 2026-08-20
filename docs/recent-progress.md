@@ -50,6 +50,8 @@ Updated: 2026-08-20.
 - Server `0.10.1` is prepared as a deployment patch: the base Compose file pulls published
   images directly, preserves existing data through explicit volume names, and shows the
   running server version in the authenticated UI.
+- Server `0.10.2` fixes secure tunnel authorization under OpenSSH's sanitized
+  `AuthorizedKeysCommand` environment by using protected runtime credential files.
 - Local pre-release checks pass for the `0.9.3` server image and for unsigned OpenWrt
   25.12.4 ramips/mt7621 APK artifacts (agent, LuCI, Russian i18n, and repository index).
 - The browser suite covers notification overflow in addition to the existing
