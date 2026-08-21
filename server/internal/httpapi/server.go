@@ -2867,6 +2867,16 @@ func staticHandler(dir string) http.Handler {
 			}
 			return
 		}
+		if !strings.HasPrefix(requestPath, "/api/") && filepath.Ext(assetPath) == "" {
+			errorPage := filepath.Join(dir, "error.html")
+			if data, err := os.ReadFile(errorPage); err == nil {
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write(data)
+				return
+			}
+		}
 		writeError(w, http.StatusNotFound, "not found")
 	})
 }

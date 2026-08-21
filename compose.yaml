@@ -1,6 +1,6 @@
 services:
   rmm-server:
-    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-0.10.2}"
+    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-0.11.0}"
     pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     environment:
       RMM_ADDR: ":8080"
@@ -57,7 +57,7 @@ services:
     restart: unless-stopped
 
   tunnel-ssh:
-    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-0.10.2}"
+    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-0.11.0}"
     pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     ports:
       - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:${RMM_TUNNEL_SSH_PORT:-2222}:22"

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#071019">
+    <meta name="theme-color" content="#090b0d">
     <meta name="robots" content="noindex,nofollow">
     <title>Вход — OpenWrt RMM</title>
     <link rel="icon" href="/favicon.svg?v=1" type="image/svg+xml">
@@ -11,89 +11,38 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=31">
+    <link rel="stylesheet" href="/styles.css?v=33">
   </head>
   <body class="account-page">
-    <main id="loginView" class="landing-view">
-      <header class="landing-header">
+    <main id="loginView" class="auth-view">
+      <header class="auth-header">
         <a class="landing-brand" href="/" aria-label="OpenWrt RMM — главная">
-          <img src="/favicon.svg?v=1" alt="" width="42" height="42">
-          <span><strong>OpenWrt RMM</strong><small>Remote network management</small></span>
+          <img src="/favicon.svg?v=1" alt="" width="34" height="34">
+          <span><strong>OpenWrt RMM</strong><small>REMOTE NETWORK MANAGEMENT</small></span>
         </a>
-        <nav aria-label="Разделы страницы">
-          <a href="/#capabilities">Возможности</a>
-          <a href="/#security">Безопасность</a>
-          <a class="landing-login-link" href="#login">Войти</a>
-        </nav>
+        <a class="button" href="/"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-arrow-left"></use></svg>На главную</a>
       </header>
-
-      <section id="top" class="landing-hero">
-        <div class="landing-copy">
-          <span class="landing-kicker"><i></i> Роутеры под контролем из любой точки</span>
-          <h1>Единый центр управления <em>OpenWrt</em></h1>
-          <p>Следите за состоянием сети, клиентами и обновлениями агента. Открывайте LuCI через временный защищённый доступ без публикации панели роутера в интернет.</p>
-          <div class="landing-actions">
-            <a class="landing-primary" href="#login">Открыть кабинет</a>
-            <a class="landing-secondary" href="#capabilities">Как это работает</a>
-          </div>
-          <div class="landing-trust">
-            <span><b>●</b> Heartbeat в реальном времени</span>
-            <span><b>✓</b> Изоляция аккаунтов</span>
-            <span><b>↗</b> Временные LuCI-сессии</span>
-          </div>
+      <section id="login" class="auth-layout" aria-labelledby="loginTitle">
+        <div class="auth-intro">
+          <span class="eyebrow">SYSTEM / AUTHENTICATION</span>
+          <h1 id="loginTitle">Вход в OpenWrt RMM</h1>
+          <p>Управление роутерами, операциями и временным доступом к LuCI в единой инфраструктурной консоли.</p>
+          <dl class="auth-capabilities">
+            <div><dt>SESSION</dt><dd>Защищённая HttpOnly cookie</dd></div>
+            <div><dt>ACCESS</dt><dd>Изоляция аккаунтов и ролей</dd></div>
+            <div><dt>AUDIT</dt><dd>Журнал важных действий</dd></div>
+          </dl>
         </div>
-
-        <div class="landing-console" aria-label="Пример панели мониторинга">
-          <div class="console-top"><span></span><span></span><span></span><small>fleet / overview</small></div>
-          <div class="console-summary">
-            <div><small>На связи</small><strong>12</strong></div>
-            <div><small>Требуют внимания</small><strong class="warn">2</strong></div>
-            <div><small>Средний uptime</small><strong>18 дн.</strong></div>
-          </div>
-          <div class="console-router online"><i></i><span><strong>Домашняя сеть</strong><small>OpenWrt 25.12 · 8 клиентов</small></span><b>На связи</b></div>
-          <div class="console-router online"><i></i><span><strong>Офис</strong><small>OpenWrt 24.10 · 24 клиента</small></span><b>На связи</b></div>
-          <div class="console-router warning"><i></i><span><strong>Загородный дом</strong><small>Высокая загрузка процессора</small></span><b>Проверить</b></div>
-        </div>
-      </section>
-
-      <section id="capabilities" class="landing-features">
-        <article><span>01</span><h2>Состояние сети</h2><p>WAN, нагрузка, память, интерфейсы и активные клиенты в одном понятном обзоре.</p></article>
-        <article><span>02</span><h2>Безопасный LuCI</h2><p>Доступ создаётся по запросу, ограничен по времени и привязан к конкретному роутеру.</p></article>
-        <article><span>03</span><h2>Свои устройства</h2><p>Каждый пользователь видит только добавленные им роутеры и собственные DNS-имена.</p></article>
-      </section>
-
-      <section class="landing-partners" aria-labelledby="partnersTitle">
-        <div class="landing-partners-copy">
-          <span class="eyebrow">Экосистема</span>
-          <h2 id="partnersTitle">Наши партнёры</h2>
-          <p>Компании, с которыми мы развиваем инфраструктуру и сетевые сервисы.</p>
-        </div>
-        <div class="partner-logos" aria-label="Компании-партнёры">
-          <div class="partner-logo"><img src="/assets/partners/ks.png" alt="KS" width="512" height="512" loading="lazy"></div>
-          <div class="partner-logo"><img src="/assets/partners/vz.png" alt="VZ" width="512" height="512" loading="lazy"></div>
-          <div class="partner-logo"><img src="/assets/partners/partner-blue.png" alt="Партнёр OpenWrt RMM" width="240" height="240" loading="lazy"></div>
-        </div>
-      </section>
-
-      <section id="security" class="landing-security">
-        <div><span class="eyebrow">Безопасность по умолчанию</span><h2>Панель управления не должна становиться новой точкой входа</h2></div>
-        <ul><li>Пароли защищены Argon2id</li><li>Сессии в HttpOnly cookie</li><li>Все важные действия попадают в аудит</li></ul>
-      </section>
-
-      <section id="login" class="landing-login-section">
-        <div><span class="eyebrow">Личный кабинет</span><h2>Продолжить работу</h2><p>Используйте данные своего аккаунта. Администратор может создать отдельный доступ для каждого пользователя.</p></div>
-        <form id="loginForm" class="login-form">
-          <label>Логин<input id="loginUsername" type="text" autocomplete="username" placeholder="Введите логин" required></label>
+        <form id="loginForm" class="login-form" aria-describedby="loginHelp loginError">
+          <header class="form-header"><span class="eyebrow">ACCOUNT / LOGIN</span><h2>Продолжить работу</h2><p id="loginHelp">Введите данные своей учётной записи.</p></header>
+          <label>Логин<input id="loginUsername" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
           <label>Пароль<input id="loginPassword" type="password" autocomplete="current-password" required></label>
-          <button class="primary" type="submit">Войти в RMM</button>
+          <button id="loginSubmitBtn" class="primary" type="submit">Войти в RMM</button>
           <button id="forgotPasswordBtn" class="text-button" type="button">Забыли пароль?</button>
-          <p id="loginError" class="login-error" role="alert"></p>
+          <p id="loginError" class="login-error" role="alert" aria-live="assertive"></p>
         </form>
       </section>
-      <footer class="landing-footer">
-        <span>OpenWrt RMM</span>
-        <span class="landing-footer-links"><small>Безопасное управление вашей сетью</small><a href="/legal.html">Лицензия и исходный код</a></span>
-      </footer>
+      <footer class="auth-footer"><span>OpenWrt RMM</span><a href="/legal.html">Лицензия и исходный код</a></footer>
     </main>
 
     <div id="appShell" class="app-shell is-hidden">
@@ -108,16 +57,16 @@
 
         <nav class="main-nav" aria-label="Основная навигация">
           <button id="fleetNavBtn" class="nav-item is-active" type="button">
-            <span class="nav-icon">◫</span>
+            <span class="nav-icon" aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-layout-grid"></use></svg></span>
             Объекты
           </button>
           <button id="problemsNavBtn" class="nav-item" type="button">
-            <span class="nav-icon">!</span>
+            <span class="nav-icon" aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-alert-triangle"></use></svg></span>
             Проблемы
             <span id="navAlertCount" class="nav-count">0</span>
           </button>
           <button id="operationsNavBtn" class="nav-item" type="button">
-            <span class="nav-icon">⌁</span>
+            <span class="nav-icon" aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-arrows-exchange"></use></svg></span>
             Операции
           </button>
         </nav>
@@ -128,9 +77,7 @@
 
         <div class="operator-row">
           <button id="notificationCenterBtn" class="icon-button notification-bell" type="button" title="Уведомления" aria-label="Открыть уведомления">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>
-            </svg>
+            <svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-bell"></use></svg>
             <span id="notificationUnreadCount" class="notification-unread is-hidden">0</span>
           </button>
           <button id="profileBtn" class="operator-profile" type="button" aria-label="Открыть личный кабинет">
@@ -140,7 +87,7 @@
               <strong id="operatorName">operator</strong>
             </span>
           </button>
-          <button id="logoutBtn" class="icon-button" type="button" title="Выйти" aria-label="Выйти">↪</button>
+          <button id="logoutBtn" class="icon-button" type="button" title="Выйти" aria-label="Выйти"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-logout"></use></svg></button>
         </div>
 
         <div class="bulk-command-grid is-hidden" aria-hidden="true">
@@ -165,7 +112,7 @@
             <span id="statusLine" class="status-line">Готово</span>
             <button id="addRouterBtn" class="primary" type="button">Добавить роутер</button>
             <button id="addUserBtn" class="is-hidden" type="button">Новый пользователь</button>
-            <button id="refreshBtn" class="icon-button" type="button" title="Обновить данные" aria-label="Обновить данные">↻</button>
+            <button id="refreshBtn" class="icon-button" type="button" title="Обновить данные" aria-label="Обновить данные"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-refresh"></use></svg></button>
           </div>
         </header>
 
@@ -227,7 +174,7 @@
         <section id="deviceView" class="device-view is-hidden">
           <div class="device-header">
             <div>
-              <button id="backToFleetBtn" class="back-button" type="button">← Объекты</button>
+              <button id="backToFleetBtn" class="back-button icon-text-button" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-arrow-left"></use></svg>Объекты</button>
               <p class="eyebrow">Объект</p>
               <h2 id="deviceName"></h2>
               <p id="deviceMeta"></p>
@@ -393,41 +340,57 @@
             </div>
           </div>
 
-          <section class="expert-notice" data-device-tab="expert">
+          <section class="expert-notice" data-device-tab="expert" aria-labelledby="expertModeTitle">
+            <span class="expert-marker" aria-hidden="true"><svg class="icon icon-lg"><use href="/assets/icons/tabler-sprite.svg#icon-alert-triangle"></use></svg></span>
             <div>
-              <strong>Экспертный режим</strong>
-              <span>Здесь находятся низкоуровневые команды и настройки OpenWrt. Ошибочное изменение может нарушить связь с роутером.</span>
+              <span class="eyebrow">SYSTEM / EXPERT</span>
+              <strong id="expertModeTitle">Low-level configuration</strong>
+              <span>Команды выполняются непосредственно на OpenWrt. Проверяйте target и preview: изменение сети может временно прервать связь с роутером.</span>
             </div>
           </section>
 
-          <div class="two-column" data-device-tab="expert">
-            <section class="panel">
+          <div class="expert-overview-grid" data-device-tab="expert">
+            <section class="panel expert-panel inventory-panel">
               <div class="section-title">
-                <h2>Inventory</h2>
+                <div><span class="eyebrow">SYSTEM / INVENTORY</span><h2>Inventory</h2></div>
+                <span id="inventoryStatus" class="status unknown">UNKNOWN</span>
               </div>
-              <pre id="inventoryJson" class="code-block"></pre>
+              <div id="inventorySummary" class="inventory-summary"></div>
+              <details class="technical-output-details">
+                <summary>Raw inventory JSON</summary>
+                <pre id="inventoryJson" class="technical-output code-block" tabindex="0"></pre>
+              </details>
             </section>
 
-            <section class="panel">
+            <section class="panel expert-panel manual-command-panel">
               <div class="section-title">
-                <h2>Команда вручную</h2>
+                <div><span class="eyebrow">SYSTEM / COMMAND</span><h2>Команда вручную</h2></div>
+                <span id="manualCommandStatus" class="status ready">READY</span>
               </div>
-              <div class="command-form">
-                <select id="commandType">
-                  <option value="ping">ping</option>
-                  <option value="traceroute">traceroute</option>
-                  <option value="route_show">show routes</option>
-                  <option value="interfaces_show">show interfaces</option>
-                  <option value="pkg_list_installed">pkg_list_installed</option>
-                  <option value="reboot">reboot</option>
-                </select>
-                <input id="commandTarget" type="text" placeholder="1.1.1.1">
-                <button id="sendCommandBtn" type="button">Запустить</button>
+              <div class="expert-command-form">
+                <label>Command
+                  <select id="commandType" class="technical-input">
+                    <option value="ping">ping</option>
+                    <option value="traceroute">traceroute</option>
+                    <option value="route_show">show routes</option>
+                    <option value="interfaces_show">show interfaces</option>
+                    <option value="pkg_list_installed">pkg_list_installed</option>
+                    <option value="reboot">reboot</option>
+                  </select>
+                </label>
+                <label>Target
+                  <input id="commandTarget" class="technical-input" type="text" placeholder="1.1.1.1">
+                </label>
+                <div class="expert-form-action"><span>Action</span><button id="sendCommandBtn" class="requires-online" type="button">Run</button></div>
               </div>
+              <details id="manualCommandOutputDetails" class="technical-output-details is-hidden">
+                <summary>Последний результат</summary>
+                <pre id="manualCommandOutput" class="technical-output" tabindex="0"></pre>
+              </details>
             </section>
           </div>
 
-          <section class="panel" data-device-tab="operations">
+          <section class="panel diagnostics-panel" data-device-tab="operations">
             <div class="section-title">
               <div>
                 <h2>Диагностика</h2>
@@ -435,24 +398,24 @@
               </div>
               <button id="runFullDiagnosticBtn" class="primary" type="button">Запустить полную диагностику</button>
             </div>
-            <div id="diagnosticStatus" class="operation-status">
-              <span class="operation-icon">✓</span>
+            <div id="diagnosticStatus" class="operation-status" data-tone="neutral" role="status" aria-live="polite">
+              <span class="operation-icon" aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-check"></use></svg></span>
               <div>
                 <strong>Готово к проверке</strong>
                 <small>Будут проверены сервер, интернет, маршруты и интерфейсы</small>
               </div>
             </div>
-            <h3 class="operation-subheading">Выборочная проверка</h3>
+            <h3 class="operation-subheading">Выборочные проверки</h3>
             <div class="diagnostic-grid">
-              <button class="diagnostic-btn" data-diagnostic="ping_server" type="button">Проверить связь с сервером</button>
-              <button class="diagnostic-btn" data-diagnostic="ping_internet" type="button">Проверить интернет</button>
-              <button class="diagnostic-btn" data-diagnostic="traceroute_internet" type="button">Маршрут до интернета</button>
-              <button class="diagnostic-btn" data-diagnostic="show_routes" type="button">Показать маршруты</button>
-              <button class="diagnostic-btn" data-diagnostic="show_interfaces" type="button">Показать интерфейсы</button>
+              <button class="diagnostic-btn" data-diagnostic="ping_server" type="button"><span><strong>Связь с сервером</strong><small>ICMP до RMM endpoint</small></span><span>Запустить</span></button>
+              <button class="diagnostic-btn" data-diagnostic="ping_internet" type="button"><span><strong>Доступ в интернет</strong><small>ICMP до контрольного узла</small></span><span>Запустить</span></button>
+              <button class="diagnostic-btn" data-diagnostic="traceroute_internet" type="button"><span><strong>Маршрут до интернета</strong><small>Traceroute до контрольного узла</small></span><span>Запустить</span></button>
+              <button class="diagnostic-btn" data-diagnostic="show_routes" type="button"><span><strong>Таблица маршрутизации</strong><small>IPv4 routes на устройстве</small></span><span>Запустить</span></button>
+              <button class="diagnostic-btn" data-diagnostic="show_interfaces" type="button"><span><strong>Состояние интерфейсов</strong><small>Адреса и link information</small></span><span>Запустить</span></button>
             </div>
           </section>
 
-          <section class="panel" data-device-tab="clients">
+          <section class="panel clients-panel" data-device-tab="clients">
             <div class="section-title">
               <div>
                 <h2>Клиенты сети</h2>
@@ -461,7 +424,7 @@
               <span id="clientSummary" class="summary-pill">0 клиентов</span>
             </div>
             <div class="client-toolbar">
-              <input id="clientSearch" type="search" placeholder="Поиск по имени, IP или MAC">
+              <label class="search-field"><span>Поиск клиентов</span><input id="clientSearch" type="search" placeholder="Имя, IP или MAC" autocomplete="off"></label>
               <div class="filters client-filters">
                 <button class="client-filter is-active" data-client-filter="all" type="button">Все</button>
                 <button class="client-filter" data-client-filter="online" type="button">Сейчас в сети</button>
@@ -470,18 +433,20 @@
                 <button class="client-filter" data-client-filter="unconfirmed" type="button">Не подтверждены</button>
               </div>
             </div>
-            <div class="client-table-head">
-              <span>Устройство</span>
+            <div id="clientDataState" class="data-context-state is-hidden" role="status"></div>
+            <div class="client-table-head" aria-hidden="true">
+              <span>Hostname</span>
               <span>IP-адрес</span>
               <span>MAC-адрес</span>
               <span>Подключение</span>
-              <span>Сигнал / скорость</span>
+              <span>Сигнал</span>
+              <span>Link rate</span>
               <span>Состояние</span>
             </div>
-            <div id="clientList" class="client-list"></div>
+            <div id="clientList" class="client-list" role="list"></div>
           </section>
 
-          <section class="panel" data-device-tab="network">
+          <section class="panel network-panel" data-device-tab="network">
             <div class="section-title">
               <div>
                 <h2>Сеть и интерфейсы</h2>
@@ -490,17 +455,20 @@
               <span id="networkSummary" class="summary-pill">0 интерфейсов</span>
             </div>
             <div id="networkHealth" class="network-health"></div>
-            <div class="network-table-head">
+            <div id="networkDataState" class="data-context-state is-hidden" role="status"></div>
+            <div class="network-table-head" aria-hidden="true">
               <span>Интерфейс</span>
-              <span>Адреса</span>
-              <span>Получено</span>
-              <span>Передано</span>
+              <span>Состояние</span>
+              <span>IPv4</span>
+              <span>IPv6</span>
+              <span>RX</span>
+              <span>TX</span>
               <span>Ошибки</span>
             </div>
-            <div id="interfaceCounters" class="network-list"></div>
+            <div id="interfaceCounters" class="network-list" role="list"></div>
           </section>
 
-          <section class="panel" data-device-tab="overview">
+          <section class="panel problems-panel" data-device-tab="overview">
             <div class="section-title">
               <h2>Проблемы</h2>
               <div class="section-actions">
@@ -512,7 +480,17 @@
                 <span id="alertSummary" class="summary-pill">0 active</span>
               </div>
             </div>
-            <div id="alertList" class="table-list"></div>
+            <div id="problemDataState" class="data-context-state is-hidden" role="status"></div>
+            <div class="problems-table-head" aria-hidden="true">
+              <span>Severity</span>
+              <span>Объект</span>
+              <span>Проблема</span>
+              <span>Возникла</span>
+              <span>Длительность</span>
+              <span>Статус</span>
+              <span>Действие</span>
+            </div>
+            <div id="alertList" class="table-list" role="list"></div>
           </section>
 
           <section class="panel" data-device-tab="overview">
@@ -526,29 +504,32 @@
             <div id="metricsHistory" class="metrics-chart-grid"></div>
           </section>
 
-          <section class="panel" data-device-tab="expert">
+          <section class="panel expert-panel transfer-panel" data-device-tab="expert">
             <div class="section-title">
               <div>
+                <span class="eyebrow">SECURITY / OWNERSHIP</span>
                 <h2>Передача роутера</h2>
                 <p class="section-subtitle">Новый владелец получит управление устройством. Текущие LuCI-сессии будут закрыты.</p>
               </div>
             </div>
             <form id="deviceTransferForm" class="device-transfer-form">
-              <label>Логин нового владельца<input id="transferUsername" type="text" minlength="3" maxlength="64" autocomplete="off" required></label>
-              <label>Ваш текущий пароль<input id="transferPassword" type="password" autocomplete="current-password" required></label>
-              <button class="danger" type="submit">Передать роутер</button>
+              <label>Новый владелец<input id="transferUsername" type="text" minlength="3" maxlength="64" autocomplete="off" required></label>
+              <label>Текущий пароль владельца<input id="transferPassword" type="password" autocomplete="current-password" required></label>
+              <div class="security-action-copy"><strong>Последствия передачи</strong><span>Устройство исчезнет из текущего аккаунта; активный удалённый доступ будет закрыт согласно существующей серверной логике.</span></div>
+              <button class="danger" type="submit">Проверить и передать</button>
               <p id="transferMessage" class="form-message" role="status"></p>
             </form>
           </section>
 
-          <section class="panel" data-device-tab="expert">
+          <section class="panel expert-panel uci-panel" data-device-tab="expert">
             <div class="section-title">
-              <h2>UCI configuration</h2>
+              <div><span class="eyebrow">CONFIGURATION / UCI</span><h2>UCI configuration</h2><p class="section-subtitle">Preview → Stage → Commit. Для direct commit используйте расширенные действия.</p></div>
+              <span id="uciOperationStatus" class="status ready">READY</span>
             </div>
             <div class="uci-grid">
               <label>
                 Package
-                <select id="uciConfig">
+                <select id="uciConfig" class="technical-input">
                   <option value="network">network</option>
                   <option value="wireless">wireless</option>
                   <option value="dhcp">dhcp</option>
@@ -558,48 +539,63 @@
               </label>
               <label>
                 Section
-                <input id="uciSection" type="text" placeholder="lan or @wifi-iface[0]">
+                <input id="uciSection" class="technical-input" type="text" placeholder="lan or @wifi-iface[0]">
               </label>
               <label>
                 Option
-                <input id="uciOption" type="text" placeholder="ipaddr">
+                <input id="uciOption" class="technical-input" type="text" placeholder="ipaddr">
               </label>
               <label>
                 Value
-                <input id="uciValue" type="text" placeholder="192.168.1.1">
+                <input id="uciValue" class="technical-input" type="text" placeholder="192.168.1.1">
               </label>
               <label class="check-row">
                 <input id="uciCommitNow" type="checkbox">
                 Commit immediately
               </label>
             </div>
-            <div class="uci-actions">
-              <button id="uciBackupBtn" type="button">Backup</button>
-              <button id="uciPreviewBtn" type="button">Preview</button>
-              <button id="uciShowBtn" type="button">Show</button>
-              <button id="uciSetBtn" type="button">Stage set</button>
-              <button id="uciCommitBtn" type="button">Commit</button>
-              <button id="uciCommitConfirmedBtn" type="button">Commit + check</button>
-              <button id="uciRevertBtn" type="button">Revert</button>
-              <button id="uciRestoreBtn" type="button">Restore backup</button>
+            <p id="uciFormMessage" class="form-message" role="status"></p>
+            <div class="uci-action-groups">
+              <section class="action-group primary-workflow" aria-labelledby="uciWorkflowTitle">
+                <div><span class="eyebrow">Primary workflow</span><strong id="uciWorkflowTitle">Проверить и применить</strong></div>
+                <div class="action-group-buttons">
+                  <button id="uciPreviewBtn" class="requires-online" type="button">1 · Preview</button>
+                  <button id="uciSetBtn" class="requires-online" type="button">2 · Stage</button>
+                  <button id="uciCommitConfirmedBtn" class="primary requires-online" type="button">3 · Commit + check</button>
+                </div>
+              </section>
+              <section class="action-group secondary-workflow" aria-labelledby="uciInspectTitle">
+                <div><span class="eyebrow">Inspection</span><strong id="uciInspectTitle">Read-only и backup</strong></div>
+                <div class="action-group-buttons"><button id="uciShowBtn" class="requires-online" type="button">Show</button><button id="uciBackupBtn" class="requires-online" type="button">Backup</button></div>
+              </section>
+              <details class="action-group recovery-workflow">
+                <summary>Recovery и direct commit</summary>
+                <p>Direct commit может прервать соединение без автоматической проверки. Recovery изменяет staged или сохранённую конфигурацию.</p>
+                <div class="action-group-buttons"><button id="uciCommitBtn" class="warning requires-online" type="button">Direct commit</button><button id="uciRevertBtn" class="warning requires-online" type="button">Revert staged</button><button id="uciRestoreBtn" class="danger requires-online" type="button">Restore backup</button></div>
+              </details>
             </div>
+            <section id="uciDiff" class="technical-diff is-hidden" aria-live="polite"></section>
+            <details id="uciOutputDetails" class="technical-output-details is-hidden">
+              <summary>UCI technical output</summary>
+              <pre id="uciTechnicalOutput" class="technical-output" tabindex="0"></pre>
+            </details>
           </section>
 
-          <section class="panel" data-device-tab="expert">
+          <section class="panel expert-panel package-panel" data-device-tab="expert">
             <div class="section-title">
-              <h2>Packages</h2>
+              <div><span class="eyebrow">SYSTEM / PACKAGES</span><h2>Packages</h2><p class="section-subtitle">Операции выполняются package manager устройства и отражаются в command history.</p></div>
+              <span id="packageOperationStatus" class="status ready">READY</span>
             </div>
             <div class="package-grid">
-              <select id="packageCommand">
-                <option value="pkg_list_installed">List installed</option>
-                <option value="pkg_update">Update package index</option>
-                <option value="pkg_list_upgradable">List upgradable</option>
-                <option value="pkg_install">Install package</option>
-                <option value="pkg_remove">Remove package</option>
-              </select>
-              <input id="packageName" type="text" placeholder="package name">
-              <button id="sendPackageCommandBtn" type="button">Queue</button>
+              <label>Operation<select id="packageCommand" class="technical-input"><option value="pkg_list_installed">List installed</option><option value="pkg_update">Update package index</option><option value="pkg_list_upgradable">List upgradable</option><option value="pkg_install">Install package</option><option value="pkg_remove">Remove package</option></select></label>
+              <label>Package name<input id="packageName" class="technical-input" type="text" placeholder="luci-app-package"></label>
+              <div class="expert-form-action"><span>Action</span><button id="sendPackageCommandBtn" class="requires-online" type="button">Queue</button></div>
             </div>
+            <p id="packageFormMessage" class="form-message" role="status"></p>
+            <details id="packageOutputDetails" class="technical-output-details is-hidden">
+              <summary>Последний package output</summary>
+              <pre id="packageTechnicalOutput" class="technical-output" tabindex="0"></pre>
+            </details>
           </section>
 
           <section id="remoteAccessPanel" class="panel" data-device-tab="operations">
@@ -613,11 +609,13 @@
               </div>
             </div>
             <div id="cloudAccessCard" class="cloud-access-card" data-state="closed">
-              <div class="cloud-access-icon" aria-hidden="true">☁</div>
+              <div class="cloud-access-icon" aria-hidden="true"><svg class="icon icon-lg"><use href="/assets/icons/tabler-sprite.svg#icon-cloud-lock"></use></svg></div>
               <div class="cloud-access-copy">
-                <strong>Доступ через облако RMM</strong>
+                <span class="eyebrow">Managed remote access</span>
+                <strong>Временная LuCI-сессия</strong>
                 <span id="cloudAccessStatus">Соединение создаётся только по вашему запросу</span>
               </div>
+              <span id="cloudAccessState" class="status closed">CLOSED</span>
               <button id="openCloudAccessBtn" class="primary" type="button">Открыть LuCI</button>
             </div>
             <details class="advanced-settings">
@@ -660,7 +658,15 @@
                 </label>
               </div>
             </details>
-            <div id="remoteSessionList" class="table-list remote-session-list"></div>
+            <div class="remote-session-table-head" aria-hidden="true">
+              <span>Сессия</span>
+              <span>Destination</span>
+              <span>Создана</span>
+              <span>Осталось</span>
+              <span>Статус</span>
+              <span>Действия</span>
+            </div>
+            <div id="remoteSessionList" class="table-list remote-session-list" role="list"></div>
           </section>
 
           <section class="panel" data-device-tab="operations">
@@ -723,7 +729,7 @@
             </section>
           </section>
 
-          <section id="commandsPanel" class="panel" data-device-tab="expert">
+          <section id="commandsPanel" class="panel commands-panel" data-device-tab="operations">
             <div class="section-title">
               <h2>История команд</h2>
               <div class="section-actions">
@@ -740,16 +746,25 @@
                 <option value="queued">В очереди</option>
                 <option value="claimed">Выполняется</option>
                 <option value="completed">Готово</option>
-                <option value="failed">Ошибка</option>
-                <option value="expired">Истекла</option>
+                 <option value="failed">Ошибка</option>
+                 <option value="timeout">Timeout</option>
+                 <option value="expired">Истекла</option>
                 <option value="cancelled">Отменена</option>
               </select>
             </div>
-            <div id="commandList" class="table-list"></div>
+            <div class="command-table-head" aria-hidden="true">
+              <span>Команда</span>
+              <span>Статус</span>
+              <span>Попытка</span>
+              <span>Обновлено</span>
+              <span>Результат</span>
+              <span>Действия</span>
+            </div>
+            <div id="commandList" class="table-list" role="list"></div>
             <button id="loadMoreCommandsBtn" class="load-more-btn is-hidden" type="button">Загрузить ещё</button>
           </section>
 
-          <section id="commandDetailPanel" class="panel is-hidden" data-device-tab="expert">
+          <section id="commandDetailPanel" class="panel command-detail-panel is-hidden" data-device-tab="operations">
             <div class="section-title">
               <h2>Детали команды</h2>
               <button id="copyCommandOutputBtn" type="button">Копировать вывод</button>
@@ -758,28 +773,36 @@
             <pre id="commandDetailOutput" class="command-detail-output"></pre>
           </section>
 
-          <section class="panel" data-device-tab="expert">
+          <section class="panel expert-panel audit-panel" data-device-tab="expert">
             <div class="section-title">
-              <h2>Audit</h2>
+              <div><span class="eyebrow">SYSTEM / AUDIT</span><h2>Audit</h2><p class="section-subtitle">Неизменённый журнал действий оператора, агента и фоновых операций.</p></div>
               <div class="section-actions">
                 <span id="auditSummary" class="summary-pill">0 events</span>
               </div>
             </div>
-            <div id="auditList" class="table-list"></div>
+            <div class="audit-table-head" aria-hidden="true"><span>Timestamp</span><span>Action</span><span>Actor</span><span>Object / context</span><span>Result</span></div>
+            <div id="auditList" class="table-list audit-list" role="list"></div>
             <button id="loadMoreAuditBtn" class="load-more-btn is-hidden" type="button">Загрузить ещё</button>
           </section>
 
-          <section class="panel" data-device-tab="expert">
+          <section class="panel expert-panel maintenance-panel" data-device-tab="expert">
             <div class="section-title">
               <div>
+                <span class="eyebrow">MAINTENANCE</span>
                 <h2>Обслуживание данных</h2>
                 <p class="section-subtitle">Очистка локальной истории RMM. Настройки роутера не меняются.</p>
               </div>
             </div>
-            <div class="maintenance-grid">
-              <button id="clearAlertsBtn" type="button">Очистить алерты</button>
-              <button id="clearCommandsBtn" type="button">Очистить историю команд</button>
-              <button id="clearAuditBtn" type="button">Очистить аудит устройства</button>
+            <section class="maintenance-cleanup" aria-labelledby="cleanupTitle">
+              <div><strong id="cleanupTitle">Data cleanup</strong><span>Каждая операция удаляет только указанный тип истории и требует подтверждения.</span></div>
+              <div class="maintenance-actions">
+                <button id="clearCommandsBtn" type="button">Очистить историю команд</button>
+                <button id="clearAlertsBtn" type="button">Очистить алерты</button>
+                <button id="clearAuditBtn" type="button">Очистить аудит</button>
+              </div>
+            </section>
+            <div class="danger-zone">
+              <div><span class="eyebrow">DANGER / DEVICE</span><strong>Удаление устройства</strong><span>Устройство и связанная история будут удалены из RMM согласно существующей серверной логике. Действие необратимо.</span></div>
               <button id="deleteDeviceBtn" class="danger" type="button">Удалить устройство</button>
             </div>
           </section>
@@ -787,238 +810,177 @@
       </main>
 
       <nav class="mobile-nav" aria-label="Мобильная навигация">
-        <button class="mobile-nav-item is-active" data-mobile-route="fleet" type="button"><span>◫</span>Объекты</button>
-        <button class="mobile-nav-item" data-mobile-route="problems" type="button"><span>!</span>Проблемы</button>
-        <button class="mobile-nav-item" data-mobile-route="operations" type="button"><span>⌁</span>Операции</button>
+        <button class="mobile-nav-item is-active" data-mobile-route="fleet" type="button"><span aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-layout-grid"></use></svg></span>Объекты</button>
+        <button class="mobile-nav-item" data-mobile-route="problems" type="button"><span aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-alert-triangle"></use></svg></span>Проблемы</button>
+        <button class="mobile-nav-item" data-mobile-route="operations" type="button"><span aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-arrows-exchange"></use></svg></span>Операции</button>
         <button class="mobile-nav-item mobile-notification-button" data-mobile-route="notifications" type="button">
-          <span aria-hidden="true">🔔</span>
+          <span aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-bell"></use></svg></span>
           Уведомления
           <span id="mobileNotificationUnreadCount" class="notification-unread is-hidden">0</span>
         </button>
-        <button class="mobile-nav-item" data-mobile-route="profile" type="button"><span>○</span>Профиль</button>
+        <button class="mobile-nav-item" data-mobile-route="profile" type="button"><span aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-user"></use></svg></span>Профиль</button>
       </nav>
     </div>
 
-    <dialog id="enrollmentGrantDialog">
-      <form method="dialog" class="login-form">
-        <h2>Добавление роутера</h2>
-        <p>Grant действует 15 минут и используется только один раз. Вставьте его в LuCI → Службы → RMM agent.</p>
-        <label>
-          Одноразовый grant
-          <input id="enrollmentTokenOutput" type="text" readonly>
-        </label>
-        <div class="topbar-actions">
-          <button id="copyEnrollmentTokenBtn" type="button">Копировать</button>
-          <button class="primary" type="submit">Готово</button>
+    <dialog id="enrollmentGrantDialog" class="form-dialog" aria-labelledby="enrollmentGrantTitle">
+      <form method="dialog" class="dialog-sheet">
+        <header class="dialog-header"><div><span class="eyebrow">FLEET / ENROLLMENT</span><h2 id="enrollmentGrantTitle">Добавление роутера</h2></div><button class="icon-button" type="submit" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button></header>
+        <div class="dialog-body form-stack">
+          <div class="sensitive-notice"><svg class="icon icon-lg" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-key"></use></svg><div><strong>Одноразовый чувствительный token</strong><span>Действует 15 минут и становится недействительным после первого использования.</span></div></div>
+          <p>Вставьте grant в LuCI → Службы → RMM agent. Не отправляйте его в публичные чаты или журналы.</p>
+          <label>Одноразовый grant<input id="enrollmentTokenOutput" class="technical-input" type="text" readonly spellcheck="false"></label>
+          <p id="enrollmentCopyState" class="form-message" role="status" aria-live="polite"></p>
         </div>
+        <footer class="dialog-actions"><button id="copyEnrollmentTokenBtn" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-copy"></use></svg>Копировать</button><button class="primary" type="submit">Готово</button></footer>
       </form>
     </dialog>
 
-    <dialog id="createUserDialog">
-      <form id="createUserForm" method="dialog" class="login-form">
-        <h2>Новый пользователь</h2>
-        <label>
-          Логин
-          <input id="newUsername" type="text" minlength="3" maxlength="64" autocomplete="off" required>
-        </label>
-        <label>
-          E-mail для восстановления
-          <input id="newUserEmail" type="email" maxlength="254" autocomplete="off" placeholder="name@example.com">
-        </label>
-        <label>
-          Временный пароль
-          <input id="newUserPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required>
-        </label>
-        <label>
-          Роль
-          <select id="newUserRole"><option value="user">Пользователь</option><option value="admin">Администратор</option></select>
-        </label>
-        <div class="topbar-actions">
-          <button id="cancelCreateUserBtn" value="cancel" type="button">Отмена</button>
-          <button class="primary" type="submit">Создать</button>
+    <dialog id="createUserDialog" class="form-dialog" aria-labelledby="createUserTitle">
+      <form id="createUserForm" method="dialog" class="dialog-sheet">
+        <header class="dialog-header"><div><span class="eyebrow">ADMIN / USER</span><h2 id="createUserTitle">Новый пользователь</h2></div><button id="closeCreateUserBtn" class="icon-button" type="button" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button></header>
+        <div class="dialog-body form-stack">
+          <p>Создайте отдельную учётную запись и передайте временный пароль безопасным каналом.</p>
+          <label>Логин<input id="newUsername" type="text" minlength="3" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" required></label>
+          <label>E-mail для восстановления<input id="newUserEmail" type="email" maxlength="254" autocomplete="off" placeholder="name@example.com"></label>
+          <label>Временный пароль<input id="newUserPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" aria-describedby="newUserPasswordHint" required><small id="newUserPasswordHint">Не менее 12 символов.</small></label>
+          <label>Роль<select id="newUserRole"><option value="user">Пользователь</option><option value="admin">Администратор</option></select></label>
+          <p id="createUserMessage" class="form-message" role="alert" aria-live="assertive"></p>
         </div>
+        <footer class="dialog-actions"><button id="cancelCreateUserBtn" value="cancel" type="button">Отмена</button><button id="createUserSubmitBtn" class="primary" type="submit">Создать пользователя</button></footer>
       </form>
     </dialog>
 
-    <dialog id="notificationCenterDialog" class="notification-center-dialog">
-      <section class="notification-center-sheet">
-        <header class="dialog-heading">
-          <div><span class="eyebrow">События</span><h2>Уведомления</h2><span id="notificationCenterSummary">Нет новых событий</span></div>
-          <button id="closeNotificationCenterBtn" class="icon-button" type="button" aria-label="Закрыть">×</button>
+    <dialog id="confirmationDialog" class="confirmation-dialog" aria-labelledby="confirmationTitle" aria-describedby="confirmationMessage">
+      <form id="confirmationForm" class="confirmation-sheet" method="dialog" novalidate>
+        <header class="confirmation-header">
+          <div><span id="confirmationContext" class="eyebrow">SYSTEM / ACTION</span><span id="confirmationVariantLabel" class="confirmation-variant-label">CONFIRMATION</span></div>
+          <button id="confirmationCloseBtn" class="icon-button" type="button" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button>
         </header>
-        <div class="notification-center-actions">
-          <button id="markAllNotificationsReadBtn" class="text-button" type="button">Прочитать все</button>
+        <div class="confirmation-body">
+          <span id="confirmationMarker" class="confirmation-marker" aria-hidden="true"></span>
+          <div class="confirmation-copy">
+            <h2 id="confirmationTitle">Подтвердить действие</h2>
+            <p id="confirmationMessage"></p>
+            <p id="confirmationDescription" class="confirmation-description is-hidden"></p>
+          </div>
+          <dl id="confirmationValues" class="confirmation-values is-hidden"></dl>
+          <label id="confirmationInputGroup" class="confirmation-input-group is-hidden"><span id="confirmationInputLabel">Значение</span><input id="confirmationInput" type="text" autocomplete="off"><small id="confirmationInputHint"></small></label>
+          <details id="confirmationTechnicalDetails" class="technical-output-details confirmation-technical is-hidden"><summary>Technical details</summary><pre id="confirmationTechnicalOutput" class="technical-output" tabindex="0"></pre></details>
+          <p id="confirmationError" class="form-message confirmation-error" role="alert" aria-live="assertive"></p>
         </div>
-        <div id="notificationCenterList" class="notification-center-list"></div>
+        <footer class="confirmation-actions">
+          <button id="confirmationCancelBtn" type="button">Отмена</button>
+          <button id="confirmationConfirmBtn" class="primary" type="submit">Продолжить</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="notificationCenterDialog" class="notification-center-dialog" aria-labelledby="notificationCenterTitle">
+      <section class="dialog-sheet notification-center-sheet">
+        <header class="dialog-header"><div><span class="eyebrow">SYSTEM / EVENTS</span><h2 id="notificationCenterTitle">Уведомления</h2><span id="notificationCenterSummary">Нет новых событий</span></div><button id="closeNotificationCenterBtn" class="icon-button" type="button" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button></header>
+        <div class="dialog-body notification-center-body"><div id="notificationCenterList" class="notification-center-list" aria-live="polite"></div></div>
+        <footer class="dialog-actions"><button id="markAllNotificationsReadBtn" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-circle-check"></use></svg>Прочитать все</button></footer>
       </section>
     </dialog>
 
-    <dialog id="profileDialog" class="profile-dialog">
-      <div class="profile-sheet">
-        <div class="dialog-heading">
-          <div>
-            <span class="eyebrow">Аккаунт пользователя</span>
-            <h2>Личный кабинет</h2>
-          </div>
-          <button id="closeProfileBtn" class="icon-button" type="button" aria-label="Закрыть">×</button>
-        </div>
+    <dialog id="profileDialog" class="profile-dialog" aria-labelledby="profileDialogTitle">
+      <div class="dialog-sheet profile-sheet">
+        <header class="dialog-header"><div><span class="eyebrow">ACCOUNT / SETTINGS</span><h2 id="profileDialogTitle">Личный кабинет</h2></div><button id="closeProfileBtn" class="icon-button" type="button" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button></header>
         <div class="profile-identity">
           <span id="profileAvatar" class="profile-avatar">О</span>
-          <div>
-            <strong id="profileUsername">operator</strong>
-            <span id="profileRole">Пользователь</span>
-          </div>
+          <div><strong id="profileIdentityName">operator</strong><span id="profileUsername">operator</span></div>
+          <div class="profile-identity-state"><span id="profileRole" class="status neutral">Пользователь</span><small id="profileEmailState">E-mail не задан</small></div>
         </div>
         <nav class="profile-tabs" aria-label="Разделы личного кабинета" role="tablist">
-          <button class="profile-tab is-active" data-profile-tab="account" type="button" role="tab" aria-controls="profileForm" aria-selected="true">Профиль</button>
-          <button class="profile-tab" data-profile-tab="security" type="button" role="tab" aria-controls="passwordForm" aria-selected="false">Безопасность</button>
-          <button class="profile-tab" data-profile-tab="notifications" type="button" role="tab" aria-controls="notificationSettingsForm" aria-selected="false">Уведомления</button>
-          <button id="profileAdminTab" class="profile-tab is-hidden" data-profile-tab="admin" type="button" role="tab" aria-controls="userManagementSection" aria-selected="false">Пользователи</button>
+          <button class="profile-tab is-active" data-profile-tab="account" type="button" role="tab" aria-controls="profileForm" aria-selected="true"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-user"></use></svg>Профиль</button>
+          <button class="profile-tab" data-profile-tab="security" type="button" role="tab" aria-controls="passwordForm" aria-selected="false"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-shield-lock"></use></svg>Безопасность</button>
+          <button class="profile-tab" data-profile-tab="notifications" type="button" role="tab" aria-controls="notificationSettingsForm" aria-selected="false"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-bell"></use></svg>Уведомления</button>
+          <button id="profileAdminTab" class="profile-tab is-hidden" data-profile-tab="admin" type="button" role="tab" aria-controls="userManagementSection" aria-selected="false"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-users"></use></svg>Пользователи</button>
         </nav>
-        <form id="profileForm" class="profile-form profile-tab-panel" data-profile-panel="account" role="tabpanel">
-          <div class="profile-section-heading"><strong>Контактные данные</strong><span>Используются только в вашем аккаунте</span></div>
-          <label>Отображаемое имя<input id="profileDisplayName" type="text" maxlength="80" autocomplete="name" placeholder="Как к вам обращаться"></label>
-          <label>E-mail<input id="profileEmail" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com"></label>
-          <button class="primary" type="submit">Сохранить профиль</button>
-          <p id="profileMessage" class="form-message" role="status"></p>
-        </form>
-        <form id="passwordForm" class="profile-form profile-security-form profile-tab-panel is-hidden" data-profile-panel="security" role="tabpanel">
-          <div class="profile-section-heading"><strong>Смена пароля</strong><span>Остальные активные сессии будут завершены</span></div>
-          <label>Текущий пароль<input id="currentPassword" type="password" autocomplete="current-password" required></label>
-          <label>Новый пароль<input id="newPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
-          <label>Повторите новый пароль<input id="confirmPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
-          <button type="submit">Изменить пароль</button>
-          <p id="passwordMessage" class="form-message" role="status"></p>
-        </form>
-        <form id="notificationSettingsForm" class="profile-form notification-settings-form profile-tab-panel is-hidden" data-profile-panel="notifications" role="tabpanel">
-          <div class="profile-section-heading"><strong>Уведомления и пороги</strong><span>Настройки применяются к вашим роутерам</span></div>
-          <div class="notification-channel-grid">
-            <label class="notification-toggle"><input id="notificationEmailEnabled" type="checkbox"><span><strong>E-mail</strong><small id="notificationEmailHint">Используется e-mail из профиля</small></span></label>
-            <label class="notification-toggle"><input id="notificationTelegramEnabled" type="checkbox"><span><strong>Telegram</strong><small id="notificationTelegramHint">Нужен Chat ID</small></span></label>
-          </div>
-          <label id="notificationTelegramChatRow">Telegram Chat ID<input id="notificationTelegramChatId" type="text" maxlength="32" inputmode="numeric" placeholder="Например, 123456789"></label>
-          <div class="notification-form-actions">
-            <button id="verifyEmailBtn" type="button">Подтвердить e-mail</button>
-            <button id="verifyTelegramBtn" type="button">Привязать Telegram</button>
-          </div>
-          <div class="notification-form-actions">
-            <label>Код e-mail<input id="emailVerificationCode" type="text" inputmode="numeric" maxlength="6"></label>
-            <label>Код Telegram<input id="telegramVerificationCode" type="text" inputmode="numeric" maxlength="6"></label>
-          </div>
-          <div class="notification-form-actions">
-            <button id="confirmEmailBtn" type="button">Проверить e-mail код</button>
-            <button id="confirmTelegramBtn" type="button">Проверить Telegram код</button>
-          </div>
-          <div class="notification-toggle-grid">
-            <label class="notification-toggle compact"><input id="notificationWarningEnabled" type="checkbox"><span>Предупреждения</span></label>
-            <label class="notification-toggle compact"><input id="notificationCriticalEnabled" type="checkbox"><span>Критические</span></label>
-            <label class="notification-toggle compact"><input id="notificationResolvedEnabled" type="checkbox"><span>Восстановление</span></label>
-          </div>
-          <div class="notification-threshold-grid">
-            <label>Память, %<input id="notificationMemoryThreshold" type="number" min="50" max="99" required></label>
-            <label>Диск, %<input id="notificationDiskThreshold" type="number" min="50" max="99" required></label>
-            <label>Потери, %<input id="notificationPacketLossThreshold" type="number" min="1" max="100" required></label>
-            <label>Задержка, мс<input id="notificationLatencyThreshold" type="number" min="10" max="5000" required></label>
-          </div>
-          <label>Повторять активную проблему<select id="notificationRepeatMinutes"><option value="0">Не повторять</option><option value="15">Каждые 15 минут</option><option value="60">Каждый час</option><option value="360">Каждые 6 часов</option><option value="1440">Раз в сутки</option></select></label>
-          <div class="notification-threshold-grid">
-            <label>Часовой пояс<input id="notificationTimezone" type="text" maxlength="64" placeholder="Europe/Moscow"></label>
-            <label>Отключить до<input id="notificationPausedUntil" type="datetime-local"></label>
-          </div>
-          <label class="notification-toggle compact"><input id="notificationQuietEnabled" type="checkbox"><span>Тихие часы</span></label>
-          <div class="notification-threshold-grid">
-            <label>Начало<input id="notificationQuietStart" type="time"></label>
-            <label>Окончание<input id="notificationQuietEnd" type="time"></label>
-          </div>
-          <label class="notification-toggle compact"><input id="notificationWebhookEnabled" type="checkbox"><span>Подписанный webhook</span></label>
-          <label>Webhook URL<input id="notificationWebhookUrl" type="url" maxlength="2048" placeholder="https://example.com/rmm-events"></label>
-          <label>Webhook secret<input id="notificationWebhookSecret" type="password" minlength="32" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></label>
-          <div class="profile-section-heading"><strong>Настройки роутера</strong><span>Переопределяют общие настройки</span></div>
-          <label>Роутер<select id="notificationDeviceSelect"><option value="">Выберите роутер</option></select></label>
-          <div class="notification-toggle-grid">
-            <label class="notification-toggle compact"><input id="notificationDeviceEnabled" type="checkbox"><span>Уведомлять</span></label>
-            <label class="notification-toggle compact"><input id="notificationDeviceCritical" type="checkbox"><span>Критические</span></label>
-            <label class="notification-toggle compact"><input id="notificationDeviceWarning" type="checkbox"><span>Предупреждения</span></label>
-          </div>
-          <label class="notification-toggle compact"><input id="notificationDeviceResolved" type="checkbox"><span>Восстановление</span></label>
-          <label>Отключить для роутера до<input id="notificationDevicePausedUntil" type="datetime-local"></label>
-          <button id="saveDeviceNotificationSettingsBtn" type="button">Сохранить настройки роутера</button>
-          <div class="notification-form-actions"><button class="primary" type="submit">Сохранить уведомления</button><button id="testNotificationsBtn" type="button">Отправить тест</button></div>
-          <p id="notificationSettingsMessage" class="form-message" role="status"></p>
-          <div class="profile-section-heading"><strong>Состояние доставки</strong><span>Текущая очередь и результаты работы каналов</span></div>
-          <div id="notificationMetrics" class="notification-metrics" aria-live="polite"></div>
-          <div id="notificationChannelDiagnostics" class="notification-channel-diagnostics"></div>
-          <div class="notification-history-heading"><strong>Последние отправки</strong><button id="refreshNotificationsBtn" class="text-button" type="button">Обновить</button></div>
-          <div class="notification-history-filters" aria-label="Фильтры истории уведомлений">
-            <label>Роутер<select id="notificationFilterDevice"><option value="">Все роутеры</option></select></label>
-            <label>Важность<select id="notificationFilterSeverity"><option value="">Любая</option><option value="critical">Критическая</option><option value="warning">Предупреждение</option></select></label>
-            <label>Событие<select id="notificationFilterEvent"><option value="">Любое</option><option value="active">Возникло</option><option value="repeat">Повтор</option><option value="resolved">Восстановлено</option><option value="test">Тест</option></select></label>
-            <label>Канал<select id="notificationFilterChannel"><option value="">Все</option><option value="email">E-mail</option><option value="telegram">Telegram</option><option value="webhook">Webhook</option></select></label>
-            <label>Статус<select id="notificationFilterStatus"><option value="">Любой</option><option value="queued">В очереди</option><option value="sending">Отправляется</option><option value="retry">Ожидает повтора</option><option value="sent">Доставлено</option><option value="dead_letter">Не доставлено</option></select></label>
-            <button id="clearNotificationFiltersBtn" class="text-button" type="button">Сбросить</button>
-          </div>
-          <div id="notificationHistory" class="notification-history"></div>
-        </form>
-        <section id="userManagementSection" class="profile-form user-management profile-tab-panel is-hidden" data-profile-panel="admin" role="tabpanel">
-          <div class="profile-section-heading"><strong>Пользователи</strong><span>Роли и доступы всех аккаунтов</span></div>
-          <div id="userList" class="user-list"></div>
-          <div class="profile-section-heading"><strong>Поэтапные обновления агента</strong><span>Только поддерживаемые Go-устройства с совместимым неизменяемым feed</span></div>
-          <form id="rolloutForm" class="command-form">
-            <input id="rolloutDeviceIds" type="text" placeholder="ID устройств через запятую" required>
-            <select id="rolloutChannel"><option value="stable">stable</option><option value="candidate">candidate</option></select>
-            <input id="rolloutBatchSize" type="number" min="1" value="1" required>
-            <input id="rolloutFailureThreshold" type="number" min="1" value="1" required>
-            <button type="submit">Запустить rollout</button>
+        <div class="dialog-body profile-body">
+          <form id="profileForm" class="profile-form settings-section profile-tab-panel" data-profile-panel="account" role="tabpanel">
+            <header class="settings-section-header"><div><span class="eyebrow">ACCOUNT / IDENTITY</span><h3>Контактные данные</h3><p>Используются только в вашем аккаунте и для восстановления доступа.</p></div></header>
+            <div class="settings-field-grid"><label>Отображаемое имя<input id="profileDisplayName" type="text" maxlength="80" autocomplete="name" placeholder="Как к вам обращаться"></label><label>E-mail<input id="profileEmail" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com"></label></div>
+            <footer class="settings-actions"><p id="profileMessage" class="form-message" role="status" aria-live="polite"></p><button id="profileSubmitBtn" class="primary" type="submit">Сохранить профиль</button></footer>
           </form>
-          <p id="rolloutMessage" class="form-message" role="status"></p>
-          <div id="rolloutList" class="user-list"></div>
-        </section>
-        <div class="profile-session-actions profile-tab-panel is-hidden" data-profile-panel="security">
-          <button id="logoutAllBtn" class="danger" type="button">Завершить все сессии</button>
-          <button id="profileLogoutBtn" type="button">Выйти на этом устройстве</button>
+
+          <form id="passwordForm" class="profile-form settings-section profile-tab-panel is-hidden" data-profile-panel="security" role="tabpanel">
+            <header class="settings-section-header"><div><span class="eyebrow">SECURITY / PASSWORD</span><h3>Смена пароля</h3><p>После изменения пароля остальные активные сессии будут завершены.</p></div><span class="status warning">SECURITY ACTION</span></header>
+            <div class="settings-field-grid security-fields"><label>Текущий пароль<input id="currentPassword" type="password" autocomplete="current-password" required></label><label>Новый пароль<input id="newPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" aria-describedby="passwordRequirements" required><small id="passwordRequirements">Не менее 12 символов.</small></label><label>Повторите новый пароль<input id="confirmPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label></div>
+            <footer class="settings-actions"><p id="passwordMessage" class="form-message" role="status" aria-live="polite"></p><button id="passwordSubmitBtn" class="primary" type="submit">Изменить пароль</button></footer>
+          </form>
+
+          <section class="settings-section profile-tab-panel is-hidden" data-profile-panel="security">
+            <header class="settings-section-header"><div><span class="eyebrow">SECURITY / SESSIONS</span><h3>Активные сессии</h3><p>Завершение всех сессий потребует повторного входа на каждом устройстве.</p></div></header>
+            <div class="profile-session-actions"><button id="profileLogoutBtn" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-logout"></use></svg>Выйти на этом устройстве</button><button id="logoutAllBtn" class="danger" type="button">Завершить все сессии</button></div>
+          </section>
+
+          <form id="notificationSettingsForm" class="profile-form notification-settings-form profile-tab-panel is-hidden" data-profile-panel="notifications" role="tabpanel">
+            <p id="notificationSettingsMessage" class="form-message settings-global-message" role="status" aria-live="polite"></p>
+            <section class="settings-section">
+              <header class="settings-section-header"><div><span class="eyebrow">NOTIFICATIONS / CHANNELS</span><h3>Каналы доставки</h3><p>Канал включается отдельно от его настройки и подтверждения.</p></div></header>
+              <div class="notification-channels">
+                <article id="notificationEmailChannel" class="notification-channel-row"><div class="channel-identity"><svg class="icon icon-lg" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-mail"></use></svg><div><strong>E-mail</strong><span id="notificationEmailState" class="status neutral">NOT CONFIGURED</span><small id="notificationEmailHint">Используется e-mail из профиля</small></div></div><label class="setting-switch"><input id="notificationEmailEnabled" type="checkbox"><span aria-hidden="true"></span><b>Включён</b></label><div class="channel-verification"><label>Код подтверждения<input id="emailVerificationCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label><div><button id="verifyEmailBtn" type="button">Отправить код</button><button id="confirmEmailBtn" type="button">Подтвердить</button></div></div></article>
+                <article id="notificationTelegramChannel" class="notification-channel-row"><div class="channel-identity"><svg class="icon icon-lg" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-brand-telegram"></use></svg><div><strong>Telegram</strong><span id="notificationTelegramState" class="status neutral">NOT CONFIGURED</span><small id="notificationTelegramHint">Нужен Chat ID</small></div></div><label class="setting-switch"><input id="notificationTelegramEnabled" type="checkbox"><span aria-hidden="true"></span><b>Включён</b></label><div class="channel-verification"><label id="notificationTelegramChatRow">Telegram Chat ID<input id="notificationTelegramChatId" class="technical-input" type="text" maxlength="32" inputmode="numeric" placeholder="123456789"></label><label>Код подтверждения<input id="telegramVerificationCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label><div><button id="verifyTelegramBtn" type="button">Отправить код</button><button id="confirmTelegramBtn" type="button">Подтвердить</button></div></div></article>
+              </div>
+            </section>
+
+            <section class="settings-section"><header class="settings-section-header"><div><span class="eyebrow">NOTIFICATIONS / EVENTS</span><h3>Типы событий</h3><p>Выберите события, которые должны создавать отправку.</p></div></header><div class="settings-boolean-list"><label><input id="notificationWarningEnabled" type="checkbox"><span><strong>Предупреждения</strong><small>Деградация и превышение порогов</small></span></label><label><input id="notificationCriticalEnabled" type="checkbox"><span><strong>Критические</strong><small>Недоступность и критические сбои</small></span></label><label><input id="notificationResolvedEnabled" type="checkbox"><span><strong>Восстановление</strong><small>Возврат объекта в нормальное состояние</small></span></label></div></section>
+
+            <section class="settings-section"><header class="settings-section-header"><div><span class="eyebrow">NOTIFICATIONS / THRESHOLDS</span><h3>Пороги и повтор</h3><p>Значения применяются как глобальные defaults.</p></div></header><div class="notification-threshold-grid"><label>Память<span class="unit-input"><input id="notificationMemoryThreshold" type="number" min="50" max="99" required><span>%</span></span></label><label>Диск<span class="unit-input"><input id="notificationDiskThreshold" type="number" min="50" max="99" required><span>%</span></span></label><label>Потери пакетов<span class="unit-input"><input id="notificationPacketLossThreshold" type="number" min="1" max="100" required><span>%</span></span></label><label>Задержка<span class="unit-input"><input id="notificationLatencyThreshold" type="number" min="10" max="5000" required><span>ms</span></span></label></div><label>Повторять активную проблему<select id="notificationRepeatMinutes"><option value="0">Не повторять</option><option value="15">Каждые 15 минут</option><option value="60">Каждый час</option><option value="360">Каждые 6 часов</option><option value="1440">Раз в сутки</option></select></label></section>
+
+            <section class="settings-section"><header class="settings-section-header"><div><span class="eyebrow">NOTIFICATIONS / QUIET HOURS</span><h3>Расписание</h3><p>Timezone используется для тихих часов и временной паузы.</p></div><label class="setting-switch"><input id="notificationQuietEnabled" type="checkbox"><span aria-hidden="true"></span><b>Тихие часы</b></label></header><div class="notification-threshold-grid"><label>Начало<input id="notificationQuietStart" type="time"></label><label>Окончание<input id="notificationQuietEnd" type="time"></label><label>Часовой пояс<input id="notificationTimezone" class="technical-input" type="text" maxlength="64" placeholder="Europe/Moscow"></label><label>Отключить все до<input id="notificationPausedUntil" type="datetime-local"></label></div></section>
+
+            <section class="settings-section"><header class="settings-section-header"><div><span class="eyebrow">NOTIFICATIONS / WEBHOOK</span><h3>Подписанный webhook</h3><p>Secret сохраняется только при вводе нового значения.</p></div><label class="setting-switch"><input id="notificationWebhookEnabled" type="checkbox"><span aria-hidden="true"></span><b>Включён</b></label></header><div class="settings-field-grid"><label>Webhook URL<input id="notificationWebhookUrl" class="technical-input" type="url" maxlength="2048" placeholder="https://example.com/rmm-events"></label><label>Webhook secret<input id="notificationWebhookSecret" class="technical-input" type="password" minlength="32" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></label></div></section>
+
+            <section class="settings-section device-override-section"><header class="settings-section-header"><div><span class="eyebrow">DEVICE OVERRIDE</span><h3>Настройки конкретного роутера</h3><p>Эти значения переопределяют global defaults только для выбранного устройства.</p></div></header><label>Роутер<select id="notificationDeviceSelect"><option value="">Выберите роутер</option></select></label><div class="settings-boolean-list"><label><input id="notificationDeviceEnabled" type="checkbox"><span>Уведомлять</span></label><label><input id="notificationDeviceCritical" type="checkbox"><span>Критические</span></label><label><input id="notificationDeviceWarning" type="checkbox"><span>Предупреждения</span></label><label><input id="notificationDeviceResolved" type="checkbox"><span>Восстановление</span></label></div><div class="settings-field-grid"><label>Отключить для роутера до<input id="notificationDevicePausedUntil" type="datetime-local"></label><div class="field-action"><button id="saveDeviceNotificationSettingsBtn" type="button">Сохранить override</button></div></div></section>
+
+            <section class="settings-section"><header class="settings-section-header"><div><span class="eyebrow">NOTIFICATIONS / DELIVERY</span><h3>Состояние доставки</h3><p>Очередь, результаты и состояние каналов.</p></div><button id="testNotificationsBtn" type="button">Отправить тест</button></header><div id="notificationMetrics" class="notification-metrics" aria-live="polite"></div><div id="notificationChannelDiagnostics" class="notification-channel-diagnostics"></div></section>
+
+            <section class="settings-section notification-history-section"><header class="settings-section-header"><div><span class="eyebrow">NOTIFICATIONS / HISTORY</span><h3>История доставки</h3><p>Последние отправки с фильтрами по объекту, событию и каналу.</p></div><button id="refreshNotificationsBtn" class="icon-text-button" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-refresh"></use></svg>Обновить</button></header><div class="notification-history-filters" aria-label="Фильтры истории уведомлений"><label>Роутер<select id="notificationFilterDevice"><option value="">Все роутеры</option></select></label><label>Важность<select id="notificationFilterSeverity"><option value="">Любая</option><option value="critical">Критическая</option><option value="warning">Предупреждение</option></select></label><label>Событие<select id="notificationFilterEvent"><option value="">Любое</option><option value="active">Возникло</option><option value="repeat">Повтор</option><option value="resolved">Восстановлено</option><option value="test">Тест</option></select></label><label>Канал<select id="notificationFilterChannel"><option value="">Все</option><option value="email">E-mail</option><option value="telegram">Telegram</option><option value="webhook">Webhook</option></select></label><label>Статус<select id="notificationFilterStatus"><option value="">Любой</option><option value="queued">В очереди</option><option value="sending">Отправляется</option><option value="retry">Ожидает повтора</option><option value="sent">Доставлено</option><option value="dead_letter">Не доставлено</option></select></label><button id="clearNotificationFiltersBtn" type="button">Сбросить</button></div><div class="notification-history-head" aria-hidden="true"><span>Канал</span><span>Событие / объект</span><span>Статус</span><span>Время</span></div><div id="notificationHistory" class="notification-history"></div></section>
+            <footer class="settings-save-bar"><span>GLOBAL DEFAULTS</span><button id="notificationSubmitBtn" class="primary" type="submit">Сохранить уведомления</button></footer>
+          </form>
+
+          <section id="userManagementSection" class="profile-form user-management profile-tab-panel is-hidden" data-profile-panel="admin" role="tabpanel">
+            <section class="settings-section"><header class="settings-section-header"><div><span class="eyebrow">ADMIN / USERS</span><h3>Пользователи</h3><p>Роли, состояние и доступы всех аккаунтов.</p></div><button id="openCreateUserBtn" class="primary" type="button">Создать пользователя</button></header><div class="user-list-head" aria-hidden="true"><span>Пользователь</span><span>Роль</span><span>Состояние</span><span>Действия</span></div><div id="userList" class="user-list" aria-live="polite"></div></section>
+            <section class="settings-section"><header class="settings-section-header"><div><span class="eyebrow">ADMIN / ROLLOUTS</span><h3>Поэтапные обновления агента</h3><p>Только поддерживаемые Go-устройства с совместимым неизменяемым feed.</p></div></header><form id="rolloutForm" class="rollout-form"><label>Device IDs<input id="rolloutDeviceIds" class="technical-input" type="text" placeholder="ID устройств через запятую" required></label><label>Канал<select id="rolloutChannel"><option value="stable">stable</option><option value="candidate">candidate</option></select></label><label>Размер batch<input id="rolloutBatchSize" type="number" min="1" value="1" required></label><label>Порог ошибок<input id="rolloutFailureThreshold" type="number" min="1" value="1" required></label><button type="submit">Запустить rollout</button></form><p id="rolloutMessage" class="form-message" role="status"></p><div id="rolloutList" class="rollout-list"></div></section>
+          </section>
         </div>
       </div>
     </dialog>
 
-    <dialog id="agentRollbackDialog">
-      <form id="agentRollbackForm" class="login-form">
-        <div class="dialog-heading"><div><span class="eyebrow">Подписанная версия</span><h2>Откат агента</h2></div><button id="closeAgentRollbackBtn" class="icon-button" type="button" aria-label="Закрыть">×</button></div>
-        <p>Укажите ранее опубликованную версию. Сервер загрузит исторический manifest с доверенного package-сайта и проверит его подпись и совместимость.</p>
-        <label>Целевая версия<input id="agentRollbackVersion" type="text" inputmode="decimal" placeholder="0.6.9" pattern="[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?" required></label>
-        <p id="agentRollbackPreview" class="form-hint"></p>
-        <button class="danger" type="submit">Проверить и добавить откат в очередь</button>
-        <p id="agentRollbackMessage" class="form-message" role="status"></p>
+    <dialog id="agentRollbackDialog" class="form-dialog" aria-labelledby="agentRollbackTitle">
+      <form id="agentRollbackForm" class="dialog-sheet">
+        <header class="dialog-header"><div><span class="eyebrow">SYSTEM / SIGNED VERSION</span><h2 id="agentRollbackTitle">Откат агента</h2></div><button id="closeAgentRollbackBtn" class="icon-button" type="button" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button></header>
+        <div class="dialog-body form-stack"><p>Укажите ранее опубликованную версию. Сервер загрузит исторический manifest с доверенного package-сайта и проверит подпись и совместимость.</p><label>Целевая версия<input id="agentRollbackVersion" class="technical-input" type="text" inputmode="decimal" placeholder="0.6.9" pattern="[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?" required></label><p id="agentRollbackPreview" class="form-hint"></p><p id="agentRollbackMessage" class="form-message" role="status"></p></div>
+        <footer class="dialog-actions"><button type="button" data-dialog-cancel="agentRollbackDialog">Отмена</button><button class="danger" type="submit">Проверить и добавить в очередь</button></footer>
       </form>
     </dialog>
 
-    <dialog id="forgotPasswordDialog">
-      <form id="forgotPasswordForm" class="login-form">
-        <div class="dialog-heading"><div><span class="eyebrow">Восстановление доступа</span><h2>Сбросить пароль</h2></div><button id="closeForgotPasswordBtn" class="icon-button" type="button" aria-label="Закрыть">×</button></div>
-        <p>Введите логин или e-mail. Если для аккаунта настроено восстановление, мы отправим одноразовую ссылку на 30 минут.</p>
-        <label>Логин или e-mail<input id="passwordResetIdentifier" type="text" maxlength="254" autocomplete="username" required></label>
-        <button class="primary" type="submit">Отправить ссылку</button>
-        <p id="forgotPasswordMessage" class="form-message" role="status"></p>
+    <dialog id="forgotPasswordDialog" class="form-dialog" aria-labelledby="forgotPasswordTitle">
+      <form id="forgotPasswordForm" class="dialog-sheet">
+        <header class="dialog-header"><div><span class="eyebrow">ACCOUNT / RECOVERY</span><h2 id="forgotPasswordTitle">Сбросить пароль</h2></div><button id="closeForgotPasswordBtn" class="icon-button" type="button" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button></header>
+        <div class="dialog-body form-stack"><p>Введите логин или e-mail. Если восстановление настроено, одноразовая ссылка будет действовать 30 минут.</p><label>Логин или e-mail<input id="passwordResetIdentifier" type="text" maxlength="254" autocomplete="username" required></label><p id="forgotPasswordMessage" class="form-message" role="status" aria-live="polite"></p></div>
+        <footer class="dialog-actions"><button type="button" data-dialog-cancel="forgotPasswordDialog">Отмена</button><button id="forgotPasswordSubmitBtn" class="primary" type="submit">Отправить ссылку</button></footer>
       </form>
     </dialog>
 
-    <dialog id="passwordResetDialog">
-      <form id="passwordResetForm" class="login-form">
-        <div class="dialog-heading"><div><span class="eyebrow">Новый пароль</span><h2>Восстановление доступа</h2></div><button id="closePasswordResetBtn" class="icon-button" type="button" aria-label="Закрыть">×</button></div>
-        <label>Новый пароль<input id="resetNewPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
-        <label>Повторите пароль<input id="resetConfirmPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
-        <button class="primary" type="submit">Установить новый пароль</button>
-        <p id="passwordResetMessage" class="form-message" role="status"></p>
+    <dialog id="passwordResetDialog" class="form-dialog" aria-labelledby="passwordResetTitle">
+      <form id="passwordResetForm" class="dialog-sheet">
+        <header class="dialog-header"><div><span class="eyebrow">ACCOUNT / NEW PASSWORD</span><h2 id="passwordResetTitle">Восстановление доступа</h2></div><button id="closePasswordResetBtn" class="icon-button" type="button" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button></header>
+        <div class="dialog-body form-stack"><label>Новый пароль<input id="resetNewPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label><label>Повторите пароль<input id="resetConfirmPassword" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label><p id="passwordResetMessage" class="form-message" role="status" aria-live="polite"></p></div>
+        <footer class="dialog-actions"><button type="button" data-dialog-cancel="passwordResetDialog">Отмена</button><button id="passwordResetSubmitBtn" class="primary" type="submit">Установить новый пароль</button></footer>
       </form>
     </dialog>
 
     <dialog id="luciStateDialog" class="luci-state-dialog">
       <div class="luci-state-sheet">
         <div class="luci-state-route" aria-hidden="true">
-          <span class="luci-cloud">☁</span>
+          <span class="luci-cloud"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-cloud-lock"></use></svg></span>
           <i></i>
-          <span class="luci-warning">!</span>
+          <span class="luci-warning"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-alert-triangle"></use></svg></span>
           <i></i>
-          <span class="luci-router">R</span>
+          <span class="luci-router"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-router"></use></svg></span>
         </div>
         <span id="luciStateCode" class="luci-state-code">409 · SESSION REQUIRED</span>
         <h2 id="luciStateTitle">Удалённый доступ не запущен</h2>
@@ -1033,8 +995,26 @@
       </div>
     </dialog>
 
+    <dialog id="systemStateDialog" class="system-state-dialog" aria-labelledby="systemStateTitle" aria-describedby="systemStateDescription">
+      <section id="systemStateSheet" class="system-state" data-tone="error">
+        <header class="system-state-header">
+          <span id="systemStateCode" class="system-state-code">ERROR · REQUEST FAILED</span>
+          <button id="closeSystemStateBtn" class="icon-button" type="button" aria-label="Закрыть"><svg class="icon icon-md" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-x"></use></svg></button>
+        </header>
+        <div id="systemStateSymbol" class="system-state-symbol" aria-hidden="true"><svg class="icon icon-state"><use id="systemStateIconUse" href="/assets/icons/tabler-sprite.svg#icon-alert-circle"></use></svg></div>
+        <h2 id="systemStateTitle">Не удалось выполнить запрос</h2>
+        <p id="systemStateDescription">Повторите действие. Если ошибка сохранится, сообщите идентификатор запроса администратору.</p>
+        <dl id="systemStateContext" class="system-state-context"></dl>
+        <footer class="system-state-actions">
+          <button id="systemStatePrimaryBtn" class="primary" type="button">Повторить</button>
+          <button id="systemStateBackBtn" type="button">Вернуться</button>
+          <button id="systemStateCopyBtn" class="text-button is-hidden" type="button">Копировать ID запроса</button>
+        </footer>
+      </section>
+    </dialog>
+
     <script src="/landing-motion.js?v=2" defer></script>
     <script src="/version.js?v=1" defer></script>
-    <script src="/app.js?v=34" defer></script>
+    <script src="/app.js?v=36" defer></script>
   </body>
 </html>

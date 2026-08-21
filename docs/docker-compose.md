@@ -71,7 +71,7 @@ For a production deployment, pin the server release in `.env`. The base Compose 
 the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.10.2
+RMM_RELEASE_VERSION=0.11.0
 ```
 
 ```powershell

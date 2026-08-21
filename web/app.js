@@ -40,6 +40,8 @@ const state = {
   lastUpdatedAt: null,
   releaseMetadata: null,
   releaseMetadataCheckedAt: 0,
+  systemStateRetry: null,
+  confirmationRequest: null,
 };
 
 let eventSource = null;
@@ -50,6 +52,7 @@ const els = {
   loginForm: document.querySelector("#loginForm"),
   loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),
+  loginSubmitBtn: document.querySelector("#loginSubmitBtn"),
   loginError: document.querySelector("#loginError"),
   forgotPasswordBtn: document.querySelector("#forgotPasswordBtn"),
   forgotPasswordDialog: document.querySelector("#forgotPasswordDialog"),
@@ -78,13 +81,17 @@ const els = {
   enrollmentGrantDialog: document.querySelector("#enrollmentGrantDialog"),
   enrollmentTokenOutput: document.querySelector("#enrollmentTokenOutput"),
   copyEnrollmentTokenBtn: document.querySelector("#copyEnrollmentTokenBtn"),
+  enrollmentCopyState: document.querySelector("#enrollmentCopyState"),
   createUserDialog: document.querySelector("#createUserDialog"),
   createUserForm: document.querySelector("#createUserForm"),
+  closeCreateUserBtn: document.querySelector("#closeCreateUserBtn"),
   newUsername: document.querySelector("#newUsername"),
   newUserEmail: document.querySelector("#newUserEmail"),
   newUserPassword: document.querySelector("#newUserPassword"),
   newUserRole: document.querySelector("#newUserRole"),
   cancelCreateUserBtn: document.querySelector("#cancelCreateUserBtn"),
+  createUserSubmitBtn: document.querySelector("#createUserSubmitBtn"),
+  createUserMessage: document.querySelector("#createUserMessage"),
   deviceList: document.querySelector("#deviceList"),
   fleetView: document.querySelector("#fleetView"),
   fleetTotalCount: document.querySelector("#fleetTotalCount"),
@@ -143,12 +150,16 @@ const els = {
   clientCounts: document.querySelector("#clientCounts"),
   connectivityStatus: document.querySelector("#connectivityStatus"),
   inventoryJson: document.querySelector("#inventoryJson"),
+  inventorySummary: document.querySelector("#inventorySummary"),
+  inventoryStatus: document.querySelector("#inventoryStatus"),
   clientList: document.querySelector("#clientList"),
   clientSummary: document.querySelector("#clientSummary"),
   clientSearch: document.querySelector("#clientSearch"),
+  clientDataState: document.querySelector("#clientDataState"),
   interfaceCounters: document.querySelector("#interfaceCounters"),
   networkSummary: document.querySelector("#networkSummary"),
   networkHealth: document.querySelector("#networkHealth"),
+  networkDataState: document.querySelector("#networkDataState"),
   fleetSearch: document.querySelector("#fleetSearch"),
   fleetGroupFilter: document.querySelector("#fleetGroupFilter"),
   fleetTagFilter: document.querySelector("#fleetTagFilter"),
@@ -163,14 +174,22 @@ const els = {
   alertSummary: document.querySelector("#alertSummary"),
   alertList: document.querySelector("#alertList"),
   alertStatusFilter: document.querySelector("#alertStatusFilter"),
+  problemDataState: document.querySelector("#problemDataState"),
   metricsHistorySummary: document.querySelector("#metricsHistorySummary"),
   metricsHistory: document.querySelector("#metricsHistory"),
   commandType: document.querySelector("#commandType"),
   commandTarget: document.querySelector("#commandTarget"),
   sendCommandBtn: document.querySelector("#sendCommandBtn"),
+  manualCommandStatus: document.querySelector("#manualCommandStatus"),
+  manualCommandOutputDetails: document.querySelector("#manualCommandOutputDetails"),
+  manualCommandOutput: document.querySelector("#manualCommandOutput"),
   packageCommand: document.querySelector("#packageCommand"),
   packageName: document.querySelector("#packageName"),
   sendPackageCommandBtn: document.querySelector("#sendPackageCommandBtn"),
+  packageOperationStatus: document.querySelector("#packageOperationStatus"),
+  packageFormMessage: document.querySelector("#packageFormMessage"),
+  packageOutputDetails: document.querySelector("#packageOutputDetails"),
+  packageTechnicalOutput: document.querySelector("#packageTechnicalOutput"),
   remoteServerHost: document.querySelector("#remoteServerHost"),
   remoteServerPort: document.querySelector("#remoteServerPort"),
   remotePort: document.querySelector("#remotePort"),
@@ -181,6 +200,7 @@ const els = {
   openCloudAccessBtn: document.querySelector("#openCloudAccessBtn"),
   cloudAccessCard: document.querySelector("#cloudAccessCard"),
   cloudAccessStatus: document.querySelector("#cloudAccessStatus"),
+  cloudAccessState: document.querySelector("#cloudAccessState"),
   remoteSummary: document.querySelector("#remoteSummary"),
   remoteSessionList: document.querySelector("#remoteSessionList"),
   uciConfig: document.querySelector("#uciConfig"),
@@ -196,6 +216,11 @@ const els = {
   uciCommitConfirmedBtn: document.querySelector("#uciCommitConfirmedBtn"),
   uciRevertBtn: document.querySelector("#uciRevertBtn"),
   uciRestoreBtn: document.querySelector("#uciRestoreBtn"),
+  uciOperationStatus: document.querySelector("#uciOperationStatus"),
+  uciFormMessage: document.querySelector("#uciFormMessage"),
+  uciDiff: document.querySelector("#uciDiff"),
+  uciOutputDetails: document.querySelector("#uciOutputDetails"),
+  uciTechnicalOutput: document.querySelector("#uciTechnicalOutput"),
   presetLanIp: document.querySelector("#presetLanIp"),
   presetHostname: document.querySelector("#presetHostname"),
   presetWifiSsid: document.querySelector("#presetWifiSsid"),
@@ -231,13 +256,16 @@ const els = {
   profileDialog: document.querySelector("#profileDialog"),
   closeProfileBtn: document.querySelector("#closeProfileBtn"),
   profileUsername: document.querySelector("#profileUsername"),
+  profileIdentityName: document.querySelector("#profileIdentityName"),
   profileRole: document.querySelector("#profileRole"),
+  profileEmailState: document.querySelector("#profileEmailState"),
   profileAvatar: document.querySelector("#profileAvatar"),
   profileLogoutBtn: document.querySelector("#profileLogoutBtn"),
   profileForm: document.querySelector("#profileForm"),
   profileDisplayName: document.querySelector("#profileDisplayName"),
   profileEmail: document.querySelector("#profileEmail"),
   profileMessage: document.querySelector("#profileMessage"),
+  profileSubmitBtn: document.querySelector("#profileSubmitBtn"),
   profileAdminTab: document.querySelector("#profileAdminTab"),
   profileTabs: [...document.querySelectorAll("[data-profile-tab]")],
   profilePanels: [...document.querySelectorAll("[data-profile-panel]")],
@@ -253,9 +281,14 @@ const els = {
   newPassword: document.querySelector("#newPassword"),
   confirmPassword: document.querySelector("#confirmPassword"),
   passwordMessage: document.querySelector("#passwordMessage"),
+  passwordSubmitBtn: document.querySelector("#passwordSubmitBtn"),
   notificationSettingsForm: document.querySelector("#notificationSettingsForm"),
+  notificationEmailChannel: document.querySelector("#notificationEmailChannel"),
+  notificationEmailState: document.querySelector("#notificationEmailState"),
   notificationEmailEnabled: document.querySelector("#notificationEmailEnabled"),
   notificationEmailHint: document.querySelector("#notificationEmailHint"),
+  notificationTelegramChannel: document.querySelector("#notificationTelegramChannel"),
+  notificationTelegramState: document.querySelector("#notificationTelegramState"),
   notificationTelegramEnabled: document.querySelector("#notificationTelegramEnabled"),
   notificationTelegramHint: document.querySelector("#notificationTelegramHint"),
   notificationTelegramChatRow: document.querySelector("#notificationTelegramChatRow"),
@@ -291,6 +324,7 @@ const els = {
   saveDeviceNotificationSettingsBtn: document.querySelector("#saveDeviceNotificationSettingsBtn"),
   notificationSettingsMessage: document.querySelector("#notificationSettingsMessage"),
   testNotificationsBtn: document.querySelector("#testNotificationsBtn"),
+  notificationSubmitBtn: document.querySelector("#notificationSubmitBtn"),
   refreshNotificationsBtn: document.querySelector("#refreshNotificationsBtn"),
   notificationMetrics: document.querySelector("#notificationMetrics"),
   notificationChannelDiagnostics: document.querySelector("#notificationChannelDiagnostics"),
@@ -309,6 +343,26 @@ const els = {
   markAllNotificationsReadBtn: document.querySelector("#markAllNotificationsReadBtn"),
   notificationCenterSummary: document.querySelector("#notificationCenterSummary"),
   notificationCenterList: document.querySelector("#notificationCenterList"),
+  openCreateUserBtn: document.querySelector("#openCreateUserBtn"),
+  confirmationDialog: document.querySelector("#confirmationDialog"),
+  confirmationForm: document.querySelector("#confirmationForm"),
+  confirmationContext: document.querySelector("#confirmationContext"),
+  confirmationVariantLabel: document.querySelector("#confirmationVariantLabel"),
+  confirmationCloseBtn: document.querySelector("#confirmationCloseBtn"),
+  confirmationMarker: document.querySelector("#confirmationMarker"),
+  confirmationTitle: document.querySelector("#confirmationTitle"),
+  confirmationMessage: document.querySelector("#confirmationMessage"),
+  confirmationDescription: document.querySelector("#confirmationDescription"),
+  confirmationValues: document.querySelector("#confirmationValues"),
+  confirmationInputGroup: document.querySelector("#confirmationInputGroup"),
+  confirmationInputLabel: document.querySelector("#confirmationInputLabel"),
+  confirmationInput: document.querySelector("#confirmationInput"),
+  confirmationInputHint: document.querySelector("#confirmationInputHint"),
+  confirmationTechnicalDetails: document.querySelector("#confirmationTechnicalDetails"),
+  confirmationTechnicalOutput: document.querySelector("#confirmationTechnicalOutput"),
+  confirmationError: document.querySelector("#confirmationError"),
+  confirmationCancelBtn: document.querySelector("#confirmationCancelBtn"),
+  confirmationConfirmBtn: document.querySelector("#confirmationConfirmBtn"),
   logoutAllBtn: document.querySelector("#logoutAllBtn"),
   userManagementSection: document.querySelector("#userManagementSection"),
   userList: document.querySelector("#userList"),
@@ -321,6 +375,18 @@ const els = {
   luciStateDiagnosticBtn: document.querySelector("#luciStateDiagnosticBtn"),
   closeLuciStateBtn: document.querySelector("#closeLuciStateBtn"),
   luciStateRequestId: document.querySelector("#luciStateRequestId"),
+  systemStateDialog: document.querySelector("#systemStateDialog"),
+  systemStateSheet: document.querySelector("#systemStateSheet"),
+  systemStateCode: document.querySelector("#systemStateCode"),
+  systemStateSymbol: document.querySelector("#systemStateSymbol"),
+  systemStateIconUse: document.querySelector("#systemStateIconUse"),
+  systemStateTitle: document.querySelector("#systemStateTitle"),
+  systemStateDescription: document.querySelector("#systemStateDescription"),
+  systemStateContext: document.querySelector("#systemStateContext"),
+  systemStatePrimaryBtn: document.querySelector("#systemStatePrimaryBtn"),
+  systemStateBackBtn: document.querySelector("#systemStateBackBtn"),
+  systemStateCopyBtn: document.querySelector("#systemStateCopyBtn"),
+  closeSystemStateBtn: document.querySelector("#closeSystemStateBtn"),
 };
 
 if (els.remoteServerHost) {
@@ -365,6 +431,79 @@ function reportError(error) {
   const message = error instanceof Error ? error.message : String(error || "Unexpected error");
   setStatus(message);
   showToast(message, "error");
+  if (error && error.status === 403) {
+    showSystemState(error, "access");
+    return;
+  }
+  if (!error || !error.status) {
+    showSystemState(error, "backend");
+    return;
+  }
+  if (error.status >= 500) showSystemState(error, "generic");
+}
+
+function setSystemStateContext(entries) {
+  els.systemStateContext.replaceChildren();
+  for (const [label, value] of entries) {
+    if (!value) continue;
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = value;
+    row.append(term, description);
+    els.systemStateContext.appendChild(row);
+  }
+  els.systemStateContext.classList.toggle("is-hidden", els.systemStateContext.childElementCount === 0);
+}
+
+function showSystemState(error, kind = "generic", retry = null) {
+  const requestId = error && error.requestId ? error.requestId : "";
+  const message = error instanceof Error ? error.message : String(error || "");
+  const variants = {
+    access: {
+      tone: "warning",
+      code: "403 · ACCESS DENIED",
+      icon: "shield-lock",
+      title: "Недостаточно прав",
+      description: "У вашей учётной записи нет доступа к этому действию или объекту.",
+      primary: "К объектам",
+      retry: () => showFleet(),
+    },
+    backend: {
+      tone: "error",
+      code: "503 · BACKEND UNAVAILABLE",
+      icon: "server-off",
+      title: "Сервер недоступен",
+      description: "Интерфейс не может связаться с OpenWrt RMM. Последние показанные данные могут быть устаревшими.",
+      primary: "Повторить подключение",
+      retry: retry || (() => (els.appShell.classList.contains("is-hidden") ? checkSession() : refreshDevicesIfIdle())),
+    },
+    generic: {
+      tone: "error",
+      code: "ERROR · REQUEST FAILED",
+      icon: "alert-circle",
+      title: "Не удалось выполнить запрос",
+      description: "Повторите действие. Если ошибка сохранится, сообщите идентификатор запроса администратору.",
+      primary: "Повторить",
+      retry: retry || (() => refreshDevicesIfIdle()),
+    },
+  };
+  const variant = variants[kind] || variants.generic;
+  state.systemStateRetry = variant.retry;
+  els.systemStateSheet.dataset.tone = variant.tone;
+  els.systemStateCode.textContent = variant.code;
+  els.systemStateIconUse.setAttribute("href", `${iconSpriteURL}#icon-${variant.icon}`);
+  els.systemStateTitle.textContent = variant.title;
+  els.systemStateDescription.textContent = variant.description;
+  els.systemStatePrimaryBtn.textContent = variant.primary;
+  els.systemStateCopyBtn.classList.toggle("is-hidden", !requestId);
+  setSystemStateContext([
+    ["Сообщение", message],
+    ["ID запроса", requestId],
+    ["Последнее обновление", state.lastUpdatedAt ? formatDate(state.lastUpdatedAt) : ""],
+  ]);
+  if (!els.systemStateDialog.open) els.systemStateDialog.showModal();
 }
 
 function setLiveState(mode, label) {
@@ -427,7 +566,7 @@ function connectLiveUpdates() {
   });
   eventSource.onerror = () => {
     state.liveConnected = false;
-    setLiveState("polling", "Polling · 30 сек.");
+    setLiveState("reconnecting", "Переподключение · polling");
   };
 }
 
@@ -440,12 +579,202 @@ function inlineStateMarkup(title, description = "", tone = "neutral") {
   `;
 }
 
+const iconRegistry = new Set([
+  "activity-heartbeat", "alert-circle", "alert-triangle", "arrow-down", "arrow-left", "arrow-up", "arrows-exchange", "arrows-sort",
+  "bell", "brand-telegram", "check", "circle-check", "clock", "cloud-lock", "copy",
+  "error-404", "external-link", "key", "layout-grid", "loader-2", "logout", "mail",
+  "network", "refresh", "router", "server-off", "shield-check", "shield-lock", "terminal-2",
+  "user", "users", "wifi", "x",
+]);
+const iconSpriteURL = "/assets/icons/tabler-sprite.svg";
+
+function icon(name, className = "") {
+  const resolved = iconRegistry.has(name) ? name : "alert-circle";
+  const classes = ["icon", "icon-md", className].filter(Boolean).join(" ");
+  return `<svg class="${classes}" aria-hidden="true"><use href="${iconSpriteURL}#icon-${resolved}"></use></svg>`;
+}
+
+function confirmationErrorMessage(error, fallback = "Не удалось выполнить действие.") {
+  if (error && error.status === 403) return "Недостаточно прав для выполнения этого действия.";
+  if (error && error.status === 409) return "Состояние объекта изменилось. Проверьте данные и повторите действие.";
+  if (error && error.status >= 500) return "Сервер временно не смог выполнить действие.";
+  return fallback;
+}
+
+function setConfirmationValues(entries = []) {
+  els.confirmationValues.replaceChildren();
+  for (const entry of entries) {
+    const [label, value, tone = ""] = Array.isArray(entry)
+      ? entry
+      : [entry.label, entry.value, entry.tone || ""];
+    if (value === undefined || value === null || value === "") continue;
+    const row = document.createElement("div");
+    if (tone) row.dataset.tone = tone;
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = String(value);
+    row.append(term, description);
+    els.confirmationValues.appendChild(row);
+  }
+  els.confirmationValues.classList.toggle("is-hidden", els.confirmationValues.childElementCount === 0);
+}
+
+function finishConfirmation(result) {
+  const request = state.confirmationRequest;
+  if (!request) return;
+  state.confirmationRequest = null;
+  els.confirmationForm.classList.remove("is-submitting");
+  if (els.confirmationDialog.open) els.confirmationDialog.close();
+  request.resolve(result);
+  window.requestAnimationFrame(() => {
+    if (request.invoker && request.invoker.isConnected) request.invoker.focus();
+  });
+}
+
+function cancelConfirmation() {
+  const request = state.confirmationRequest;
+  if (!request || request.submitting || request.options.allowCancel === false) return;
+  finishConfirmation(false);
+}
+
+function confirmationInputValue(request) {
+  if (!request.options.input) return true;
+  const value = els.confirmationInput.value;
+  const input = request.options.input;
+  if (input.required !== false && !value) return input.requiredMessage || "Заполните поле подтверждения.";
+  if (input.minLength && value.length < input.minLength) return input.validationMessage || `Минимум ${input.minLength} символов.`;
+  if (input.expected !== undefined && value !== String(input.expected)) return input.validationMessage || "Значение не совпадает с подтверждаемым объектом.";
+  if (typeof input.validate === "function") return input.validate(value) || true;
+  return true;
+}
+
+async function submitConfirmation() {
+  const request = state.confirmationRequest;
+  if (!request || request.submitting || request.options.disabled) return;
+  const validation = confirmationInputValue(request);
+  if (validation !== true) {
+    els.confirmationError.textContent = validation;
+    els.confirmationInput.setAttribute("aria-invalid", "true");
+    els.confirmationInput.focus();
+    return;
+  }
+  els.confirmationInput.removeAttribute("aria-invalid");
+  els.confirmationError.textContent = "";
+  const result = request.options.input ? els.confirmationInput.value : true;
+  if (typeof request.options.onConfirm !== "function") {
+    finishConfirmation(result);
+    return;
+  }
+  request.submitting = true;
+  els.confirmationForm.classList.add("is-submitting");
+  els.confirmationConfirmBtn.disabled = true;
+  els.confirmationCancelBtn.disabled = true;
+  els.confirmationCloseBtn.disabled = true;
+  els.confirmationConfirmBtn.textContent = request.options.loadingLabel || "Выполняется…";
+  try {
+    await request.options.onConfirm(result);
+    finishConfirmation(result);
+  } catch (error) {
+    request.submitting = false;
+    els.confirmationForm.classList.remove("is-submitting");
+    els.confirmationConfirmBtn.disabled = false;
+    els.confirmationCancelBtn.disabled = false;
+    els.confirmationCloseBtn.disabled = false;
+    els.confirmationConfirmBtn.textContent = request.options.confirmLabel || "Продолжить";
+    els.confirmationError.textContent = confirmationErrorMessage(error, request.options.failureMessage);
+    els.confirmationTechnicalOutput.textContent = String(error && error.message ? error.message : error || "Unknown error");
+    els.confirmationTechnicalDetails.classList.remove("is-hidden");
+  }
+}
+
+function confirmAction(options = {}) {
+  if (!els.confirmationDialog || typeof els.confirmationDialog.showModal !== "function") {
+    return Promise.resolve(false);
+  }
+  if (state.confirmationRequest) finishConfirmation(false);
+  const variant = ["neutral", "warning", "danger"].includes(options.variant) ? options.variant : "neutral";
+  const invoker = document.activeElement;
+  els.confirmationDialog.dataset.variant = variant;
+  els.confirmationContext.textContent = options.context || "SYSTEM / ACTION";
+  els.confirmationVariantLabel.textContent = variant === "danger" ? "DESTRUCTIVE ACTION" : variant === "warning" ? "REVIEW REQUIRED" : "CONFIRMATION";
+  els.confirmationMarker.innerHTML = icon(variant === "neutral" ? "terminal-2" : "alert-triangle");
+  els.confirmationTitle.textContent = options.title || "Подтвердить действие";
+  els.confirmationMessage.textContent = options.message || "Проверьте параметры перед продолжением.";
+  els.confirmationDescription.textContent = options.description || "";
+  els.confirmationDescription.classList.toggle("is-hidden", !options.description);
+  setConfirmationValues(options.values || []);
+  els.confirmationInputGroup.classList.toggle("is-hidden", !options.input);
+  els.confirmationInput.value = options.input && options.input.value ? options.input.value : "";
+  els.confirmationInput.type = options.input && options.input.type ? options.input.type : "text";
+  els.confirmationInputLabel.textContent = options.input && options.input.label ? options.input.label : "Значение";
+  els.confirmationInputHint.textContent = options.input && options.input.hint ? options.input.hint : "";
+  els.confirmationInput.placeholder = options.input && options.input.placeholder ? options.input.placeholder : "";
+  els.confirmationInput.autocomplete = options.input && options.input.autocomplete ? options.input.autocomplete : "off";
+  els.confirmationInput.removeAttribute("aria-invalid");
+  els.confirmationError.textContent = "";
+  els.confirmationTechnicalDetails.classList.add("is-hidden");
+  els.confirmationTechnicalDetails.open = false;
+  els.confirmationTechnicalOutput.textContent = options.technicalDetails || "";
+  if (options.technicalDetails) els.confirmationTechnicalDetails.classList.remove("is-hidden");
+  els.confirmationCancelBtn.textContent = options.cancelLabel || "Отмена";
+  els.confirmationConfirmBtn.textContent = options.confirmLabel || "Продолжить";
+  els.confirmationConfirmBtn.className = variant === "danger" ? "danger" : variant === "warning" ? "warning" : "primary";
+  els.confirmationConfirmBtn.disabled = Boolean(options.disabled);
+  els.confirmationCancelBtn.disabled = false;
+  els.confirmationCloseBtn.disabled = false;
+  return new Promise((resolve) => {
+    state.confirmationRequest = { options, resolve, invoker, submitting: false };
+    els.confirmationDialog.showModal();
+    window.requestAnimationFrame(() => {
+      if (options.input) els.confirmationInput.focus();
+      else if (options.initialFocus === "confirm") els.confirmationConfirmBtn.focus();
+      else els.confirmationCancelBtn.focus();
+    });
+  });
+}
+
+function setDataContextState(element, tone = "", title = "", description = "") {
+  if (!element) return;
+  element.className = `data-context-state${tone ? ` is-${tone}` : " is-hidden"}`;
+  element.innerHTML = tone
+    ? `<span>${icon(tone === "offline" || tone === "error" ? "alert-triangle" : "clock")}</span><div><strong>${escapeHtml(title)}</strong>${description ? `<small>${escapeHtml(description)}</small>` : ""}</div>`
+    : "";
+}
+
+function ageInMilliseconds(value) {
+  if (!value) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? Math.max(0, Date.now() - timestamp) : 0;
+}
+
+function formatDuration(fromValue, toValue = new Date()) {
+  const from = new Date(fromValue).getTime();
+  const to = new Date(toValue || Date.now()).getTime();
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return "-";
+  const seconds = Math.max(0, Math.floor((to - from) / 1000));
+  if (seconds < 60) return `${seconds} сек.`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} мин.`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ч. ${minutes % 60} мин.`;
+  return `${Math.floor(hours / 24)} дн. ${hours % 24} ч.`;
+}
+
 async function api(path, options = {}) {
   const headers = {
     ...(options.body ? { "Content-Type": "application/json" } : {}),
     ...(options.headers || {}),
   };
-  const response = await fetch(path, { ...options, credentials: "same-origin", headers });
+  let response;
+  try {
+    response = await fetch(path, { ...options, credentials: "same-origin", headers });
+  } catch {
+    const error = new Error("Нет соединения с OpenWrt RMM. Проверьте сеть и повторите попытку.");
+    error.status = 0;
+    error.code = "network_error";
+    throw error;
+  }
   const requestId = response.headers.get("X-Request-ID");
   const text = await response.text();
   let data = null;
@@ -458,7 +787,7 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     if (response.status === 401 && !path.startsWith("/api/auth/")) {
-      showLogin();
+      showLogin("Сессия истекла. Войдите снова.");
     }
     const rawMessage = data && data.error ? data.error : `HTTP ${response.status}`;
     const message = friendlyAPIError(response.status, data && data.code, rawMessage);
@@ -509,6 +838,8 @@ function showLogin(message = "") {
   els.loginView.hidden = false;
   els.loginView.removeAttribute("aria-hidden");
   els.loginError.textContent = message;
+  els.loginUsername.setAttribute("aria-invalid", String(Boolean(message)));
+  els.loginPassword.setAttribute("aria-invalid", String(Boolean(message)));
   els.loginPassword.value = "";
   if (location.pathname === "/app") history.replaceState(null, "", `/login${location.hash}`);
   if (message) document.querySelector("#login")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -521,7 +852,10 @@ function showApp(user) {
   const accountName = user && user.display_name ? user.display_name : state.username;
   els.operatorName.textContent = accountName;
   els.profileUsername.textContent = state.username;
+  els.profileIdentityName.textContent = accountName;
   els.profileRole.textContent = user && user.role === "admin" ? "Администратор" : "Пользователь";
+  els.profileRole.className = `status ${user && user.role === "admin" ? "info" : "neutral"}`;
+  els.profileEmailState.textContent = user && user.email ? user.email : "E-mail не задан";
   const initial = accountName.trim().charAt(0).toUpperCase() || "О";
   els.profileAvatar.textContent = initial;
   document.querySelector(".operator-avatar").textContent = initial;
@@ -535,6 +869,8 @@ function showApp(user) {
   els.appShell.hidden = false;
   els.appShell.removeAttribute("aria-hidden");
   els.loginError.textContent = "";
+  els.loginUsername.setAttribute("aria-invalid", "false");
+  els.loginPassword.setAttribute("aria-invalid", "false");
   if (location.pathname !== "/app") history.replaceState(null, "", `/app${location.hash}`);
   connectLiveUpdates();
   loadNotificationCenter().catch(() => {});
@@ -563,23 +899,33 @@ async function checkSession() {
     showApp(me.user || { username: me.username, role: "user" });
     await loadReleaseMetadata();
     await loadDevices();
-  } catch {
-    showLogin();
+  } catch (error) {
+    if (error && error.status === 401) {
+      showLogin();
+      return;
+    }
+    showLogin("Сервер OpenWrt RMM временно недоступен.");
+    showSystemState(error, "backend", checkSession);
   }
 }
 
 async function login() {
   els.loginError.textContent = "";
-  const response = await api("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({
-      username: els.loginUsername.value.trim(),
-      password: els.loginPassword.value,
-    }),
-  });
-  showApp(response.user || { username: response.username, role: "user" });
-  await loadReleaseMetadata();
-  await loadDevices();
+  setSubmitting(els.loginForm, els.loginSubmitBtn, true, "Вход…");
+  try {
+    const response = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: els.loginUsername.value.trim(),
+        password: els.loginPassword.value,
+      }),
+    });
+    showApp(response.user || { username: response.username, role: "user" });
+    await loadReleaseMetadata();
+    await loadDevices();
+  } finally {
+    setSubmitting(els.loginForm, els.loginSubmitBtn, false);
+  }
 }
 
 async function logout() {
@@ -663,15 +1009,31 @@ function commandFilterMatches(command) {
   return true;
 }
 
+function commandStatusCode(status) {
+  return {
+    requested: "QUEUED",
+    queued: "QUEUED",
+    claimed: "RUNNING",
+    running: "RUNNING",
+    completed: "COMPLETED",
+    failed: "FAILED",
+    cancelled: "CANCELLED",
+    timeout: "TIMEOUT",
+    expired: "EXPIRED",
+  }[status] || String(status || "UNKNOWN").toUpperCase();
+}
+
 function remoteStatusLabel(status) {
   return {
-    requested: "Запрашивается",
-    queued: "Открывается",
-    active: "Активен",
-    closed: "Закрыт",
-    failed: "Ошибка",
-    expired: "Завершен",
-  }[status] || statusLabel(status);
+    requested: "CREATING",
+    queued: "CREATING",
+    creating: "CREATING",
+    active: "ACTIVE",
+    expiring: "EXPIRING",
+    closed: "CLOSED",
+    failed: "FAILED",
+    expired: "EXPIRED",
+  }[status] || String(status || "UNKNOWN").toUpperCase();
 }
 
 function alertTypeLabel(type) {
@@ -695,19 +1057,45 @@ function dangerLabel(type) {
     uci_set: "изменить конфигурацию",
     uci_commit: "применить конфигурацию",
     uci_commit_confirmed: "применить конфигурацию с проверкой связи",
+    uci_revert: "отменить staged-конфигурацию",
     uci_restore: "восстановить конфигурацию из backup",
   }[type] || "";
 }
 
-function confirmDanger(type) {
+async function confirmDanger(type, args = {}, onConfirm = null) {
   const label = dangerLabel(type);
   if (!label) return true;
-  return window.confirm(`Подтвердите действие: ${label}. Продолжить?`);
-}
-
-function confirmTyped(message, expected) {
-  const value = window.prompt(`${message}\n\nВведите ${expected}, чтобы подтвердить.`);
-  return value === expected;
+  const device = currentDevice();
+  const isPackage = type === "pkg_remove" || type === "opkg_remove";
+  const isUCI = type.startsWith("uci_");
+  const isReboot = type === "reboot";
+  const variant = isPackage || isReboot || type === "uci_restore" ? "danger" : "warning";
+  const context = isPackage ? "SYSTEM / PACKAGE" : isUCI ? "CONFIGURATION / UCI" : "SYSTEM / DEVICE";
+  const target = isPackage ? args.package : isUCI ? args.config : deviceDisplayName(device);
+  const path = isUCI && args.section && args.option ? `${args.config}.${args.section}.${args.option}` : "";
+  return Boolean(await confirmAction({
+    variant,
+    context,
+    title: isPackage ? `Удалить package «${args.package || "-"}»?` : isReboot ? `Перезагрузить «${deviceDisplayName(device)}»?` : `${commandTypeLabel(type)}?`,
+    message: isPackage
+      ? "Package будет удалён package manager устройства. Зависимые компоненты могут перестать работать."
+      : isReboot
+        ? "Роутер временно пропадёт из мониторинга и станет недоступен до завершения загрузки."
+        : type === "uci_restore"
+          ? "Сохранённая конфигурация будет восстановлена из backup и может изменить сетевое подключение."
+          : "Команда изменит low-level конфигурацию OpenWrt. Проверьте объект перед постановкой в очередь.",
+    description: isUCI ? "После commit соединение с устройством может быть временно потеряно." : "Действие будет записано в Audit и Operations.",
+    values: [
+      [isPackage ? "Package" : isUCI ? "Package" : "Device", target],
+      ["Configuration path", path],
+      ["New value", isUCI && args.value !== undefined ? args.value : ""],
+      ["Command", type],
+    ],
+    confirmLabel: label.charAt(0).toUpperCase() + label.slice(1),
+    loadingLabel: "Добавление в очередь…",
+    onConfirm,
+    failureMessage: "Не удалось добавить операцию в очередь.",
+  }));
 }
 
 function commandArgs() {
@@ -849,6 +1237,8 @@ function renderFleetSortButtons() {
     const isActive = button.dataset.sortKey === state.fleetSortKey;
     button.classList.toggle("is-active", isActive);
     button.dataset.sortDir = isActive ? state.fleetSortDir : button.dataset.sortDefaultDir || "asc";
+    const iconUse = button.querySelector("use");
+    if (iconUse) iconUse.setAttribute("href", `${iconSpriteURL}#icon-${isActive ? state.fleetSortDir === "asc" ? "arrow-up" : "arrow-down" : "arrows-sort"}`);
   }
 }
 
@@ -873,7 +1263,7 @@ function initFleetTableSorting() {
     button.className = "table-sort";
     button.dataset.sortKey = sortKey;
     button.dataset.sortDefaultDir = defaultDir;
-    button.textContent = cell.textContent || "";
+    button.innerHTML = `<span>${escapeHtml(cell.textContent || "")}</span>${icon("arrows-sort", "icon-xs sort-icon")}`;
     cell.replaceWith(button);
   });
 }
@@ -977,6 +1367,91 @@ function renderDevices() {
   }
 }
 
+function renderInventory(device) {
+  const inventory = device && device.inventory && typeof device.inventory === "object" ? device.inventory : {};
+  const entries = Object.keys(inventory);
+  const board = inventory.board && typeof inventory.board === "object" ? inventory.board : {};
+  const release = board.release && typeof board.release === "object" ? board.release : {};
+  const packageCount = Array.isArray(inventory.packages)
+    ? inventory.packages.length
+    : inventory.packages && typeof inventory.packages === "object"
+      ? Object.keys(inventory.packages).length
+      : "Not reported";
+  els.inventoryJson.textContent = entries.length ? JSON.stringify(inventory, null, 2) : "{}";
+  if (!entries.length) {
+    els.inventorySummary.innerHTML = inlineStateMarkup("Inventory пока не получен", "Данные появятся после следующего heartbeat агента.");
+    els.inventoryStatus.className = `status ${device && device.online ? "unknown" : "offline"}`;
+    els.inventoryStatus.textContent = device && device.online ? "EMPTY" : "OFFLINE";
+    return;
+  }
+  const stale = !device.online || ageInMilliseconds(device.last_seen_at) > 5 * 60 * 1000;
+  els.inventoryStatus.className = `status ${!device.online ? "offline" : stale ? "stale" : "completed"}`;
+  els.inventoryStatus.textContent = !device.online ? "OFFLINE" : stale ? "STALE" : "CURRENT";
+  const values = [
+    ["Hostname", inventory.hostname || board.hostname || deviceDisplayName(device)],
+    ["Board", board.model || board.board_name || "Not reported"],
+    ["OpenWrt", release.version || device.openwrt_version || "Not reported"],
+    ["Target", release.target || board.target || "Not reported"],
+    ["Agent", inventory.agent_version || "Not reported"],
+    ["Package manager", inventory.package_manager || "Not reported"],
+    ["Packages", packageCount],
+    ["WAN / IPv6", inventory.wan_ip || inventory.wan_ipv6 || "Not reported"],
+  ];
+  els.inventorySummary.innerHTML = values.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><code title="${escapeHtml(value)}">${escapeHtml(value)}</code></div>`).join("");
+}
+
+function latestCommandMatching(commands, predicate) {
+  return (commands || []).find(predicate) || null;
+}
+
+function setExpertOperationState(element, command, device) {
+  if (!element) return;
+  if (!device || !device.online) {
+    element.className = "status offline";
+    element.textContent = "OFFLINE";
+    return;
+  }
+  if (!command) {
+    element.className = "status ready";
+    element.textContent = "READY";
+    return;
+  }
+  element.className = `status ${command.status || "unknown"}`;
+  element.textContent = commandStatusCode(command.status);
+}
+
+function renderExpertOperationPanels(commands = state.commands) {
+  const device = currentDevice();
+  const packageCommand = latestCommandMatching(commands, (command) => /^(pkg|opkg)_/.test(command.type));
+  const uciCommand = latestCommandMatching(commands, (command) => command.type.startsWith("uci_"));
+  const manualCommand = latestCommandMatching(commands, (command) => ["ping", "traceroute", "route_show", "interfaces_show", "pkg_list_installed", "reboot"].includes(command.type));
+  setExpertOperationState(els.manualCommandStatus, manualCommand, device);
+  setExpertOperationState(els.packageOperationStatus, packageCommand, device);
+  setExpertOperationState(els.uciOperationStatus, uciCommand, device);
+
+  const panels = [
+    [manualCommand, els.manualCommandOutputDetails, els.manualCommandOutput],
+    [packageCommand, els.packageOutputDetails, els.packageTechnicalOutput],
+    [uciCommand, els.uciOutputDetails, els.uciTechnicalOutput],
+  ];
+  for (const [command, details, output] of panels) {
+    if (!details || !output) continue;
+    details.classList.toggle("is-hidden", !command);
+    if (command) output.textContent = command.output || JSON.stringify(command.args || {}, null, 2);
+  }
+
+  const args = uciCommand && uciCommand.args && typeof uciCommand.args === "object" ? uciCommand.args : null;
+  const hasDiff = args && args.config && args.section && args.option && args.value !== undefined;
+  els.uciDiff.classList.toggle("is-hidden", !hasDiff);
+  if (hasDiff) {
+    const path = `${args.config}.${args.section}.${args.option}`;
+    els.uciDiff.innerHTML = `
+      <header><span class="eyebrow">CONFIGURATION / UCI</span><code>${escapeHtml(path)}</code><span class="status ${escapeHtml(uciCommand.status || "unknown")}">${escapeHtml(commandStatusCode(uciCommand.status))}</span></header>
+      <div class="technical-diff-values"><div data-tone="current"><span>CURRENT</span><code>- Not reported</code></div><div data-tone="new"><span>NEW</span><code>+ ${escapeHtml(args.value)}</code></div></div>
+    `;
+  }
+}
+
 function renderDeviceDetail(device) {
   els.appShell.classList.toggle("has-selected-device", Boolean(device));
   if (!device) {
@@ -1013,13 +1488,15 @@ function renderDeviceDetail(device) {
   els.connectivityStatus.textContent = formatConnectivity(device.metrics && device.metrics.connectivity_checks);
   els.fleetGroup.value = device.group || "";
   els.fleetTags.value = Array.isArray(device.tags) ? device.tags.join(", ") : "";
-  els.inventoryJson.textContent = JSON.stringify(device.inventory || {}, null, 2);
+  renderInventory(device);
   renderDeviceInformation(device);
   renderDeviceStatus(device);
   renderAgentUpdateStatus();
   renderHealthSummary(device);
   renderClients(device);
   renderInterfaceCounters(device);
+  renderOperationalAvailability(device);
+  renderExpertOperationPanels();
 }
 
 function renderAgentUpdateStatus() {
@@ -1052,7 +1529,7 @@ function renderAgentUpdateStatus() {
   els.agentUpdateStatus.classList.remove("is-hidden");
   els.agentUpdateStatus.classList.toggle("is-running", running);
   els.agentUpdateStatus.innerHTML = `
-    <span class="operation-icon">${running ? "↻" : healthStatus === "healthy" || command.status === "completed" ? "✓" : "!"}</span>
+    <span class="operation-icon" aria-hidden="true">${icon(running ? "loader-2" : healthStatus === "healthy" || command.status === "completed" ? "check" : "alert-triangle")}</span>
     <div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small><ul class="agent-operation-history">${history}</ul></div>
   `;
 }
@@ -1144,49 +1621,49 @@ function renderDeviceStatus(device) {
   let tone = "good";
   let title = "Роутер работает нормально";
   let description = `Heartbeat получен ${formatRelativeTime(device.last_seen_at)}. Интернет и связь с сервером доступны.`;
-  let icon = "✓";
+  let iconName = "check";
 
   if (!device.online) {
     tone = "bad";
     title = "Агент не выходит на связь";
     description = `Последний heartbeat был ${formatRelativeTime(device.last_seen_at)}. Проверьте службу агента, DNS, время роутера и TLS-сертификат.`;
-    icon = "!";
+    iconName = "alert-triangle";
   } else if (serverCheck && !serverCheck.reachable) {
     tone = "bad";
     title = "Проблема связи с RMM-сервером";
     description = "Heartbeat дошёл, но проверка адреса сервера с роутера завершается ошибкой.";
-    icon = "!";
+    iconName = "alert-triangle";
   } else if (wanChecks.length && !wanChecks.some((check) => check.reachable)) {
     tone = "bad";
     title = "Интернет с роутера недоступен";
     description = "Агент подключён к серверу, но внешние контрольные адреса не отвечают.";
-    icon = "!";
+    iconName = "alert-triangle";
   } else if (failures > 0) {
     tone = "warn";
     title = "Агент восстанавливает связь";
     description = `Неудачных попыток подряд: ${failures}. Интервал повторов временно увеличен.`;
-    icon = "↻";
+    iconName = "loader-2";
   } else if (pending > 0) {
     tone = "warn";
     title = "Есть данные, ожидающие отправки";
     description = `Агент хранит ${pending} ${resultWord(pending)} выполнения команд локально и повторит отправку автоматически.`;
-    icon = "↻";
+    iconName = "loader-2";
   } else if (Number(device.active_alerts || 0) > 0) {
     tone = "warn";
     title = "Роутер требует внимания";
     description = `Активных проблем: ${device.active_alerts}. Подробности находятся ниже в журнале проблем.`;
-    icon = "!";
+    iconName = "alert-triangle";
   } else if (agentVersionState(version).comparison === -1) {
     const stable = stableAgentVersion();
     tone = "warn";
     title = "Работает, доступно обновление агента";
     description = `Установлена версия ${version}; актуальная стабильная версия — ${stable}.`;
-    icon = "↻";
+    iconName = "loader-2";
   }
 
   els.deviceStatusHero.className = `device-status-hero ${tone}`;
   els.deviceStatusHero.innerHTML = `
-    <span class="device-status-icon">${icon}</span>
+    <span class="device-status-icon" aria-hidden="true">${icon(iconName)}</span>
     <div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(description)}</p></div>
   `;
 
@@ -1255,17 +1732,27 @@ function formatBytes(value) {
 }
 
 function normalizedClients(device) {
+  const wifiStations = Array.isArray(device && device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients : [];
+  const wifiByMAC = new Map(wifiStations.filter((station) => station.mac).map((station) => [String(station.mac).toLowerCase(), station]));
   if (device && device.id === state.selectedDeviceId && state.lanClients.length) {
-    return state.lanClients.map((client) => ({
-      name: client.hostname || "",
-      ip: client.ip || "-",
-      mac: client.mac || "-",
-      connection: client.connection === "wifi" ? `Wi-Fi ${client.interface || ""}`.trim() : `LAN ${client.interface || ""}`.trim(),
-      type: client.connection === "wifi" ? "wifi" : "wired",
-      online: client.status === "online",
-      presence: client.status || "unconfirmed",
-      lastSeenAt: client.last_seen_at || "",
-    }));
+    return state.lanClients.map((client) => {
+      const station = wifiByMAC.get(String(client.mac || "").toLowerCase()) || {};
+      const type = client.connection === "wifi" ? "wifi" : (client.connection === "wired" ? "wired" : "unknown");
+      return {
+        name: client.hostname || "",
+        ip: client.ip || "-",
+        mac: client.mac || "-",
+        connection: type === "wifi" ? `Wi-Fi ${client.interface || station.interface || ""}`.trim() : type === "wired" ? `LAN ${client.interface || ""}`.trim() : "Не определено",
+        type,
+        online: client.status === "online",
+        presence: client.status === "unconfirmed" && client.last_seen_at ? "offline" : (client.status || "unconfirmed"),
+        confirmation: client.confirmation || "",
+        signal: station.signal_dbm ? `${station.signal_dbm} dBm` : "",
+        rate: [station.rx_rate ? `RX ${station.rx_rate}` : "", station.tx_rate ? `TX ${station.tx_rate}` : ""].filter(Boolean).join(" / "),
+        lastSeenAt: client.last_seen_at || "",
+        lastCheckedAt: client.last_checked_at || "",
+      };
+    });
   }
   const leases = Array.isArray(device.inventory && device.inventory.dhcp_leases) ? device.inventory.dhcp_leases : [];
   const wifi = Array.isArray(device.inventory && device.inventory.wifi_clients) ? device.inventory.wifi_clients : [];
@@ -1290,6 +1777,7 @@ function normalizedClients(device) {
       type: "wired",
       online: presence === "online",
       presence,
+      confirmation: neighborState ? "neighbor" : "lease",
     });
   }
   for (const station of wifi) {
@@ -1306,6 +1794,7 @@ function normalizedClients(device) {
       type: "wifi",
       online: true,
       presence: "online",
+      confirmation: "wifi station",
     });
   }
   const presenceRank = { online: 0, recent: 1, stale: 1, unconfirmed: 2, reserved: 2 };
@@ -1321,30 +1810,55 @@ function renderClients(device) {
   const search = els.clientSearch.value.trim().toLowerCase();
   const filtered = clients.filter((client) => {
     if (state.clientFilter === "online" && client.presence !== "online") return false;
-    if (state.clientFilter === "unconfirmed" && client.presence === "online") return false;
+    if (state.clientFilter === "unconfirmed" && !["unconfirmed", "reserved", "unknown"].includes(client.presence)) return false;
     if (["wifi", "wired"].includes(state.clientFilter) && client.type !== state.clientFilter) return false;
     return !search || [client.name, client.ip, client.mac, client.connection].join(" ").toLowerCase().includes(search);
   });
   els.clientList.innerHTML = "";
   const onlineCount = clients.filter((client) => client.presence === "online").length;
   const wifiOnline = clients.filter((client) => client.type === "wifi" && client.presence === "online").length;
+  const wiredOnline = clients.filter((client) => client.type === "wired" && client.presence === "online").length;
+  const unconfirmedCount = clients.filter((client) => ["unconfirmed", "reserved", "unknown"].includes(client.presence)).length;
   els.clientSummary.textContent = `${onlineCount} в сети · ${wifiOnline} Wi-Fi · ${clients.length} известно`;
+  const filterLabels = { all: `Все · ${clients.length}`, online: `Online · ${onlineCount}`, wifi: `Wi-Fi · ${wifiOnline}`, wired: `LAN · ${wiredOnline}`, unconfirmed: `Unknown · ${unconfirmedCount}` };
+  for (const button of document.querySelectorAll(".client-filter")) button.textContent = filterLabels[button.dataset.clientFilter] || button.textContent;
+
+  const latestClientCheck = clients.map((client) => new Date(client.lastCheckedAt || 0).getTime()).filter(Number.isFinite).sort((left, right) => right - left)[0] || 0;
+  if (!device.online) {
+    setDataContextState(els.clientDataState, "offline", "Роутер не на связи", `Показаны последние известные данные · последний контакт ${formatDate(device.last_seen_at)}`);
+  } else if (latestClientCheck && Date.now() - latestClientCheck > 5 * 60 * 1000) {
+    setDataContextState(els.clientDataState, "stale", "Данные о клиентах устарели", `Последняя проверка ${formatDate(latestClientCheck)}`);
+  } else {
+    setDataContextState(els.clientDataState);
+  }
+
   if (filtered.length === 0) {
-    els.clientList.innerHTML = inlineStateMarkup("Клиенты не найдены", "Проверьте фильтр или дождитесь обновления DHCP и Wi-Fi данных.");
+    if (clients.length === 0) {
+      els.clientList.innerHTML = inlineStateMarkup("Клиентов пока нет", device.online ? "Агент не обнаружил DHCP, neighbour или Wi-Fi записей." : "Последние данные недоступны, пока роутер не восстановит соединение.", device.online ? "neutral" : "offline");
+    } else {
+      const query = search ? `По запросу «${els.clientSearch.value.trim()}» совпадений нет.` : "Текущий фильтр не совпадает ни с одной записью.";
+      els.clientList.innerHTML = inlineStateMarkup("Клиенты не найдены", `${query} Измените поиск или фильтр.`);
+    }
     return;
   }
   for (const client of filtered) {
-    const presence = client.presence || (client.online ? "online" : "reserved");
-    const presenceLabel = presence === "online" ? "В сети" : (presence === "recent" || presence === "stale" ? "Недавно был в сети" : "Не подтверждён");
+    const sourcePresence = client.presence || (client.online ? "online" : "unknown");
+    const presence = !device.online ? "offline" : sourcePresence === "reserved" ? "unknown" : sourcePresence;
+    const presenceLabel = { online: "ONLINE", recent: "STALE", stale: "STALE", offline: "OFFLINE", unconfirmed: "UNCONFIRMED", unknown: "UNKNOWN" }[presence] || "UNKNOWN";
+    const typeLabel = client.type === "wifi" ? "WIFI" : client.type === "wired" ? "WIRED" : "UNKNOWN";
+    const connectionMeta = [typeLabel, client.connection, client.confirmation || (presence === "online" ? "confirmed" : "lease known")].filter(Boolean).join(" · ");
+    const displayName = client.name || client.ip || "Неизвестное устройство";
     const row = document.createElement("div");
-    row.className = "client-row";
+    row.className = "client-row client-record";
+    row.setAttribute("role", "listitem");
     row.innerHTML = `
-      <div class="client-name"><span class="client-icon">${client.type === "wifi" ? "⌁" : "▣"}</span><strong>${escapeHtml(client.name || client.ip || "Неизвестное устройство")}</strong></div>
-      <span>${escapeHtml(client.ip)}</span>
-      <code>${escapeHtml(client.mac)}</code>
-      <span>${escapeHtml(client.connection)}</span>
-      <span>${escapeHtml([client.signal, client.rate, client.lastSeenAt ? `был ${formatDate(client.lastSeenAt)}` : ""].filter(Boolean).join(" · ") || "-")}</span>
-      <span class="client-online ${presence}"><i></i><span class="client-online-label">${presenceLabel}</span></span>
+      <div class="client-name client-primary" data-label="Hostname"><span class="client-icon">${icon(client.type === "wifi" ? "wifi" : "network")}</span><span class="client-identity"><strong title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</strong><small>${escapeHtml(connectionMeta)}</small></span></div>
+      <div class="client-cell" data-label="IP"><code title="${escapeHtml(client.ip)}">${escapeHtml(client.ip)}</code></div>
+      <div class="client-cell" data-label="MAC"><code>${escapeHtml(client.mac)}</code></div>
+      <div class="client-cell" data-label="Подключение"><span>${escapeHtml(client.connection || "-")}</span></div>
+      <div class="client-cell" data-label="Сигнал"><code>${escapeHtml(client.signal || "-")}</code></div>
+      <div class="client-cell" data-label="Link rate"><code>${escapeHtml(client.rate || (client.lastSeenAt ? `seen ${formatRelativeTime(client.lastSeenAt)}` : "-"))}</code></div>
+      <div class="client-cell client-state-cell" data-label="Состояние"><span class="client-online status ${presence}"><i aria-hidden="true"></i><span class="client-online-label">${presenceLabel}</span></span></div>
     `;
     els.clientList.appendChild(row);
   }
@@ -1356,29 +1870,45 @@ function renderInterfaceCounters(device) {
   const byName = new Map();
   for (const address of addresses) {
     if (!byName.has(address.name)) byName.set(address.name, []);
-    byName.get(address.name).push(address.address);
+    byName.get(address.name).push({ family: address.family || "", address: address.address || "" });
   }
+  const counterByName = new Map(counters.filter((item) => item.name).map((item) => [item.name, item]));
+  const interfaceNames = [...new Set([...counterByName.keys(), ...byName.keys()])].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
   els.interfaceCounters.innerHTML = "";
-  els.networkSummary.textContent = `${counters.length} интерфейсов`;
+  els.networkSummary.textContent = `${interfaceNames.length} интерфейсов`;
   els.networkHealth.innerHTML = `
-    <div><span>WAN-адрес</span><strong>${escapeHtml(device.inventory && device.inventory.wan_ip ? device.inventory.wan_ip : "Нет данных")}</strong></div>
-    <div><span>Маршрут по умолчанию</span><strong>${escapeHtml(device.inventory && device.inventory.default_route ? device.inventory.default_route : "Нет данных")}</strong></div>
+    <div><span>WAN-адрес</span><code>${escapeHtml(device.inventory && device.inventory.wan_ip ? device.inventory.wan_ip : "Нет данных")}</code></div>
+    <div><span>Маршрут по умолчанию</span><code>${escapeHtml(device.inventory && device.inventory.default_route ? device.inventory.default_route : "Нет данных")}</code></div>
     <div><span>Проверки связи</span><strong>${escapeHtml(formatConnectivity(device.metrics && device.metrics.connectivity_checks))}</strong></div>
   `;
-  if (counters.length === 0) {
-    els.interfaceCounters.innerHTML = inlineStateMarkup("Нет данных об интерфейсах", "Агент еще не прислал сетевые счетчики или интерфейсы скрыты на стороне роутера.");
+  if (!device.online) {
+    setDataContextState(els.networkDataState, "offline", "Роутер не на связи", `Сетевые значения сохранены с последнего контакта ${formatDate(device.last_seen_at)}`);
+  } else if (ageInMilliseconds(device.last_seen_at) > 5 * 60 * 1000) {
+    setDataContextState(els.networkDataState, "stale", "Сетевые данные могут быть устаревшими", `Последний heartbeat ${formatDate(device.last_seen_at)}`);
+  } else {
+    setDataContextState(els.networkDataState);
+  }
+  if (interfaceNames.length === 0) {
+    els.interfaceCounters.innerHTML = inlineStateMarkup("Нет данных об интерфейсах", device.online ? "Агент ещё не прислал адреса или сетевые счётчики." : "Данные станут доступны после восстановления связи.", device.online ? "neutral" : "offline");
     return;
   }
-  for (const item of counters) {
+  for (const name of interfaceNames) {
+    const item = counterByName.get(name) || {};
+    const interfaceAddresses = byName.get(name) || [];
+    const ipv4 = interfaceAddresses.filter((entry) => entry.family === "inet" || (!entry.family && !entry.address.includes(":"))).map((entry) => entry.address);
+    const ipv6 = interfaceAddresses.filter((entry) => entry.family === "inet6" || entry.address.includes(":")).map((entry) => entry.address);
     const row = document.createElement("div");
     const errors = Number(item.rx_errors || 0) + Number(item.tx_errors || 0);
     row.className = "network-row";
+    row.setAttribute("role", "listitem");
     row.innerHTML = `
-      <strong>${escapeHtml(item.name || "-")}</strong>
-      <span>${escapeHtml((byName.get(item.name) || []).join(", ") || "-")}</span>
-      <span>${escapeHtml(formatBytes(item.rx_bytes))}<small>${escapeHtml(item.rx_packets || 0)} пакетов</small></span>
-      <span>${escapeHtml(formatBytes(item.tx_bytes))}<small>${escapeHtml(item.tx_packets || 0)} пакетов</small></span>
-      <span class="${errors ? "interface-errors" : ""}">${escapeHtml(errors)}</span>
+      <div class="network-interface" data-label="Интерфейс"><strong>${escapeHtml(name || "-")}</strong><small>${interfaceAddresses.length} address</small></div>
+      <div data-label="Состояние"><span class="status ${device.online && counterByName.has(name) ? "active" : device.online ? "unknown" : "offline"}">${device.online && counterByName.has(name) ? "OBSERVED" : device.online ? "UNKNOWN" : "OFFLINE"}</span></div>
+      <div class="address-stack" data-label="IPv4">${ipv4.length ? ipv4.map((address) => `<code title="${escapeHtml(address)}">${escapeHtml(address)}</code>`).join("") : "<code>-</code>"}</div>
+      <div class="address-stack" data-label="IPv6">${ipv6.length ? ipv6.map((address) => `<code title="${escapeHtml(address)}">${escapeHtml(address)}</code>`).join("") : "<code>-</code>"}</div>
+      <div class="traffic-cell" data-label="RX"><code>${escapeHtml(formatBytes(item.rx_bytes))}</code><small>${escapeHtml(item.rx_packets || 0)} пакетов</small></div>
+      <div class="traffic-cell" data-label="TX"><code>${escapeHtml(formatBytes(item.tx_bytes))}</code><small>${escapeHtml(item.tx_packets || 0)} пакетов</small></div>
+      <div data-label="Ошибки"><span class="status ${errors ? "warning" : "neutral"}">${escapeHtml(errors)} ERR</span></div>
     `;
     els.interfaceCounters.appendChild(row);
   }
@@ -1459,43 +1989,62 @@ function metricChart(label, unit, points, tone, fixedMax = 0) {
 async function loadAlerts() {
   if (!state.selectedDeviceId) return;
   const status = encodeURIComponent(state.alertStatusFilter || "open");
-  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts?status=${status}`);
-  state.alerts = data.alerts || [];
-  renderAlerts(state.alerts);
+  els.alertList.innerHTML = inlineStateMarkup("Загрузка проблем", "Получаем актуальное состояние мониторинга.", "loading");
+  try {
+    const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts?status=${status}`);
+    state.alerts = data.alerts || [];
+    renderAlerts(state.alerts);
+  } catch (error) {
+    els.alertList.innerHTML = inlineStateMarkup("Не удалось загрузить проблемы", error.message || "Повторите обновление.", "error");
+    throw error;
+  }
 }
 
 function renderAlerts(alerts) {
   els.alertList.innerHTML = "";
+  const device = currentDevice();
   const activeCount = alerts.filter((alert) => alert.status === "active").length;
   const acknowledgedCount = alerts.filter((alert) => alert.status === "acknowledged").length;
   const resolvedCount = alerts.filter((alert) => alert.status === "resolved").length;
-  els.alertSummary.textContent = `${activeCount} active / ${acknowledgedCount} ack / ${resolvedCount} resolved`;
+  els.alertSummary.textContent = `${activeCount} active · ${acknowledgedCount} ack · ${resolvedCount} resolved`;
+  if (device && !device.online) {
+    setDataContextState(els.problemDataState, "stale", "Мониторинг устройства недоступен", `Показано последнее известное состояние · контакт ${formatDate(device.last_seen_at)}`);
+  } else {
+    setDataContextState(els.problemDataState);
+  }
   if (alerts.length === 0) {
     els.alertList.innerHTML = state.alertStatusFilter === "resolved"
-      ? inlineStateMarkup("Resolved alerts не найдены", "Когда проблемы будут закрываться автоматически или вручную, они появятся здесь.")
-      : inlineStateMarkup("Активных алертов нет", "Сейчас устройство не требует внимания по правилам мониторинга.", "success");
+      ? inlineStateMarkup("Закрытых проблем нет", "Resolved incidents появятся здесь после восстановления контролируемого состояния.")
+      : state.alertStatusFilter === "all"
+        ? inlineStateMarkup("История проблем пуста", "Для устройства ещё не зарегистрировано incidents.")
+        : inlineStateMarkup("Активных проблем нет", "Сейчас устройство не требует оперативного вмешательства.", "success");
     return;
   }
   for (const alert of alerts) {
     const details = alert.details ? Object.entries(alert.details).map(([key, value]) => `${key}: ${value}`).join(" / ") : "";
+    const severity = alert.severity === "critical" ? "critical" : "warning";
+    const severityLabel = severity === "critical" ? "CRITICAL" : "WARNING";
+    const status = alert.status || "active";
+    const objectDetail = alert.details && (alert.details.interface || alert.details.target || alert.details.client || alert.details.device);
+    const objectName = objectDetail ? `${deviceDisplayName(device)} · ${objectDetail}` : deviceDisplayName(device);
+    const startedAt = alert.first_seen_at || alert.created_at;
+    const endedAt = alert.resolved_at || new Date();
     const actionButtons = alert.status === "resolved"
       ? `<button type="button" data-action="commands">Команды</button>`
       : `<button type="button" data-action="diagnose">Диагностика</button>
       <button type="button" data-action="commands">Команды</button>
       <button type="button" data-action="ack" ${alert.status === "active" ? "" : "disabled"}>Ack</button>`;
     const row = document.createElement("div");
-    row.className = `mini-row alert-row ${alert.severity || "warning"} ${alert.status || "active"}`;
+    row.className = `alert-row problem-record ${severity} ${status}`;
+    row.setAttribute("role", "listitem");
     row.innerHTML = `
-      <strong>${escapeHtml(alertTypeLabel(alert.type))}</strong>
-      <span>${escapeHtml(`${alert.severity || "-"} / ${alert.status || "-"}`)}</span>
-      <details class="alert-detail">
-        <summary>${escapeHtml(details || "Подробности")}</summary>
-        <div>Первый раз: ${escapeHtml(formatDate(alert.first_seen_at || alert.created_at))}</div>
-        <div>Последний раз: ${escapeHtml(formatDate(alert.last_seen_at || alert.created_at))}</div>
-        ${alert.resolved_at ? `<div>Resolved: ${escapeHtml(formatDate(alert.resolved_at))}</div>` : ""}
-        <div>${escapeHtml(alert.message || "")}</div>
-      </details>
-      ${actionButtons}
+      <div data-label="Severity"><span class="status ${severity}">${severityLabel}</span></div>
+      <div class="problem-object" data-label="Объект"><strong title="${escapeHtml(objectName)}">${escapeHtml(objectName)}</strong></div>
+      <div class="problem-copy" data-label="Проблема"><strong>${escapeHtml(alertTypeLabel(alert.type))}</strong><small>${escapeHtml(alert.message || details || "Нет дополнительных сведений")}</small><details class="alert-detail"><summary>Technical details</summary><div>${escapeHtml(details || "Дополнительные параметры отсутствуют")}</div><div>Последнее событие: ${escapeHtml(formatDate(alert.last_seen_at || alert.created_at))}</div></details></div>
+      <div data-label="Возникла"><time datetime="${escapeHtml(startedAt || "")}">${escapeHtml(formatDate(startedAt))}</time></div>
+      <div data-label="Длительность"><code>${escapeHtml(formatDuration(startedAt, endedAt))}</code></div>
+      <div data-label="Статус"><span class="status ${escapeHtml(status)}">${escapeHtml(String(status).toUpperCase())}</span></div>
+      <div class="row-actions problem-actions" data-label="Действие">${actionButtons}</div>
     `;
     row.querySelector('[data-action="diagnose"]')?.addEventListener("click", () => runAlertDiagnostics(alert));
     row.querySelector('[data-action="commands"]').addEventListener("click", scrollToCommands);
@@ -1540,9 +2089,15 @@ async function selectDevice(id) {
 
 async function loadLANClients() {
   if (!state.selectedDeviceId) return;
-  const response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/clients`);
-  state.lanClients = response.clients || [];
-  renderClients(currentDevice());
+  els.clientList.innerHTML = inlineStateMarkup("Загрузка клиентов", "Получаем DHCP, neighbour и Wi-Fi presence data.", "loading");
+  try {
+    const response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/clients`);
+    state.lanClients = response.clients || [];
+    renderClients(currentDevice());
+  } catch (error) {
+    els.clientList.innerHTML = inlineStateMarkup("Не удалось загрузить клиентов", error.message || "Повторите обновление.", "error");
+    throw error;
+  }
 }
 
 function showFleet() {
@@ -1731,9 +2286,27 @@ els.rolloutForm.addEventListener("submit", (event) => {
   const device_ids = els.rolloutDeviceIds.value.split(",").map((value) => value.trim()).filter(Boolean);
   api("/api/agent-rollouts", { method: "POST", body: JSON.stringify({ device_ids, channel: els.rolloutChannel.value, batch_size: Number(els.rolloutBatchSize.value), failure_threshold: Number(els.rolloutFailureThreshold.value) }) }).then(() => { setFormMessage(els.rolloutMessage, "Rollout создан", "success"); return loadRollouts(); }).catch((error) => setFormMessage(els.rolloutMessage, error.message, "error"));
 });
-els.rolloutList.addEventListener("click", (event) => {
+els.rolloutList.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-rollout-action]"); if (!button) return;
-  api(`/api/agent-rollouts/${encodeURIComponent(button.dataset.rolloutId)}/${button.dataset.rolloutAction}`, { method: "POST" }).then(loadRollouts).catch((error) => setFormMessage(els.rolloutMessage, error.message, "error"));
+  const action = button.dataset.rolloutAction;
+  const endpoint = `/api/agent-rollouts/${encodeURIComponent(button.dataset.rolloutId)}/${action}`;
+  if (action === "cancel") {
+    const confirmed = await confirmAction({
+      variant: "warning",
+      context: "ADMIN / ROLLOUT",
+      title: "Отменить rollout?",
+      message: "Новые batches больше не будут запущены. Уже выполняющиеся обновления завершатся согласно серверной логике.",
+      values: [["Rollout", button.dataset.rolloutId]],
+      confirmLabel: "Отменить rollout",
+      loadingLabel: "Отмена…",
+      onConfirm: () => api(endpoint, { method: "POST" }),
+      failureMessage: "Не удалось отменить rollout.",
+    });
+    if (!confirmed) return;
+    await loadRollouts();
+    return;
+  }
+  api(endpoint, { method: "POST" }).then(loadRollouts).catch((error) => setFormMessage(els.rolloutMessage, error.message, "error"));
 });
 
 function closeProfile() {
@@ -1746,18 +2319,31 @@ function setFormMessage(element, message, tone = "") {
   element.className = `form-message${tone ? ` is-${tone}` : ""}`;
 }
 
+function setSubmitting(form, button, submitting, busyLabel = "Сохранение…") {
+  if (!form || !button) return;
+  if (!button.dataset.idleLabel) button.dataset.idleLabel = button.textContent.trim();
+  form.setAttribute("aria-busy", String(submitting));
+  button.disabled = submitting;
+  button.textContent = submitting ? busyLabel : button.dataset.idleLabel;
+}
+
 async function saveProfile() {
   setFormMessage(els.profileMessage, "Сохраняем…");
-  const response = await api("/api/auth/profile", {
-    method: "PATCH",
-    body: JSON.stringify({
-      display_name: els.profileDisplayName.value.trim(),
-      email: els.profileEmail.value.trim(),
-    }),
-  });
-  showApp(response.user);
-  await loadNotificationPreferences();
-  setFormMessage(els.profileMessage, "Профиль сохранён", "success");
+  setSubmitting(els.profileForm, els.profileSubmitBtn, true);
+  try {
+    const response = await api("/api/auth/profile", {
+      method: "PATCH",
+      body: JSON.stringify({
+        display_name: els.profileDisplayName.value.trim(),
+        email: els.profileEmail.value.trim(),
+      }),
+    });
+    showApp(response.user);
+    await loadNotificationPreferences();
+    setFormMessage(els.profileMessage, "Профиль сохранён", "success");
+  } finally {
+    setSubmitting(els.profileForm, els.profileSubmitBtn, false);
+  }
 }
 
 async function loadNotificationPreferences() {
@@ -1791,11 +2377,19 @@ function renderNotificationSettings() {
     : !email.profile_email_configured
       ? "Сначала добавьте e-mail в профиль"
       : `${email.verified ? "Подтверждён" : "Требуется подтверждение"} · ${email.destination || "e-mail профиля"}`;
+  const emailState = !email.available || !email.profile_email_configured ? "NOT CONFIGURED" : email.verified ? "VERIFIED" : "PENDING VERIFICATION";
+  els.notificationEmailState.textContent = emailState;
+  els.notificationEmailState.className = `status ${email.verified ? "success" : email.available && email.profile_email_configured ? "warning" : "neutral"}`;
+  els.notificationEmailChannel.dataset.state = emailState.toLowerCase().replaceAll(" ", "-");
   els.notificationTelegramEnabled.checked = Boolean(settings.telegram_enabled);
   els.notificationTelegramEnabled.disabled = !telegram.available;
   els.verifyTelegramBtn.disabled = !telegram.available;
   els.confirmTelegramBtn.disabled = !telegram.available;
   els.notificationTelegramHint.textContent = telegram.available ? (telegram.verified ? "Telegram подтверждён" : "Подтвердите кодом из сообщения") : "Bot token не настроен на сервере";
+  const telegramState = !telegram.available ? "NOT CONFIGURED" : telegram.verified ? "VERIFIED" : "PENDING VERIFICATION";
+  els.notificationTelegramState.textContent = telegramState;
+  els.notificationTelegramState.className = `status ${telegram.verified ? "success" : telegram.available ? "warning" : "neutral"}`;
+  els.notificationTelegramChannel.dataset.state = telegramState.toLowerCase().replaceAll(" ", "-");
   els.notificationTelegramChatId.value = settings.telegram_chat_id || "";
   els.notificationTelegramChatId.disabled = !telegram.available;
   els.notificationTelegramChatRow.classList.toggle("is-disabled", !telegram.available);
@@ -1821,34 +2415,39 @@ function renderNotificationSettings() {
 
 async function saveNotificationSettings() {
   setFormMessage(els.notificationSettingsMessage, "Сохраняем…");
-  const response = await api("/api/notifications/settings", {
-    method: "PUT",
-    body: JSON.stringify({
-      email_enabled: els.notificationEmailEnabled.checked,
-      telegram_enabled: els.notificationTelegramEnabled.checked,
-      telegram_chat_id: els.notificationTelegramChatId.value.trim(),
-      notify_warning: els.notificationWarningEnabled.checked,
-      notify_critical: els.notificationCriticalEnabled.checked,
-      notify_resolved: els.notificationResolvedEnabled.checked,
-      memory_threshold_percent: Number(els.notificationMemoryThreshold.value),
-      disk_threshold_percent: Number(els.notificationDiskThreshold.value),
-      packet_loss_percent: Number(els.notificationPacketLossThreshold.value),
-      latency_threshold_ms: Number(els.notificationLatencyThreshold.value),
-      repeat_minutes: Number(els.notificationRepeatMinutes.value),
-      timezone: els.notificationTimezone.value.trim() || "UTC",
-      alerts_paused_until: isoFromDateTimeLocal(els.notificationPausedUntil.value),
-      quiet_hours_enabled: els.notificationQuietEnabled.checked,
-      quiet_hours_start: els.notificationQuietStart.value || "22:00",
-      quiet_hours_end: els.notificationQuietEnd.value || "08:00",
-      webhook_enabled: els.notificationWebhookEnabled.checked,
-      webhook_url: els.notificationWebhookUrl.value.trim(),
-      webhook_secret: els.notificationWebhookSecret.value,
-    }),
-  });
-  state.notificationSettings = response.settings || {};
-  state.notificationChannels = response.channels || {};
-  renderNotificationSettings();
-  setFormMessage(els.notificationSettingsMessage, "Настройки уведомлений сохранены", "success");
+  setSubmitting(els.notificationSettingsForm, els.notificationSubmitBtn, true);
+  try {
+    const response = await api("/api/notifications/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        email_enabled: els.notificationEmailEnabled.checked,
+        telegram_enabled: els.notificationTelegramEnabled.checked,
+        telegram_chat_id: els.notificationTelegramChatId.value.trim(),
+        notify_warning: els.notificationWarningEnabled.checked,
+        notify_critical: els.notificationCriticalEnabled.checked,
+        notify_resolved: els.notificationResolvedEnabled.checked,
+        memory_threshold_percent: Number(els.notificationMemoryThreshold.value),
+        disk_threshold_percent: Number(els.notificationDiskThreshold.value),
+        packet_loss_percent: Number(els.notificationPacketLossThreshold.value),
+        latency_threshold_ms: Number(els.notificationLatencyThreshold.value),
+        repeat_minutes: Number(els.notificationRepeatMinutes.value),
+        timezone: els.notificationTimezone.value.trim() || "UTC",
+        alerts_paused_until: isoFromDateTimeLocal(els.notificationPausedUntil.value),
+        quiet_hours_enabled: els.notificationQuietEnabled.checked,
+        quiet_hours_start: els.notificationQuietStart.value || "22:00",
+        quiet_hours_end: els.notificationQuietEnd.value || "08:00",
+        webhook_enabled: els.notificationWebhookEnabled.checked,
+        webhook_url: els.notificationWebhookUrl.value.trim(),
+        webhook_secret: els.notificationWebhookSecret.value,
+      }),
+    });
+    state.notificationSettings = response.settings || {};
+    state.notificationChannels = response.channels || {};
+    renderNotificationSettings();
+    setFormMessage(els.notificationSettingsMessage, "Настройки уведомлений сохранены", "success");
+  } finally {
+    setSubmitting(els.notificationSettingsForm, els.notificationSubmitBtn, false);
+  }
 }
 
 async function testNotifications() {
@@ -1943,11 +2542,15 @@ function renderNotificationChannelDiagnostics() {
     const details = [];
     if (delivery.last_success_at) details.push(`Последняя доставка: ${formatDate(delivery.last_success_at)}`);
     if (delivery.last_error_at) details.push(`Последняя ошибка: ${formatDate(delivery.last_error_at)}`);
-    if (delivery.last_error) details.push(delivery.last_error);
+    const technicalError = delivery.last_error || "";
+    const statusCode = diagnostic.status === "available" || diagnostic.status === "verified" ? "READY" : diagnostic.status === "error" ? "ERROR" : "NOT CONFIGURED";
+    const statusTone = statusCode === "READY" ? "success" : statusCode === "ERROR" ? "danger" : "neutral";
     return `
       <article class="notification-channel-diagnostic is-${escapeHtml(diagnostic.status || "disabled")}">
         <div><strong>${escapeHtml(name)}</strong><span>${escapeHtml(diagnostic.message || "Состояние неизвестно")}</span></div>
+        <span class="status ${statusTone}">${statusCode}</span>
         <small>${escapeHtml(details.join(" · ") || "Истории доставки пока нет")}</small>
+        ${technicalError ? `<details class="technical-details"><summary>Technical details</summary><pre>${escapeHtml(technicalError)}</pre></details>` : ""}
       </article>
     `;
   }).join("");
@@ -1974,10 +2577,10 @@ function renderNotificationHistory() {
       notificationEventLabel(delivery.event),
     ].filter(Boolean).join(" · ");
     row.innerHTML = `
-      <span class="notification-channel">${escapeHtml(channelLabel)}</span>
-      <div><strong>${escapeHtml(delivery.title || "Уведомление")}</strong><small>${escapeHtml([context, delivery.destination || ""].filter(Boolean).join(" · "))}${delivery.error ? ` · ${escapeHtml(delivery.error)}` : ""}${escapeHtml(attempts)}${escapeHtml(retryAt)}</small></div>
-      <span class="notification-delivery-status">${escapeHtml(notificationStatusLabel(delivery.status))}</span>
-      <time>${escapeHtml(formatDate(delivery.sent_at || delivery.created_at))}</time>
+      <span class="notification-channel" data-label="Канал">${escapeHtml(channelLabel)}</span>
+      <div data-label="Событие / объект"><strong>${escapeHtml(delivery.title || "Уведомление")}</strong><small>${escapeHtml([context, delivery.destination || ""].filter(Boolean).join(" · "))}${escapeHtml(attempts)}${escapeHtml(retryAt)}</small>${delivery.error ? `<details class="technical-details"><summary>Ошибка доставки</summary><pre>${escapeHtml(delivery.error)}</pre></details>` : ""}</div>
+      <span data-label="Статус"><span class="status ${notificationStatusTone(delivery.status)}">${escapeHtml(notificationStatusLabel(delivery.status))}</span></span>
+      <time data-label="Время">${escapeHtml(formatDate(delivery.sent_at || delivery.created_at))}</time>
     `;
     els.notificationHistory.appendChild(row);
   }
@@ -2107,9 +2710,13 @@ function renderNotificationCenter() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `notification-center-item severity-${item.severity || "warning"} ${item.read_at ? "" : "is-unread"}`;
+    const severity = item.severity === "critical" ? "CRITICAL" : item.severity === "resolved" ? "RESOLVED" : "WARNING";
+    const severityTone = item.severity === "critical" ? "danger" : item.severity === "resolved" ? "success" : "warning";
+    const severityIcon = item.severity === "resolved" ? "circle-check" : "alert-triangle";
+    const device = state.devices.find((entry) => entry.id === item.device_id);
     button.innerHTML = `
-      <span class="notification-center-dot"></span>
-      <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(items.length > 1 ? `${items.length} связанных событий · ${item.body}` : item.body)}</small></span>
+      <span class="notification-center-marker status ${severityTone}">${icon(severityIcon, "icon-sm")} ${severity}</span>
+      <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml([device ? deviceDisplayName(device) : "", items.length > 1 ? `${items.length} связанных событий · ${item.body}` : item.body].filter(Boolean).join(" · "))}</small></span>
       <time>${escapeHtml(formatDate(item.created_at))}</time>
     `;
     button.addEventListener("click", async () => {
@@ -2127,8 +2734,14 @@ function renderNotificationCenter() {
 }
 
 async function showNotificationCenter() {
-  await loadNotificationCenter();
   if (!els.notificationCenterDialog.open) els.notificationCenterDialog.showModal();
+  els.notificationCenterList.innerHTML = inlineStateMarkup("Загрузка уведомлений", "Получаем последние события…", "loading");
+  try {
+    await loadNotificationCenter();
+  } catch (error) {
+    els.notificationCenterSummary.textContent = "Не удалось загрузить";
+    els.notificationCenterList.innerHTML = inlineStateMarkup("Центр уведомлений недоступен", friendlyAPIError(error.status, error.code, error.message));
+  }
 }
 
 async function markAllNotificationsRead() {
@@ -2145,6 +2758,17 @@ function notificationStatusLabel(status) {
     dead_letter: "Не доставлено",
     failed: "Ошибка",
   }[status] || status || "Неизвестно";
+}
+
+function notificationStatusTone(status) {
+  return {
+    queued: "neutral",
+    sending: "running",
+    retry: "warning",
+    sent: "success",
+    dead_letter: "danger",
+    failed: "danger",
+  }[status] || "neutral";
 }
 
 function notificationErrorMessage(error) {
@@ -2172,17 +2796,32 @@ async function changePassword() {
     setFormMessage(els.passwordMessage, "Новые пароли не совпадают", "error");
     return;
   }
-  await api("/api/auth/change-password", {
-    method: "POST",
-    body: JSON.stringify({ current_password: els.currentPassword.value, new_password: els.newPassword.value }),
-  });
-  els.passwordForm.reset();
-  setFormMessage(els.passwordMessage, "Пароль изменён. Остальные сессии завершены.", "success");
+  setSubmitting(els.passwordForm, els.passwordSubmitBtn, true, "Изменение…");
+  try {
+    await api("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: els.currentPassword.value, new_password: els.newPassword.value }),
+    });
+    els.passwordForm.reset();
+    setFormMessage(els.passwordMessage, "Пароль изменён. Остальные сессии завершены.", "success");
+  } finally {
+    setSubmitting(els.passwordForm, els.passwordSubmitBtn, false);
+  }
 }
 
 async function logoutAll() {
-  if (!window.confirm("Завершить все активные сессии, включая эту?")) return;
-  await api("/api/auth/logout-all", { method: "POST" });
+  const confirmed = await confirmAction({
+    variant: "danger",
+    context: "SECURITY / SESSIONS",
+    title: "Завершить все активные сессии?",
+    message: "Все браузеры и устройства, включая текущий, потеряют доступ к OpenWrt RMM.",
+    description: "Чтобы продолжить работу, потребуется снова войти в аккаунт.",
+    confirmLabel: "Завершить все сессии",
+    loadingLabel: "Завершение…",
+    onConfirm: () => api("/api/auth/logout-all", { method: "POST" }),
+    failureMessage: "Не удалось завершить активные сессии.",
+  });
+  if (!confirmed) return;
   closeProfile();
   state.devices = [];
   state.user = null;
@@ -2197,53 +2836,97 @@ async function loadUsers() {
 
 function renderUsers() {
   els.userList.innerHTML = "";
+  if (!state.users.length) {
+    els.userList.innerHTML = inlineStateMarkup("Пользователей нет", "Создайте первую отдельную учётную запись.");
+    return;
+  }
   for (const user of state.users) {
     const ownAccount = state.user && user.id === state.user.id;
     const row = document.createElement("article");
     row.className = `user-row${user.disabled ? " is-disabled" : ""}`;
     row.innerHTML = `
-      <div class="user-row-identity">
+      <div class="user-row-identity" data-label="Пользователь">
         <span class="profile-avatar">${escapeHtml((user.display_name || user.username || "U").charAt(0).toUpperCase())}</span>
-        <div><strong>${escapeHtml(user.display_name || user.username)}</strong><small>${escapeHtml(user.username)}${user.email ? ` · ${escapeHtml(user.email)}` : " · e-mail не задан"}</small></div>
+        <div><strong>${escapeHtml(user.display_name || user.username)}</strong><small class="technical-value">${escapeHtml(user.username)}</small><small>${user.email ? escapeHtml(user.email) : "E-mail не задан"}</small></div>
       </div>
-      <label>Роль<select data-user-role ${ownAccount ? "disabled" : ""}><option value="user" ${user.role === "user" ? "selected" : ""}>Пользователь</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>Администратор</option></select></label>
-      <div class="user-row-actions">
+      <label class="user-role-field" data-label="Роль"><span>Роль</span><select data-user-role ${ownAccount ? "disabled" : ""}><option value="user" ${user.role === "user" ? "selected" : ""}>Пользователь</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>Администратор</option></select></label>
+      <div class="user-state" data-label="Состояние"><span class="status ${user.disabled ? "danger" : "success"}">${user.disabled ? "DISABLED" : "ACTIVE"}</span>${ownAccount ? '<small>Текущий аккаунт</small>' : ""}</div>
+      <div class="user-row-actions" data-label="Действия">
         <button type="button" data-user-password ${ownAccount ? "disabled" : ""}>Новый пароль</button>
         <button type="button" data-user-disabled class="${user.disabled ? "" : "danger"}" ${ownAccount ? "disabled" : ""}>${user.disabled ? "Включить" : "Отключить"}</button>
       </div>
     `;
     row.querySelector("[data-user-role]").addEventListener("change", (event) => updateManagedUser(user, { role: event.target.value }));
     row.querySelector("[data-user-disabled]").addEventListener("click", () => updateManagedUser(user, { disabled: !user.disabled }));
-    row.querySelector("[data-user-password]").addEventListener("click", () => resetManagedUserPassword(user));
+    row.querySelector("[data-user-password]").addEventListener("click", () => resetManagedUserPassword(user).catch(reportError));
     els.userList.appendChild(row);
   }
 }
 
 async function updateManagedUser(user, changes) {
-  try {
-    await api(`/api/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(changes) });
-    await loadUsers();
-    notify(`Аккаунт ${user.username} обновлён`, "success");
-  } catch (error) {
-    await loadUsers();
-    reportError(error);
+  const roleChange = Object.hasOwn(changes, "role");
+  const disabling = Object.hasOwn(changes, "disabled") && changes.disabled;
+  const enabling = Object.hasOwn(changes, "disabled") && !changes.disabled;
+  const confirmed = await confirmAction({
+    variant: disabling ? "danger" : "warning",
+    context: "SECURITY / USER",
+    title: roleChange
+      ? `Изменить роль пользователя ${user.username}?`
+      : `${disabling ? "Отключить" : "Включить"} пользователя ${user.username}?`,
+    message: roleChange
+      ? "Новая роль изменит доступ пользователя к административным функциям OpenWrt RMM."
+      : disabling
+        ? "Пользователь потеряет доступ к OpenWrt RMM до повторного включения аккаунта."
+        : "Пользователь снова сможет входить в OpenWrt RMM.",
+    values: [
+      ["Account", user.username],
+      ...(roleChange ? [["Current role", user.role], ["New role", changes.role]] : [["New state", enabling ? "ACTIVE" : "DISABLED"]]),
+    ],
+    confirmLabel: roleChange ? "Изменить роль" : disabling ? "Отключить пользователя" : "Включить пользователя",
+    loadingLabel: "Сохранение…",
+    onConfirm: () => api(`/api/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(changes) }),
+    failureMessage: "Не удалось обновить учётную запись.",
+  });
+  if (!confirmed) {
+    renderUsers();
+    return;
   }
+  await loadUsers();
+  notify(`Аккаунт ${user.username} обновлён`, "success");
 }
 
-function resetManagedUserPassword(user) {
-  const password = window.prompt(`Новый временный пароль для ${user.username} (минимум 12 символов)`);
-  if (password === null) return;
-  updateManagedUser(user, { password }).catch(reportError);
+async function resetManagedUserPassword(user) {
+  const password = await confirmAction({
+    variant: "warning",
+    context: "SECURITY / USER",
+    title: `Новый временный пароль для ${user.username}`,
+    message: "Текущий пароль пользователя перестанет работать после сохранения.",
+    values: [["Account", user.username]],
+    confirmLabel: "Сохранить пароль",
+    loadingLabel: "Сохранение…",
+    input: { label: "Временный пароль", type: "password", minLength: 12, autocomplete: "new-password", hint: "Минимум 12 символов", validationMessage: "Пароль должен содержать не менее 12 символов." },
+    onConfirm: (value) => api(`/api/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify({ password: value }) }),
+    failureMessage: "Не удалось изменить временный пароль.",
+  });
+  if (!password) return;
+  await loadUsers();
+  notify(`Пароль аккаунта ${user.username} обновлён`, "success");
 }
 
 async function requestPasswordReset() {
   setFormMessage(els.forgotPasswordMessage, "Отправляем…");
-  await api("/api/auth/password-reset/request", {
-    method: "POST",
-    body: JSON.stringify({ identifier: els.passwordResetIdentifier.value.trim() }),
-  });
-  els.forgotPasswordForm.reset();
-  setFormMessage(els.forgotPasswordMessage, "Если e-mail восстановления настроен, ссылка уже отправлена.", "success");
+  const submit = els.forgotPasswordForm.querySelector('[type="submit"]');
+  setSubmitting(els.forgotPasswordForm, submit, true, "Отправка…");
+  try {
+    await api("/api/auth/password-reset/request", {
+      method: "POST",
+      body: JSON.stringify({ identifier: els.passwordResetIdentifier.value.trim() }),
+    });
+    els.forgotPasswordForm.reset();
+    setFormMessage(els.forgotPasswordMessage, "Если e-mail восстановления настроен, ссылка уже отправлена.", "success");
+  } finally {
+    setSubmitting(els.forgotPasswordForm, submit, false);
+  }
 }
 
 async function confirmPasswordReset() {
@@ -2252,14 +2935,20 @@ async function confirmPasswordReset() {
     setFormMessage(els.passwordResetMessage, "Пароли не совпадают", "error");
     return;
   }
-  await api("/api/auth/password-reset/confirm", {
-    method: "POST",
-    body: JSON.stringify({ token: state.passwordResetToken, new_password: els.resetNewPassword.value }),
-  });
-  state.passwordResetToken = "";
-  history.replaceState(null, "", `${location.pathname}${location.search}`);
-  els.passwordResetForm.reset();
-  setFormMessage(els.passwordResetMessage, "Пароль изменён. Теперь можно войти.", "success");
+  const submit = els.passwordResetForm.querySelector('[type="submit"]');
+  setSubmitting(els.passwordResetForm, submit, true, "Сохранение…");
+  try {
+    await api("/api/auth/password-reset/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token: state.passwordResetToken, new_password: els.resetNewPassword.value }),
+    });
+    state.passwordResetToken = "";
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    els.passwordResetForm.reset();
+    setFormMessage(els.passwordResetMessage, "Пароль изменён. Теперь можно войти.", "success");
+  } finally {
+    setSubmitting(els.passwordResetForm, submit, false);
+  }
 }
 
 function openPasswordResetFromURL() {
@@ -2298,18 +2987,24 @@ async function loadCommands(options = {}) {
   if (!state.selectedDeviceId) return;
   const append = Boolean(options.append);
   const offset = append ? state.commandOffset : 0;
-  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands?limit=${state.commandLimit}&offset=${offset}`);
-  const nextCommands = data.commands || [];
-  state.commands = append ? [...state.commands, ...nextCommands] : nextCommands;
-  state.commandOffset = offset + nextCommands.length;
-  state.commandHasMore = nextCommands.length === state.commandLimit;
-  renderCommands(state.commands);
-  renderCommandLoadMore();
-  renderPresetReview();
-  if (state.selectedCommand) {
-    const refreshed = state.commands.find((command) => command.id === state.selectedCommand.id);
-    state.selectedCommand = refreshed || null;
-    renderCommandDetail(state.selectedCommand);
+  if (!append) els.commandList.innerHTML = inlineStateMarkup("Загрузка операций", "Получаем lifecycle и последние результаты команд.", "loading");
+  try {
+    const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands?limit=${state.commandLimit}&offset=${offset}`);
+    const nextCommands = data.commands || [];
+    state.commands = append ? [...state.commands, ...nextCommands] : nextCommands;
+    state.commandOffset = offset + nextCommands.length;
+    state.commandHasMore = nextCommands.length === state.commandLimit;
+    renderCommands(state.commands);
+    renderCommandLoadMore();
+    renderPresetReview();
+    if (state.selectedCommand) {
+      const refreshed = state.commands.find((command) => command.id === state.selectedCommand.id);
+      state.selectedCommand = refreshed || null;
+      renderCommandDetail(state.selectedCommand);
+    }
+  } catch (error) {
+    els.commandList.innerHTML = inlineStateMarkup("Не удалось загрузить операции", error.message || "Повторите обновление.", "error");
+    throw error;
   }
 }
 
@@ -2319,29 +3014,34 @@ function renderCommandLoadMore() {
 
 function renderCommands(commands) {
   renderAgentUpdateStatus();
+  renderExpertOperationPanels(commands);
   els.commandList.innerHTML = "";
   renderCommandSummary(commands);
   const filtered = commands.filter(commandFilterMatches);
   if (filtered.length === 0) {
-    els.commandList.innerHTML = inlineStateMarkup("Команд по выбранному фильтру нет", "Измените фильтр или отправьте новую команду.");
+    els.commandList.innerHTML = commands.length
+      ? inlineStateMarkup("Операции не найдены", "Измените lifecycle filter или выберите другой статус.")
+      : inlineStateMarkup("История операций пуста", "Запущенные команды и диагностика появятся здесь.");
     return;
   }
 
   for (const command of filtered) {
     const row = document.createElement("div");
     row.className = "command-row";
+    row.setAttribute("role", "listitem");
     const canCancel = command.status === "queued" || command.status === "claimed";
     const output = command.output || JSON.stringify(command.args || {});
     const finishedAt = command.completed_at || command.cancelled_at || command.expired_at;
+    const lifecycleAt = finishedAt || command.claimed_at || command.created_at;
     row.innerHTML = `
       <div class="command-main">
         <strong>${escapeHtml(commandTypeLabel(command.type))}</strong>
         <small>${escapeHtml(command.type)} · ${escapeHtml(command.id)}</small>
       </div>
-      <span class="status ${escapeHtml(command.status)}">${escapeHtml(statusLabel(command.status))}</span>
-      <span>${command.attempt_count || 0}/${command.max_attempts || 3} попытка</span>
-      <span class="lifecycle-time">${escapeHtml(formatShortDate(finishedAt || command.claimed_at || command.created_at))}</span>
-      <details class="command-output">
+      <div data-label="Статус"><span class="status ${escapeHtml(command.status)}">${escapeHtml(commandStatusCode(command.status))}</span></div>
+      <div class="command-attempt" data-label="Попытка"><code>${command.attempt_count || 0}/${command.max_attempts || 3}</code></div>
+      <div class="lifecycle-time" data-label="Обновлено"><time datetime="${escapeHtml(lifecycleAt || "")}">${escapeHtml(formatDate(lifecycleAt))}</time></div>
+      <details class="command-output" data-label="Результат">
         <summary>${escapeHtml(outputSummary(output))}</summary>
         <pre>${escapeHtml(output)}</pre>
       </details>
@@ -2353,6 +3053,7 @@ function renderCommands(commands) {
     row.querySelector('[data-action="detail"]').addEventListener("click", () => {
       state.selectedCommand = command;
       renderCommandDetail(command);
+      els.commandDetailPanel.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     row.querySelector('[data-action="cancel"]').addEventListener("click", () => cancelCommand(command.id));
     els.commandList.appendChild(row);
@@ -2378,14 +3079,14 @@ function renderCommandDetail(command) {
   const output = command.output || JSON.stringify(command.args || {}, null, 2);
   els.commandDetailPanel.classList.remove("is-hidden");
   els.commandDetailMeta.innerHTML = `
-    <span>${escapeHtml(commandTypeLabel(command.type))}</span>
-    <span>${escapeHtml(statusLabel(command.status))}</span>
-    <span>${command.attempt_count || 0}/${command.max_attempts || 3} попытка</span>
-    <span>создана ${escapeHtml(formatShortDate(command.created_at))}</span>
-    <span>истекает ${escapeHtml(formatShortDate(command.expires_at))}</span>
-    <span>забрана ${escapeHtml(formatShortDate(command.claimed_at))}</span>
-    <span>завершена ${escapeHtml(formatShortDate(command.completed_at || command.cancelled_at || command.expired_at))}</span>
-    <span>${escapeHtml(command.id)}</span>
+    <div class="detail-field"><span>Команда</span><strong>${escapeHtml(commandTypeLabel(command.type))}</strong></div>
+    <div class="detail-field"><span>Lifecycle</span><strong class="status ${escapeHtml(command.status)}">${escapeHtml(commandStatusCode(command.status))}</strong></div>
+    <div class="detail-field"><span>Попытка</span><code>${command.attempt_count || 0}/${command.max_attempts || 3}</code></div>
+    <div class="detail-field"><span>Создана</span><time>${escapeHtml(formatDate(command.created_at))}</time></div>
+    <div class="detail-field"><span>Истекает</span><time>${escapeHtml(formatDate(command.expires_at))}</time></div>
+    <div class="detail-field"><span>Начата</span><time>${escapeHtml(formatDate(command.claimed_at))}</time></div>
+    <div class="detail-field"><span>Завершена</span><time>${escapeHtml(formatDate(command.completed_at || command.cancelled_at || command.expired_at))}</time></div>
+    <div class="detail-field command-id-field"><span>Command ID</span><code>${escapeHtml(command.id)}</code></div>
   `;
   els.commandDetailOutput.innerHTML = highlightOutput(output);
 }
@@ -2403,14 +3104,20 @@ async function loadAudit(options = {}) {
   if (!state.selectedDeviceId) return;
   const append = Boolean(options.append);
   const offset = append ? state.auditOffset : 0;
-  const data = await api(`/api/audit-events?device_id=${encodeURIComponent(state.selectedDeviceId)}&limit=${state.auditLimit}&offset=${offset}`);
-  const events = data.audit_events || [];
-  const allEvents = append ? [...state.auditEvents || [], ...events] : events;
-  state.auditEvents = allEvents;
-  state.auditOffset = offset + events.length;
-  state.auditHasMore = events.length === state.auditLimit;
-  renderAudit(allEvents);
-  renderAuditLoadMore();
+  if (!append) els.auditList.innerHTML = inlineStateMarkup("Загрузка Audit", "Получаем инженерный журнал устройства.", "loading");
+  try {
+    const data = await api(`/api/audit-events?device_id=${encodeURIComponent(state.selectedDeviceId)}&limit=${state.auditLimit}&offset=${offset}`);
+    const events = data.audit_events || [];
+    const allEvents = append ? [...state.auditEvents || [], ...events] : events;
+    state.auditEvents = allEvents;
+    state.auditOffset = offset + events.length;
+    state.auditHasMore = events.length === state.auditLimit;
+    renderAudit(allEvents);
+    renderAuditLoadMore();
+  } catch (error) {
+    els.auditList.innerHTML = inlineStateMarkup("Не удалось загрузить Audit", error.message || "Повторите обновление.", "error");
+    throw error;
+  }
 }
 
 function renderAuditLoadMore() {
@@ -2426,12 +3133,21 @@ function renderAudit(events) {
   }
 
   for (const event of events) {
+    const details = event.details && typeof event.details === "object" ? event.details : {};
+    const status = details.status || details.result || (String(event.action).includes("rejected") || String(event.action).includes("failed") ? "failed" : "recorded");
+    const statusCode = String(status).toUpperCase();
+    const statusClass = statusCode === "FAILED" || statusCode === "REJECTED" ? "failed" : statusCode === "WARNING" ? "warning" : "completed";
+    const context = event.command_id || event.device_id || details.package || details.target || "-";
+    const detailEntries = Object.entries(details).filter(([, value]) => value !== "" && value !== null && value !== undefined);
     const row = document.createElement("div");
-    row.className = "row audit";
+    row.className = "audit-record";
+    row.setAttribute("role", "listitem");
     row.innerHTML = `
-      <small>${formatDate(event.created_at)}</small>
-      <strong>${escapeHtml(event.action)}</strong>
-      <small>${escapeHtml(event.command_id || event.device_id || "-")}</small>
+      <time data-label="Timestamp" datetime="${escapeHtml(event.created_at || "")}">${escapeHtml(formatDate(event.created_at))}</time>
+      <div class="audit-action" data-label="Action"><strong>${escapeHtml(event.action)}</strong><small>${escapeHtml(event.id || "")}</small></div>
+      <code data-label="Actor">${escapeHtml(event.actor || "system")}</code>
+      <div class="audit-context" data-label="Object / context"><code>${escapeHtml(context)}</code>${detailEntries.length ? `<details class="audit-details"><summary>Context details</summary><pre class="technical-output">${escapeHtml(JSON.stringify(details, null, 2))}</pre></details>` : ""}</div>
+      <div data-label="Result"><span class="status ${escapeHtml(statusClass)}">${escapeHtml(statusCode)}</span></div>
     `;
     els.auditList.appendChild(row);
   }
@@ -2439,18 +3155,43 @@ function renderAudit(events) {
 
 async function loadRemoteSessions() {
   if (!state.selectedDeviceId) return;
-  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions?limit=25`);
-  state.remoteSessions = data.remote_sessions || [];
-  renderRemoteSessions(state.remoteSessions);
+  els.remoteSessionList.innerHTML = inlineStateMarkup("Загрузка remote sessions", "Проверяем состояние временных туннелей.", "loading");
+  try {
+    const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions?limit=25`);
+    state.remoteSessions = data.remote_sessions || [];
+    renderRemoteSessions(state.remoteSessions);
+  } catch (error) {
+    els.remoteSessionList.innerHTML = inlineStateMarkup("Не удалось загрузить remote sessions", error.message || "Повторите обновление.", "error");
+    throw error;
+  }
+}
+
+function remotePresentationState(session) {
+  if (!session) return "closed";
+  if (["requested", "queued", "creating"].includes(session.status)) return "creating";
+  if (session.status === "active") {
+    const remaining = new Date(session.expires_at).getTime() - Date.now();
+    return Number.isFinite(remaining) && remaining > 0 && remaining <= 5 * 60 * 1000 ? "expiring" : "active";
+  }
+  if (["expired", "failed", "closed"].includes(session.status)) return session.status;
+  return session.status || "closed";
+}
+
+function remoteRemainingTime(session) {
+  if (!session || !session.expires_at) return "-";
+  const expiry = new Date(session.expires_at).getTime();
+  if (!Number.isFinite(expiry)) return "-";
+  if (expiry <= Date.now()) return "Завершена";
+  return formatDuration(new Date(), expiry);
 }
 
 function renderRemoteSessions(sessions) {
   els.remoteSessionList.innerHTML = "";
   const active = sessions.filter((session) => ["requested", "queued", "active"].includes(session.status)).length;
-  els.remoteSummary.textContent = active ? `${active} активн.` : "Нет активных сессий";
+  els.remoteSummary.textContent = active ? `${active} active` : "Нет активных сессий";
   renderCloudAccessState(sessions);
   if (sessions.length === 0) {
-    els.remoteSessionList.innerHTML = inlineStateMarkup("Удаленный доступ еще не открывался", "Создайте временную сессию, чтобы подключиться к роутеру по SSH или открыть LuCI.");
+    els.remoteSessionList.innerHTML = inlineStateMarkup("Remote sessions отсутствуют", "Временный доступ создаётся только по явному запросу оператора.");
     return;
   }
   for (const session of sessions) {
@@ -2458,18 +3199,21 @@ function renderRemoteSessions(sessions) {
     const endpoint = `${session.server_host || "-"}:${session.remote_port || "-"}`;
     const connectCommand = session.remote_port ? `ssh -p ${session.remote_port} root@${session.server_host || "server"}` : "-";
     const canOpenLuCI = session.status === "active" && session.luci_port;
+    const presentationState = remotePresentationState(session);
+    const sessionType = session.luci_port ? "SSH + LuCI" : "SSH tunnel";
     const row = document.createElement("div");
     row.className = "remote-session-row";
+    row.setAttribute("role", "listitem");
     row.innerHTML = `
-      <div class="remote-session-main">
-        <span class="remote-session-status ${escapeHtml(session.status || "")}"><i></i>${escapeHtml(remoteStatusLabel(session.status))}</span>
-        <div>
-          <strong>Доступ к роутеру</strong>
-          <small>${escapeHtml(endpoint)} · до ${escapeHtml(formatShortDate(session.expires_at))}</small>
-        </div>
+      <div class="remote-session-main" data-label="Сессия">
+        <strong>${escapeHtml(sessionType)}</strong>
+        <small>${escapeHtml(session.id || "temporary access")}</small>
       </div>
-      <code>${escapeHtml(connectCommand)}</code>
-      <div class="row-actions">
+      <div class="remote-destination" data-label="Destination"><code title="${escapeHtml(connectCommand)}">${escapeHtml(endpoint)}</code><small>${session.luci_port ? `LuCI :${escapeHtml(session.luci_port)}` : "SSH only"}</small></div>
+      <div data-label="Создана"><time>${escapeHtml(formatDate(session.created_at))}</time></div>
+      <div data-label="Осталось"><code>${escapeHtml(remoteRemainingTime(session))}</code></div>
+      <div data-label="Статус"><span class="remote-session-status status ${escapeHtml(presentationState)}"><i aria-hidden="true"></i>${escapeHtml(remoteStatusLabel(presentationState))}</span></div>
+      <div class="row-actions remote-session-actions" data-label="Действия">
         <button type="button" data-action="copy" ${session.remote_port ? "" : "disabled"}>Копировать SSH</button>
         <button class="primary" type="button" data-action="luci" ${canOpenLuCI ? "" : "disabled"}>Открыть LuCI</button>
         <button type="button" data-action="close" ${canClose ? "" : "disabled"}>Закрыть</button>
@@ -2492,6 +3236,9 @@ function renderCloudAccessState(sessions) {
   const session = sessions.find((item) => ["requested", "queued", "active"].includes(item.status));
   let accessState = session && session.access_state ? session.access_state : "closed";
   if (!device || !device.online) accessState = "offline";
+  const presentationState = accessState === "ready"
+    ? remotePresentationState(session || { status: "active" })
+    : accessState === "starting" ? "creating" : accessState === "unavailable" ? "failed" : accessState;
   const copy = {
     ready: ["Защищённый канал готов", "Открыть LuCI"],
     starting: ["Создаём защищённый канал…", "Проверить"],
@@ -2502,6 +3249,8 @@ function renderCloudAccessState(sessions) {
   els.cloudAccessCard.dataset.state = accessState;
   els.cloudAccessStatus.textContent = copy[0];
   els.openCloudAccessBtn.textContent = copy[1];
+  els.cloudAccessState.className = `status ${presentationState}`;
+  els.cloudAccessState.textContent = remoteStatusLabel(presentationState);
 }
 
 function prepareCloudAccessPopup(popup) {
@@ -2529,6 +3278,8 @@ async function openCloudAccess() {
   els.openCloudAccessBtn.textContent = "Подключаемся…";
   els.cloudAccessCard.dataset.state = "starting";
   els.cloudAccessStatus.textContent = "Связываемся с агентом и проверяем LuCI…";
+  els.cloudAccessState.className = "status creating";
+  els.cloudAccessState.textContent = "CREATING";
   try {
     let response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/cloud-access`, { method: "POST" });
     for (let attempt = 0; response.status === "starting" && attempt < 10; attempt += 1) {
@@ -2570,16 +3321,21 @@ openCloudAccess.inFlight = false;
 
 async function sendCommand() {
   if (!state.selectedDeviceId) return;
-  if (!confirmDanger(els.commandType.value)) return;
-  setStatus("Creating command");
-  await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands`, {
-    method: "POST",
-    body: JSON.stringify({
-      type: els.commandType.value,
-      args: commandArgs(),
-    }),
-  });
-  await Promise.all([loadCommands(), loadAudit()]);
+  const type = els.commandType.value;
+  const args = commandArgs();
+  const queue = async () => {
+    setStatus("Creating command");
+    await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands`, {
+      method: "POST",
+      body: JSON.stringify({ type, args }),
+    });
+    await Promise.all([loadCommands(), loadAudit()]);
+  };
+  if (dangerLabel(type)) {
+    if (!await confirmDanger(type, args, queue)) return;
+  } else {
+    await queue();
+  }
   notify("Command queued", "success");
 }
 
@@ -2587,7 +3343,14 @@ async function queueAgentUpdate() {
   const device = currentDevice();
   if (!device || !hasAgentUpdateAvailable(device)) return;
   const targetVersion = stableAgentVersion();
-  if (!window.confirm(`Обновить агент на роутере до версии ${targetVersion}? Во время обновления связь с роутером может кратковременно прерваться.`)) return;
+  if (!await confirmAction({
+    variant: "warning",
+    context: "SYSTEM / AGENT",
+    title: `Обновить агент до ${targetVersion}?`,
+    message: "Во время установки связь с роутером может кратковременно прерваться.",
+    values: [["Device", deviceDisplayName(device)], ["Target version", targetVersion], ["Current version", deviceAgentVersion(device) || "Not reported"]],
+    confirmLabel: "Добавить обновление в очередь",
+  })) return;
   els.updateAgentBtn.disabled = true;
   els.updateAgentBtn.textContent = "Добавление в очередь...";
   try {
@@ -2640,7 +3403,15 @@ async function queueAgentRollback(event) {
   }
   const urls = historicalAgentManifestURLs(targetVersion);
   els.agentRollbackPreview.textContent = urls.manifest_url;
-  if (!window.confirm(`Откатить агент с ${currentVersion} до ${targetVersion}? Rollout будет остановлен, если роутер не подтвердит reconnect.`)) return;
+  if (!await confirmAction({
+    variant: "danger",
+    context: "SYSTEM / AGENT",
+    title: `Откатить агент до ${targetVersion}?`,
+    message: "Устройство установит более раннюю подписанную версию агента.",
+    description: "Rollout будет остановлен, если роутер не подтвердит reconnect.",
+    values: [["Device", deviceDisplayName(device)], ["Current", currentVersion], ["Target", targetVersion]],
+    confirmLabel: "Добавить откат в очередь",
+  })) return;
   const submit = els.agentRollbackForm.querySelector('button[type="submit"]');
   submit.disabled = true;
   try {
@@ -2673,7 +3444,7 @@ function uciSetArgs() {
 
 async function createDeviceCommand(type, args, options = {}) {
   if (!state.selectedDeviceId) return;
-  if (!options.skipConfirm && !confirmDanger(type)) return;
+  if (!options.skipConfirm && !await confirmDanger(type, args)) return;
   const command = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands`, {
     method: "POST",
     body: JSON.stringify({ type, args }),
@@ -2691,17 +3462,20 @@ async function sendBulkCommand() {
     return;
   }
   const type = els.bulkCommandType.value;
-  if (!confirmDanger(type)) return;
-  setStatus(`Queueing ${type} for ${devices.length} devices`);
-  await api("/api/devices/bulk-commands", {
-    method: "POST",
-    body: JSON.stringify({
-      device_ids: devices.map((device) => device.id),
-      type,
-      args: bulkCommandArgs(),
-    }),
-  });
-  await Promise.all([loadCommands(), loadAudit()]);
+  const args = bulkCommandArgs();
+  const queue = async () => {
+    setStatus(`Queueing ${type} for ${devices.length} devices`);
+    await api("/api/devices/bulk-commands", {
+      method: "POST",
+      body: JSON.stringify({ device_ids: devices.map((device) => device.id), type, args }),
+    });
+    await Promise.all([loadCommands(), loadAudit()]);
+  };
+  if (dangerLabel(type)) {
+    if (!await confirmDanger(type, { ...args, target_count: devices.length }, queue)) return;
+  } else {
+    await queue();
+  }
   notify(`${type} queued for ${devices.length} devices`, "success");
 }
 
@@ -2725,25 +3499,42 @@ async function sendPackageCommand() {
   const type = els.packageCommand.value;
   const packageName = els.packageName.value.trim();
   if ((type === "pkg_install" || type === "pkg_remove") && !packageName) {
-    setStatus("Package name is required");
+    setFormMessage(els.packageFormMessage, "Укажите package name для этой операции.", "error");
     return;
   }
-  if (!confirmDanger(type)) return;
-  setStatus(`Queueing ${type}`);
-  await createDeviceCommand(type, packageName ? { package: packageName } : {}, { skipConfirm: true });
+  setFormMessage(els.packageFormMessage, "");
+  const args = packageName ? { package: packageName } : {};
+  const queue = async () => {
+    setStatus(`Queueing ${type}`);
+    await createDeviceCommand(type, args, { skipConfirm: true });
+  };
+  if (dangerLabel(type)) {
+    if (!await confirmDanger(type, args, queue)) return;
+  } else {
+    await queue();
+  }
+  setFormMessage(els.packageFormMessage, `${commandTypeLabel(type)} добавлена в очередь.`, "success");
   notify(`${type} queued`, "success");
 }
 
 async function sendUciCommand(type) {
   if (!state.selectedDeviceId) return;
   if ((type === "uci_set" || type === "uci_preview") && (!els.uciSection.value.trim() || !els.uciOption.value.trim())) {
-    setStatus("UCI section and option are required");
+    setFormMessage(els.uciFormMessage, "Для Preview и Stage укажите Section и Option.", "error");
     return;
   }
-  if (!confirmDanger(type)) return;
-  setStatus(`Queueing ${type}`);
+  setFormMessage(els.uciFormMessage, "");
   const args = type === "uci_set" || type === "uci_preview" ? uciSetArgs() : uciConfigArg();
-  await createDeviceCommand(type, args, { skipConfirm: true });
+  const queue = async () => {
+    setStatus(`Queueing ${type}`);
+    await createDeviceCommand(type, args, { skipConfirm: true });
+  };
+  if (dangerLabel(type)) {
+    if (!await confirmDanger(type, args, queue)) return;
+  } else {
+    await queue();
+  }
+  setFormMessage(els.uciFormMessage, `${commandTypeLabel(type)} добавлена в очередь.`, "success");
   notify(`${type} queued`, "success");
 }
 
@@ -2759,33 +3550,67 @@ async function createRemoteSession() {
     setStatus("Tunnel server is required");
     return;
   }
-  if (!window.confirm(`Открыть временный доступ к роутеру на ${Math.round(durationSeconds / 60)} минут?`)) return;
+  if (!await confirmAction({
+    variant: "warning",
+    context: "REMOTE ACCESS / SESSION",
+    title: "Создать временный доступ?",
+    message: "RMM поставит в очередь команду на открытие SSH tunnel к выбранному роутеру.",
+    description: "Сессия автоматически завершится по таймеру.",
+    values: [["Device", deviceDisplayName(currentDevice())], ["Destination", `${serverHost}:${serverPort}`], ["Duration", `${Math.round(durationSeconds / 60)} мин.`]],
+    confirmLabel: "Создать сессию",
+  })) return;
   setStatus("Открытие удаленного доступа");
-  await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions`, {
-    method: "POST",
-    body: JSON.stringify({
-      target: "ssh",
-      server_host: serverHost,
-      server_port: serverPort,
-      remote_port: remotePort,
-      local_port: localPort,
-      luci_scheme: luciScheme,
-      duration_seconds: durationSeconds,
-    }),
-  });
-  await Promise.all([loadRemoteSessions(), loadCommands(), loadAudit()]);
-  notify("Команда открытия доступа отправлена", "success");
+  els.cloudAccessCard.dataset.state = "starting";
+  els.cloudAccessStatus.textContent = "Создаём временный tunnel request…";
+  els.cloudAccessState.className = "status creating";
+  els.cloudAccessState.textContent = "CREATING";
+  try {
+    await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions`, {
+      method: "POST",
+      body: JSON.stringify({
+        target: "ssh",
+        server_host: serverHost,
+        server_port: serverPort,
+        remote_port: remotePort,
+        local_port: localPort,
+        luci_scheme: luciScheme,
+        duration_seconds: durationSeconds,
+      }),
+    });
+    await Promise.all([loadRemoteSessions(), loadCommands(), loadAudit()]);
+    notify("Команда открытия доступа отправлена", "success");
+  } catch (error) {
+    els.cloudAccessCard.dataset.state = "unavailable";
+    els.cloudAccessStatus.textContent = error.message || "Не удалось создать remote session";
+    els.cloudAccessState.className = "status failed";
+    els.cloudAccessState.textContent = "FAILED";
+    throw error;
+  }
 }
 
 async function closeRemoteSession(sessionId) {
   if (!state.selectedDeviceId) return;
-  if (!window.confirm("Закрыть удаленный доступ к роутеру?")) return;
+  if (!await confirmAction({
+    variant: "warning",
+    context: "REMOTE ACCESS / SESSION",
+    title: "Закрыть удалённый доступ?",
+    message: "Активный tunnel будет закрыт, а открытая через него LuCI перестанет отвечать.",
+    values: [["Device", deviceDisplayName(currentDevice())], ["Session ID", sessionId]],
+    confirmLabel: "Закрыть сессию",
+  })) return;
   setStatus("Закрытие удаленного доступа");
-  await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions/${encodeURIComponent(sessionId)}/close`, {
-    method: "POST",
-  });
-  await Promise.all([loadRemoteSessions(), loadAudit()]);
-  notify("Удаленный доступ закрыт", "success");
+  try {
+    await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions/${encodeURIComponent(sessionId)}/close`, {
+      method: "POST",
+    });
+    await Promise.all([loadRemoteSessions(), loadAudit()]);
+    notify("Удаленный доступ закрыт", "success");
+  } catch (error) {
+    els.cloudAccessStatus.textContent = error.message || "Не удалось закрыть remote session";
+    els.cloudAccessState.className = "status failed";
+    els.cloudAccessState.textContent = "FAILED";
+    throw error;
+  }
 }
 
 function presetCommand(preset) {
@@ -2930,7 +3755,15 @@ async function applyPresetReview() {
     setStatus("Сначала дождитесь успешной проверки");
     return;
   }
-  if (!window.confirm("Применить проверенное изменение? При потере связи роутер автоматически восстановит конфигурацию.")) return;
+  if (!await confirmAction({
+    variant: "warning",
+    context: "CONFIGURATION / UCI",
+    title: "Применить проверенное изменение?",
+    message: "Изменение будет staged и применено через commit с проверкой reconnect.",
+    description: "При потере связи роутер автоматически восстановит конфигурацию согласно существующей логике агента.",
+    values: [["Configuration path", `${review.args.config}.${review.args.section}.${review.args.option}`], ["Current", "Not reported"], ["New", presetDisplayValue(review.preset, review.args.value), "success"]],
+    confirmLabel: "Commit + check",
+  })) return;
   const staged = await createDeviceCommand("uci_set", review.args, { skipConfirm: true, skipRefresh: true });
   const confirmed = await createDeviceCommand("uci_commit_confirmed", {
     config: review.args.config,
@@ -2970,18 +3803,41 @@ async function acknowledgeAlert(alertId) {
 
 async function clearDeviceAlerts() {
   if (!state.selectedDeviceId) return;
-  if (!confirmTyped("Очистить все алерты выбранного устройства?", "CLEAR")) return;
-  setStatus("Очищаю алерты");
-  await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts`, { method: "DELETE" });
+  const device = currentDevice();
+  const confirmed = await confirmAction({
+    variant: "warning",
+    context: "MAINTENANCE / ALERTS",
+    title: "Очистить алерты устройства?",
+    message: "Текущая история алертов будет удалена из RMM. Настройки роутера не изменятся.",
+    values: [["Device", deviceDisplayName(device)], ["Device ID", device && device.id]],
+    confirmLabel: "Очистить алерты",
+    loadingLabel: "Очистка…",
+    input: { label: "Введите CLEAR для подтверждения", expected: "CLEAR", hint: "Это удалит историю алертов.", validationMessage: "Введите CLEAR без изменений." },
+    onConfirm: () => api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts`, { method: "DELETE" }),
+    failureMessage: "Не удалось очистить алерты.",
+  });
+  if (!confirmed) return;
+  setStatus("Алерты очищены");
   await Promise.all([loadAlerts(), loadAudit(), loadDevices()]);
   notify("Алерты очищены", "success");
 }
 
 async function clearDeviceCommands() {
   if (!state.selectedDeviceId) return;
-  if (!confirmTyped("Очистить историю команд выбранного устройства?", "CLEAR")) return;
-  setStatus("Очищаю историю команд");
-  await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands`, { method: "DELETE" });
+  const device = currentDevice();
+  const confirmed = await confirmAction({
+    variant: "warning",
+    context: "MAINTENANCE / COMMANDS",
+    title: "Очистить command history?",
+    message: "История выполненных команд и их output будет удалена из RMM.",
+    values: [["Device", deviceDisplayName(device)], ["Known commands", state.commands.length]],
+    confirmLabel: "Очистить историю команд",
+    loadingLabel: "Очистка…",
+    input: { label: "Введите CLEAR для подтверждения", expected: "CLEAR", hint: "Активные операции обрабатываются согласно серверной логике.", validationMessage: "Введите CLEAR без изменений." },
+    onConfirm: () => api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands`, { method: "DELETE" }),
+    failureMessage: "Не удалось очистить историю команд.",
+  });
+  if (!confirmed) return;
   state.commands = [];
   state.commandOffset = 0;
   state.selectedCommand = null;
@@ -2992,9 +3848,21 @@ async function clearDeviceCommands() {
 
 async function clearDeviceAudit() {
   if (!state.selectedDeviceId) return;
-  if (!confirmTyped("Очистить аудит выбранного устройства?", "CLEAR")) return;
-  setStatus("Очищаю аудит");
-  await api(`/api/audit-events?device_id=${encodeURIComponent(state.selectedDeviceId)}`, { method: "DELETE" });
+  const device = currentDevice();
+  const confirmed = await confirmAction({
+    variant: "danger",
+    context: "MAINTENANCE / AUDIT",
+    title: "Очистить audit log устройства?",
+    message: "Инженерный журнал событий выбранного устройства будет удалён.",
+    description: "После операции останется только новая запись об очистке, если её создаёт сервер.",
+    values: [["Device", deviceDisplayName(device)], ["Loaded events", state.auditEvents.length]],
+    confirmLabel: "Очистить аудит",
+    loadingLabel: "Очистка…",
+    input: { label: "Введите CLEAR для подтверждения", expected: "CLEAR", validationMessage: "Введите CLEAR без изменений." },
+    onConfirm: () => api(`/api/audit-events?device_id=${encodeURIComponent(state.selectedDeviceId)}`, { method: "DELETE" }),
+    failureMessage: "Не удалось очистить audit log.",
+  });
+  if (!confirmed) return;
   state.auditEvents = [];
   state.auditOffset = 0;
   await loadAudit();
@@ -3005,9 +3873,20 @@ async function deleteSelectedDevice() {
   const device = currentDevice();
   if (!device) return;
   const name = deviceDisplayName(device);
-  if (!confirmTyped(`Удалить устройство "${name}" из RMM? Это удалит метрики, команды, алерты и remote sessions.`, name)) return;
-  setStatus("Удаляю устройство");
-  await api(`/api/devices/${encodeURIComponent(device.id)}`, { method: "DELETE" });
+  const confirmed = await confirmAction({
+    variant: "danger",
+    context: "DANGER / DEVICE",
+    title: `Удалить устройство «${name}»?`,
+    message: "Устройство будет удалено из RMM вместе со связанными метриками, командами, алертами и remote sessions согласно существующей логике.",
+    description: "Это действие нельзя отменить.",
+    values: [["Device", name], ["Device ID", device.id], ["Last contact", formatDate(device.last_seen_at)]],
+    confirmLabel: "Удалить устройство",
+    loadingLabel: "Удаление…",
+    input: { label: "Введите имя устройства для подтверждения", expected: name, hint: name, validationMessage: "Введите точное имя устройства, показанное выше." },
+    onConfirm: () => api(`/api/devices/${encodeURIComponent(device.id)}`, { method: "DELETE" }),
+    failureMessage: "Не удалось удалить устройство.",
+  });
+  if (!confirmed) return;
   state.selectedDeviceId = null;
   state.selectedCommand = null;
   state.commands = [];
@@ -3021,12 +3900,25 @@ async function transferSelectedDevice() {
   const device = currentDevice();
   if (!device) return;
   const targetUsername = els.transferUsername.value.trim();
-  if (!window.confirm(`Передать роутер «${deviceDisplayName(device)}» пользователю ${targetUsername}? Текущий удалённый доступ будет закрыт.`)) return;
-  setFormMessage(els.transferMessage, "Передаём…");
-  await api(`/api/devices/${encodeURIComponent(device.id)}/transfer`, {
-    method: "POST",
-    body: JSON.stringify({ target_username: targetUsername, current_password: els.transferPassword.value }),
+  const confirmed = await confirmAction({
+    variant: "danger",
+    context: "SECURITY / DEVICE TRANSFER",
+    title: `Передать «${deviceDisplayName(device)}»?`,
+    message: `Пользователь ${targetUsername} станет новым владельцем устройства. Оно исчезнет из текущего аккаунта.`,
+    description: "Текущий удалённый доступ будет закрыт согласно существующей серверной логике.",
+    values: [["Device", deviceDisplayName(device)], ["Device ID", device.id], ["New owner", targetUsername]],
+    confirmLabel: "Передать устройство",
+    loadingLabel: "Передача…",
+    onConfirm: async () => {
+      setFormMessage(els.transferMessage, "Передаём…");
+      await api(`/api/devices/${encodeURIComponent(device.id)}/transfer`, {
+        method: "POST",
+        body: JSON.stringify({ target_username: targetUsername, current_password: els.transferPassword.value }),
+      });
+    },
+    failureMessage: "Не удалось передать устройство. Проверьте пароль и нового владельца.",
   });
+  if (!confirmed) return;
   els.deviceTransferForm.reset();
   state.selectedDeviceId = null;
   await loadDevices();
@@ -3052,40 +3944,78 @@ function diagnosticCommand(name) {
   }
 }
 
+function renderDiagnosticState(tone, title, description, withResultsAction = false) {
+  const iconName = tone === "success" ? "check" : tone === "running" || tone === "info" ? "loader-2" : tone === "neutral" ? "terminal-2" : "alert-triangle";
+  els.diagnosticStatus.className = `operation-status is-${tone}`;
+  els.diagnosticStatus.dataset.tone = tone;
+  els.diagnosticStatus.innerHTML = `
+    <span class="operation-icon" aria-hidden="true">${icon(iconName)}</span>
+    <div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(description)}</small></div>
+    ${withResultsAction ? '<button id="openDiagnosticResultsBtn" type="button">Открыть результаты</button>' : ""}
+  `;
+  els.diagnosticStatus.querySelector("#openDiagnosticResultsBtn")?.addEventListener("click", scrollToCommands);
+}
+
+function renderOperationalAvailability(device) {
+  const offline = !device || !device.online;
+  els.runFullDiagnosticBtn.disabled = offline;
+  els.createRemoteSessionBtn.disabled = offline;
+  for (const button of document.querySelectorAll(".diagnostic-btn")) button.disabled = offline;
+  for (const button of document.querySelectorAll(".requires-online")) button.disabled = offline || button.classList.contains("is-loading");
+  renderExpertOperationPanels();
+  if (offline) {
+    renderDiagnosticState("offline", "Диагностика недоступна", `Роутер не на связи · последний контакт ${formatDate(device && device.last_seen_at)}`);
+  } else if (els.diagnosticStatus.dataset.tone === "offline") {
+    renderDiagnosticState("neutral", "Готово к проверке", "Можно запустить отдельную проверку или полный diagnostic set.");
+  }
+}
+
 async function sendDiagnostic(name) {
   const command = diagnosticCommand(name);
   if (!command) return;
+  const device = currentDevice();
+  if (!device || !device.online) {
+    renderDiagnosticState("offline", "Диагностика недоступна", "Роутер должен восстановить соединение с RMM.");
+    return;
+  }
   setStatus("Запуск проверки");
-  await createDeviceCommand(command.type, command.args);
-  notify("Проверка поставлена в очередь", "success");
-  scrollToCommands();
+  renderDiagnosticState("running", "Проверка запускается", `${commandTypeLabel(command.type)} добавляется в очередь агента.`);
+  try {
+    await createDeviceCommand(command.type, command.args);
+    renderDiagnosticState("info", "Проверка поставлена в очередь", "Lifecycle и technical output доступны в истории операций.", true);
+    notify("Проверка поставлена в очередь", "success");
+    scrollToCommands();
+  } catch (error) {
+    renderDiagnosticState("error", "Не удалось запустить проверку", error.message || "Повторите действие.");
+    throw error;
+  }
 }
 
 async function runFullDiagnostic() {
   const checks = ["ping_server", "ping_internet", "show_routes", "show_interfaces"];
+  const device = currentDevice();
+  if (!device || !device.online) {
+    renderDiagnosticState("offline", "Полная диагностика недоступна", "Роутер должен восстановить соединение с RMM.");
+    return;
+  }
   els.runFullDiagnosticBtn.disabled = true;
-  els.diagnosticStatus.classList.add("is-running");
-  els.diagnosticStatus.innerHTML = `
-    <span class="operation-icon">↻</span>
-    <div><strong>Диагностика запускается</strong><small>Отправляем проверки на роутер</small></div>
-  `;
+  renderDiagnosticState("running", "Полная диагностика запускается", `Подготовлено 0 из ${checks.length} проверок.`);
+  let queued = 0;
   try {
     for (const name of checks) {
       const command = diagnosticCommand(name);
       await createDeviceCommand(command.type, command.args, { skipRefresh: true });
+      queued += 1;
+      renderDiagnosticState("running", "Полная диагностика запускается", `Подготовлено ${queued} из ${checks.length} проверок.`);
     }
     await Promise.all([loadCommands(), loadAudit(), loadAlerts()]);
-    els.diagnosticStatus.classList.remove("is-running");
-    els.diagnosticStatus.classList.add("is-complete");
-    els.diagnosticStatus.innerHTML = `
-      <span class="operation-icon">✓</span>
-      <div><strong>Диагностика запущена</strong><small>Результаты появятся в истории команд</small></div>
-      <button id="openDiagnosticResultsBtn" type="button">Открыть результаты</button>
-    `;
-    els.diagnosticStatus.querySelector("#openDiagnosticResultsBtn").addEventListener("click", scrollToCommands);
+    renderDiagnosticState("success", "Диагностика запущена", `${checks.length} проверок поставлены в очередь. Результаты появятся в Operations.`, true);
     notify("Полная диагностика поставлена в очередь", "success");
+  } catch (error) {
+    renderDiagnosticState(queued ? "warning" : "error", queued ? "Диагностика запущена частично" : "Диагностика не запущена", queued ? `${queued} из ${checks.length} проверок поставлены в очередь; следующая команда завершилась ошибкой.` : error.message || "Не удалось создать команды.", queued > 0);
+    throw error;
   } finally {
-    els.runFullDiagnosticBtn.disabled = false;
+    els.runFullDiagnosticBtn.disabled = !currentDevice() || !currentDevice().online;
   }
 }
 
@@ -3104,7 +4034,7 @@ async function runAlertDiagnostics(alert) {
 }
 
 function scrollToCommands() {
-  selectDeviceTab("expert");
+  selectDeviceTab("operations");
   document.querySelector("#commandsPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -3118,12 +4048,29 @@ function escapeHtml(value) {
 }
 
 async function createEnrollmentGrant() {
-  const suggested = (window.prompt("Имя роутера в домене (например office-1); можно оставить пустым", "") || "").trim().toLowerCase();
+  const value = await confirmAction({
+    variant: "neutral",
+    context: "FLEET / ENROLLMENT",
+    title: "Создать одноразовый grant",
+    message: "Необязательное DNS-имя поможет узнавать роутер после подключения.",
+    description: "Grant действует 15 минут и используется один раз.",
+    confirmLabel: "Создать grant",
+    input: {
+      label: "DNS-имя роутера",
+      required: false,
+      placeholder: "office-1",
+      hint: "Можно оставить пустым. Допустимы строчные буквы, цифры и дефис.",
+      validate: (input) => !input || /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(input.trim().toLowerCase()) || "Введите корректное DNS-имя без точек.",
+    },
+  });
+  if (value === false) return;
+  const suggested = String(value).trim().toLowerCase();
   const data = await api("/api/enrollment-grants", {
     method: "POST",
     body: JSON.stringify({ dns_label: suggested, expires_seconds: 900 }),
   });
   els.enrollmentTokenOutput.value = data.enrollment_token;
+  setFormMessage(els.enrollmentCopyState, "");
   els.enrollmentGrantDialog.showModal();
   notify("Grant для добавления роутера создан", "success");
 }
@@ -3131,14 +4078,22 @@ async function createEnrollmentGrant() {
 async function createUserAccount() {
   const username = els.newUsername.value.trim();
   const password = els.newUserPassword.value;
-  await api("/api/users", {
-    method: "POST",
-    body: JSON.stringify({ username, email: els.newUserEmail.value.trim(), password, role: els.newUserRole.value }),
-  });
-  els.createUserDialog.close();
-  els.createUserForm.reset();
-  if (els.profileDialog.open) await loadUsers();
-  notify(`Пользователь ${username} создан`, "success");
+  setFormMessage(els.createUserMessage, "Создаём пользователя…");
+  setSubmitting(els.createUserForm, els.createUserSubmitBtn, true, "Создание…");
+  try {
+    await api("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ username, email: els.newUserEmail.value.trim(), password, role: els.newUserRole.value }),
+    });
+    els.createUserDialog.close();
+    els.createUserForm.reset();
+    if (els.profileDialog.open) await loadUsers();
+    notify(`Пользователь ${username} создан`, "success");
+  } catch (error) {
+    setFormMessage(els.createUserMessage, error && error.message ? error.message : "Не удалось создать пользователя", "error");
+  } finally {
+    setSubmitting(els.createUserForm, els.createUserSubmitBtn, false);
+  }
 }
 
 async function checkHealth() {
@@ -3170,6 +4125,38 @@ els.passwordResetForm.addEventListener("submit", (event) => {
   event.preventDefault();
   confirmPasswordReset().catch((error) => setFormMessage(els.passwordResetMessage, error.message, "error"));
 });
+els.confirmationForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitConfirmation();
+});
+els.confirmationCancelBtn.addEventListener("click", cancelConfirmation);
+els.confirmationCloseBtn.addEventListener("click", cancelConfirmation);
+els.confirmationDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelConfirmation();
+});
+els.confirmationDialog.addEventListener("click", (event) => {
+  if (event.target === els.confirmationDialog) cancelConfirmation();
+});
+els.confirmationDialog.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab") return;
+  const focusable = [...els.confirmationDialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')]
+    .filter((element) => !element.closest(".is-hidden"));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+
+for (const button of document.querySelectorAll("[data-dialog-cancel]")) {
+  button.addEventListener("click", () => button.closest("dialog")?.close());
+}
 els.logoutBtn.addEventListener("click", () => logout().catch(reportError));
 els.fleetNavBtn.addEventListener("click", showFleet);
 els.problemsNavBtn.addEventListener("click", () => openDeviceArea("overview", "#alertList", "problems").catch(reportError));
@@ -3272,6 +4259,29 @@ els.luciStateDialog.addEventListener("cancel", (event) => {
   els.luciStateDialog.close();
 });
 
+function closeSystemState() {
+  state.systemStateRetry = null;
+  if (els.systemStateDialog.open) els.systemStateDialog.close();
+}
+
+els.closeSystemStateBtn.addEventListener("click", closeSystemState);
+els.systemStateBackBtn.addEventListener("click", closeSystemState);
+els.systemStateDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeSystemState();
+});
+els.systemStatePrimaryBtn.addEventListener("click", () => {
+  const retry = state.systemStateRetry;
+  closeSystemState();
+  if (retry) Promise.resolve(retry()).catch(reportError);
+});
+els.systemStateCopyBtn.addEventListener("click", async () => {
+  const requestId = Array.from(els.systemStateContext.querySelectorAll("div")).find((row) => row.querySelector("dt")?.textContent === "ID запроса")?.querySelector("dd")?.textContent;
+  if (!requestId) return;
+  await navigator.clipboard.writeText(requestId);
+  notify("ID запроса скопирован", "success");
+});
+
 els.fleetFilterToggle.addEventListener("click", () => {
   const isOpen = els.fleetAdvancedFilters.classList.toggle("is-open");
   els.fleetFilterToggle.setAttribute("aria-expanded", String(isOpen));
@@ -3280,14 +4290,22 @@ els.fleetFilterToggle.addEventListener("click", () => {
 
 els.refreshBtn.addEventListener("click", () => loadDevices().catch(reportError));
 els.addRouterBtn.addEventListener("click", () => createEnrollmentGrant().catch(reportError));
-els.addUserBtn.addEventListener("click", () => els.createUserDialog.showModal());
+function openCreateUserDialog() {
+  els.createUserForm.reset();
+  setFormMessage(els.createUserMessage, "");
+  els.createUserDialog.showModal();
+}
+els.addUserBtn.addEventListener("click", openCreateUserDialog);
+els.openCreateUserBtn.addEventListener("click", openCreateUserDialog);
 els.createUserForm.addEventListener("submit", (event) => {
   event.preventDefault();
   createUserAccount().catch(reportError);
 });
 els.cancelCreateUserBtn.addEventListener("click", () => els.createUserDialog.close());
+els.closeCreateUserBtn.addEventListener("click", () => els.createUserDialog.close());
 els.copyEnrollmentTokenBtn.addEventListener("click", async () => {
   await navigator.clipboard.writeText(els.enrollmentTokenOutput.value);
+  setFormMessage(els.enrollmentCopyState, "COPIED", "success");
   notify("Grant скопирован", "success");
 });
 els.backToFleetBtn.addEventListener("click", showFleet);
@@ -3358,6 +4376,16 @@ for (const button of document.querySelectorAll(".diagnostic-btn")) {
 
 for (const button of document.querySelectorAll(".device-tab")) {
   button.addEventListener("click", () => selectDeviceTab(button.dataset.deviceTabTarget));
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = Array.from(document.querySelectorAll(".device-tab"));
+    const current = tabs.indexOf(button);
+    let next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : current + (event.key === "ArrowRight" ? 1 : -1);
+    next = (next + tabs.length) % tabs.length;
+    selectDeviceTab(tabs[next].dataset.deviceTabTarget);
+    tabs[next].focus();
+  });
 }
 
 for (const button of document.querySelectorAll(".client-filter")) {
@@ -3412,6 +4440,19 @@ els.commandStatusFilter.addEventListener("change", () => {
 els.commandType.addEventListener("change", () => {
   els.commandTarget.disabled = ["pkg_list_installed", "route_show", "interfaces_show", "reboot"].includes(els.commandType.value);
 });
+
+function syncPackageForm() {
+  const operation = els.packageCommand.value;
+  const needsName = operation === "pkg_install" || operation === "pkg_remove";
+  els.packageName.disabled = !needsName;
+  els.packageName.required = needsName;
+  els.sendPackageCommandBtn.classList.toggle("danger", operation === "pkg_remove");
+  els.sendPackageCommandBtn.textContent = operation === "pkg_remove" ? "Remove" : operation === "pkg_install" ? "Install" : "Queue";
+  setFormMessage(els.packageFormMessage, "");
+}
+
+els.packageCommand.addEventListener("change", syncPackageForm);
+syncPackageForm();
 
 els.bulkCommandType.addEventListener("change", () => {
   els.bulkCommandTarget.disabled = els.bulkCommandType.value === "pkg_list_installed";

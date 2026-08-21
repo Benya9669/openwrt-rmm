@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#071019">
+    <meta name="theme-color" content="#090b0d">
     <meta name="description" content="OpenWrt RMM — безопасное удалённое управление роутерами, мониторинг сети и временный доступ к LuCI.">
     <meta property="og:title" content="OpenWrt RMM — управление сетью из одной панели">
     <meta property="og:description" content="Контролируйте состояние OpenWrt, клиентов и удалённый доступ к LuCI без публикации панели роутера в интернете.">
@@ -15,7 +15,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=29">
+    <link rel="stylesheet" href="/styles.css?v=33">
   </head>
   <body>
     <main class="landing-view">
@@ -33,7 +33,7 @@
 
       <section id="top" class="landing-hero">
         <div class="landing-copy">
-          <span class="landing-kicker"><i></i> Роутеры под контролем из любой точки</span>
+          <span class="landing-kicker">INFRASTRUCTURE / CONTROL PLANE</span>
           <h1>Единый центр управления <em>OpenWrt</em></h1>
           <p>Следите за состоянием сети, клиентами и обновлениями агента. Открывайте LuCI через временный защищённый доступ без публикации панели роутера в интернете.</p>
           <div class="landing-actions">
@@ -41,14 +41,14 @@
             <a class="landing-secondary" href="#capabilities">Как это работает</a>
           </div>
           <div class="landing-trust">
-            <span><b>●</b> Живые данные</span>
-            <span><b>✓</b> Изоляция аккаунтов</span>
-            <span><b>↗</b> Временные LuCI-сессии</span>
+            <span><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-activity-heartbeat"></use></svg>Живые данные</span>
+            <span><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-shield-check"></use></svg>Изоляция аккаунтов</span>
+            <span><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-external-link"></use></svg>Временные LuCI-сессии</span>
           </div>
         </div>
 
         <div class="landing-console" aria-label="Пример панели мониторинга">
-          <div class="console-top"><span></span><span></span><span></span><small>fleet / overview</small></div>
+          <div class="console-top"><span>FLEET / OVERVIEW</span><small><i></i> LIVE</small></div>
           <div class="console-summary">
             <div><small>На связи</small><strong>12</strong></div>
             <div><small>Требуют внимания</small><strong class="warn">2</strong></div>

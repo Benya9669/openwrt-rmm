@@ -7,6 +7,101 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.11.0
+
+Complete UI/UX redesign and responsive interface overhaul for the OpenWrt RMM web console.
+
+### Added
+
+- A unified design system now defines the application's colors, typography, spacing, control sizes,
+  borders, status presentation, responsive behavior, technical output, dialogs, and accessibility
+  conventions.
+- Reusable application-native confirmation dialogs replace browser-native confirmation flows for
+  destructive and security-sensitive actions.
+- Shared technical-output and configuration-diff patterns provide consistent presentation for
+  command results, diagnostics, package operations, UCI previews, and backend error details.
+- Dedicated system-state presentation now covers unavailable services, access errors, empty data,
+  stale telemetry, offline devices, reconnecting states, and other exceptional conditions.
+- Responsive mobile representations were added for dense operational data instead of relying on
+  compressed desktop tables.
+- A unified Tabler Icons-based icon system provides consistent outline icons across navigation,
+  dialogs, statuses, actions, and dynamically rendered interface elements.
+
+### Changed
+
+- The authenticated application was redesigned around a compact dark infrastructure-console
+  aesthetic with rectangular controls, reduced corner radii, muted semantic colors, and higher
+  information density.
+- Fleet, device overview, clients, network interfaces, problems, operations, diagnostics, remote
+  access, Expert mode, UCI configuration, packages, audit, and maintenance now share the same
+  visual and interaction system.
+- Profile, account security, notification settings, notification history, user management, router
+  enrollment, login, landing, legal, and public system states were brought into the same design
+  language as the main RMM console.
+- Desktop navigation, mobile navigation, tabs, dialogs, forms, tables, filters, statuses, and
+  action hierarchies were standardized across the application.
+- Device and fleet views prioritize operational status, stale/offline state, WAN health, problems,
+  telemetry, and primary actions without oversized dashboard cards.
+- Client and interface tables use structured compact records on narrow screens so IPv4, IPv6,
+  MAC addresses, signal data, traffic counters, and long hostnames remain readable.
+- Expert and UCI workflows now visually separate read-only, primary, recovery, and destructive
+  operations while preserving the existing backend behavior.
+- Notification settings are grouped by channels, event types, thresholds, quiet hours, device
+  overrides, delivery state, and history instead of presenting one flat configuration form.
+- Landing and login pages were restyled to match the infrastructure-console interface instead of
+  using a separate bright SaaS-oriented visual language.
+- Technical identifiers, addresses, command output, package names, UCI values, and similar data
+  now use a consistent monospace presentation while normal interface copy remains sans-serif.
+
+### Fixed
+
+- Responsive layouts no longer depend on overlapping mobile overrides for the same components and
+  now use a more consistent breakpoint strategy.
+- Dense tables and technical values no longer introduce page-level horizontal scrolling on narrow
+  viewports.
+- Long IPv6 addresses, hostnames, tags, command output, audit context, webhook URLs, and backend
+  messages are constrained without breaking their surrounding layouts.
+- Mobile dialogs and forms remain within the dynamic viewport and keep their actions accessible
+  on small screens.
+- Offline, stale, loading, empty, filtered-empty, and error states are now visually distinguished
+  instead of falling back to inconsistent component-specific presentation.
+- Destructive operations no longer rely on generic browser `confirm`, `alert`, or `prompt`
+  interactions where an application-native workflow is available.
+- Legacy Unicode and emoji glyphs used as interface icons were replaced with consistent SVG
+  iconography.
+- Dialog close controls, navigation actions, notification controls, and other icon-only buttons
+  now use consistent sizing and interaction states.
+
+### Accessibility
+
+- Icon-only controls now expose accessible names while decorative SVG icons are excluded from the
+  accessibility tree.
+- Status presentation combines text, iconography, and semantic color instead of relying on color
+  alone.
+- Dialog focus handling, keyboard interaction, focus-visible states, form labels, validation
+  feedback, and destructive-action confirmations were standardized across the redesigned UI.
+- Mobile controls and navigation use consistent touch targets and respect viewport and safe-area
+  constraints.
+
+### Documentation
+
+- `DESIGN.md` documents the permanent OpenWrt RMM design system and acts as the source of truth for
+  future frontend changes.
+- The design guide defines visual principles, design tokens, responsive conventions, technical
+  typography, status patterns, dialogs, forms, tables, destructive actions, and iconography.
+- Tabler Icons are documented as the project's single supported production icon set, including
+  sizing, stroke, color inheritance, accessibility, and vendoring conventions.
+
+### Validation
+
+- Frontend and browser coverage exercises the redesigned navigation, Fleet, device views, clients,
+  network interfaces, operations, Expert workflows, dialogs, profile, notifications, user
+  management, login, and public states.
+- Responsive checks cover phone, tablet, desktop, and wide-desktop layouts, including narrow
+  320–430 px viewports and dense technical content.
+- Regression coverage verifies application-native confirmations, dynamic icon rendering, dialog
+  behavior, filtering, navigation, command output, and representative error and offline states.
+
 ## server-v0.10.2
 
 Secure tunnel authorization compatibility hotfix.

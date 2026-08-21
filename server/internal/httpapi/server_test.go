@@ -713,6 +713,9 @@ func TestServesStaticWebUI(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "landing.html"), []byte("<!doctype html><title>RMM Landing</title>"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "error.html"), []byte("<!doctype html><title>RMM Not Found</title>"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log('rmm')"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -775,9 +778,29 @@ func TestServesStaticWebUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	missingData, err := io.ReadAll(missingResp.Body)
 	_ = missingResp.Body.Close()
-	if missingResp.StatusCode != http.StatusNotFound {
-		t.Fatalf("unexpected missing page response: %d", missingResp.StatusCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missingResp.StatusCode != http.StatusNotFound || !strings.Contains(string(missingData), "RMM Not Found") {
+		t.Fatalf("unexpected missing page response: %d %s", missingResp.StatusCode, missingData)
+	}
+	if cacheControl := missingResp.Header.Get("Cache-Control"); cacheControl != "no-store" {
+		t.Fatalf("error HTML must not be cached, got %q", cacheControl)
+	}
+
+	missingAPIResp, err := http.Get(srv.URL + "/api/unknown-route")
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingAPIData, err := io.ReadAll(missingAPIResp.Body)
+	_ = missingAPIResp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missingAPIResp.StatusCode != http.StatusNotFound || !strings.Contains(string(missingAPIData), `"error":"not found"`) {
+		t.Fatalf("unexpected missing API response: %d %s", missingAPIResp.StatusCode, missingAPIData)
 	}
 }
 
