@@ -7,6 +7,15 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.11.1
+
+Application icon refresh.
+
+### Changed
+
+- Updated favicon, PWA, and Apple touch icon assets to match the redesigned OpenWrt RMM interface.
+- Removed the unintended opaque background around the application icon.
+
 ## server-v0.11.0
 
 Complete UI/UX redesign and responsive interface overhaul for the OpenWrt RMM web console.
