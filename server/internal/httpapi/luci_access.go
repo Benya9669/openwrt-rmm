@@ -32,53 +32,397 @@ var luciErrorPageTemplate = template.Must(template.New("luci-error").Parse(`<!do
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}} · OpenWrt RMM</title>
+  <meta name="theme-color" content="#090b0d">
+  <meta name="robots" content="noindex,nofollow">
+  <title>{{.Title}} — OpenWrt RMM</title>
+
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --bg: #14191f; --surface: #1e252d; --raised: #242d36; --text: #f4f7fa; --muted: #9baaba; --line: #3a4652; --accent: #21a8d8; --warn: #f3b43f; }
-    * { box-sizing: border-box; }
-    body { min-height: 100dvh; margin: 0; padding: clamp(16px, 4vw, 40px); display: grid; place-items: center; color: var(--text); background: radial-gradient(circle at 16% 8%, rgb(39 182 230 / 15%), transparent 30rem), radial-gradient(circle at 88% 78%, rgb(67 96 246 / 10%), transparent 32rem), var(--bg); }
-    main { width: min(100%, 760px); overflow: hidden; border: 1px solid var(--line); border-radius: 24px; background: rgb(30 37 45 / 96%); box-shadow: 0 28px 90px rgb(0 0 0 / 34%); animation: enter 260ms cubic-bezier(.2, .75, .25, 1) both; }
-    header { min-height: 72px; padding: 16px clamp(20px, 5vw, 38px); display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); }
-    .brand { display: flex; align-items: center; gap: 11px; color: var(--text); font-size: 14px; font-weight: 760; }
-    .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(145deg, #27b6e6, #435ff6); box-shadow: 0 8px 24px rgb(33 168 216 / 22%); }
-    .route { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
-    .route i { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgb(33 168 216 / 10%); }
-    .content { padding: clamp(26px, 6vw, 50px); }
-    .signal { width: 86px; height: 50px; display: flex; align-items: center; gap: 8px; margin-bottom: 30px; }
-    .signal span { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--raised); font-size: 11px; font-weight: 800; }
-    .signal b { width: 20px; height: 1px; position: relative; background: var(--line); }
-    .signal b::after { content: ""; position: absolute; top: -3px; left: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 4px rgb(243 180 63 / 10%); }
-    .code { margin: 0 0 12px; color: var(--warn); font: 750 12px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; }
-    h1 { max-width: 620px; margin: 0; font-size: clamp(30px, 7vw, 48px); line-height: 1.04; letter-spacing: -.045em; }
-    p { max-width: 640px; margin: 18px 0 0; color: var(--muted); font-size: 16px; line-height: 1.65; }
-    .notice { margin-top: 28px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; color: #c7d1da; background: var(--raised); font-size: 14px; line-height: 1.5; }
-    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 32px; }
-    a { min-height: 46px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 12px; color: var(--text); text-decoration: none; font-weight: 750; transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease; }
-    a.primary { border-color: var(--accent); color: #fff; background: var(--accent); }
-    .request { margin-top: 26px; color: #718091; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
-    @keyframes enter { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
-    @media (hover: hover) and (pointer: fine) { a:hover { border-color: rgb(33 168 216 / 64%); transform: translateY(-1px); } a.primary:hover { background: #29b6e7; } }
-    @media (max-width: 560px) { body { padding: 0; align-items: end; } main { border-width: 1px 0 0; border-radius: 24px 24px 0 0; } header { min-height: 64px; padding: 14px 20px; } .route { display: none; } .content { padding: 28px 20px max(24px, env(safe-area-inset-bottom)); } .signal { margin-bottom: 24px; } .actions { display: grid; } .actions a { width: 100%; } }
-    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+    :root {
+      color-scheme: dark;
+
+      --color-bg: #090b0d;
+      --color-surface-1: #0e1113;
+      --color-surface-2: #131719;
+      --color-surface-3: #191e21;
+
+      --color-border: #283034;
+      --color-border-strong: #394348;
+
+      --color-text: #e4e8ea;
+      --color-text-secondary: #a3aaae;
+      --color-text-muted: #747d82;
+
+      --color-accent: #6f8999;
+      --color-accent-hover: #819bab;
+
+      --color-warning: #b19a6b;
+
+      --font-ui:
+        Inter,
+        "Segoe UI",
+        Roboto,
+        "Helvetica Neue",
+        Arial,
+        sans-serif;
+
+      --font-mono:
+        "IBM Plex Mono",
+        "SFMono-Regular",
+        Consolas,
+        "Liberation Mono",
+        monospace;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-width: 320px;
+      min-height: 100%;
+      background: var(--color-bg);
+      text-size-adjust: 100%;
+    }
+
+    body {
+      min-width: 320px;
+      min-height: 100dvh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+
+      color: var(--color-text);
+      background: var(--color-bg);
+
+      font-family: var(--font-ui);
+      font-size: 14px;
+      line-height: 1.45;
+
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: inherit;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    a:focus-visible {
+      outline: 2px solid var(--color-accent-hover);
+      outline-offset: 2px;
+    }
+
+    .system-state {
+      width: min(680px, 100%);
+      overflow: hidden;
+
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+
+      background: var(--color-surface-1);
+    }
+
+    .system-state-header {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+
+      padding: 0 20px;
+
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-surface-2);
+    }
+
+    .system-state-brand {
+      color: var(--color-text);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .01em;
+      text-decoration: none;
+    }
+
+    .system-state-code {
+      color: var(--color-warning);
+
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .08em;
+    }
+
+    .system-state-body {
+      padding: 32px;
+    }
+
+    .system-state-symbol {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+
+      margin-bottom: 24px;
+
+      border: 1px solid var(--color-border-strong);
+      border-radius: 4px;
+
+      color: var(--color-warning);
+      background: var(--color-surface-2);
+    }
+
+    .system-state-symbol svg {
+      width: 22px;
+      height: 22px;
+
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+
+      color: var(--color-text);
+
+      font-size: clamp(26px, 5vw, 36px);
+      font-weight: 700;
+      line-height: 1.08;
+      letter-spacing: -.035em;
+    }
+
+    .system-state-description {
+      max-width: 600px;
+      margin: 0;
+
+      color: var(--color-text-secondary);
+
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .system-state-context {
+      display: grid;
+      margin: 28px 0 0;
+
+      border-top: 1px solid var(--color-border);
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .system-state-context > div {
+      display: grid;
+      grid-template-columns: 130px minmax(0, 1fr);
+      gap: 16px;
+
+      padding: 11px 0;
+
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .system-state-context > div:last-child {
+      border-bottom: 0;
+    }
+
+    .system-state-context dt {
+      color: var(--color-text-muted);
+
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .system-state-context dd {
+      min-width: 0;
+      margin: 0;
+
+      color: var(--color-text-secondary);
+      font-size: 12px;
+    }
+
+    .system-state-notice {
+      margin-top: 24px;
+      padding: 14px 16px;
+
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+
+      color: var(--color-text-muted);
+      background: var(--color-surface-2);
+
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .system-state-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+
+      margin-top: 24px;
+    }
+
+    .button {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+
+      padding: 0 12px;
+
+      border: 1px solid var(--color-border);
+      border-radius: 4px;
+
+      color: var(--color-text-secondary);
+      background: var(--color-surface-2);
+
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+
+      transition:
+        border-color 120ms ease,
+        background-color 120ms ease,
+        color 120ms ease;
+    }
+
+    .button:hover {
+      border-color: var(--color-border-strong);
+      color: var(--color-text);
+      background: var(--color-surface-3);
+    }
+
+    .button.primary {
+      border-color: var(--color-accent);
+      color: #080b0d;
+      background: var(--color-accent);
+    }
+
+    .button.primary:hover {
+      border-color: var(--color-accent-hover);
+      color: #07090a;
+      background: var(--color-accent-hover);
+    }
+
+    .system-state-request {
+      margin-top: 20px;
+
+      color: var(--color-text-muted);
+
+      font-family: var(--font-mono);
+      font-size: 10px;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 560px) {
+      body {
+        place-items: stretch;
+        padding: 0;
+      }
+
+      .system-state {
+        width: 100%;
+        min-height: 100dvh;
+
+        border: 0;
+        border-radius: 0;
+      }
+
+      .system-state-header {
+        padding: 0 18px;
+      }
+
+      .system-state-code {
+        font-size: 9px;
+      }
+
+      .system-state-body {
+        padding: 28px 18px;
+      }
+
+      .system-state-context > div {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+
+      .system-state-actions {
+        display: grid;
+      }
+
+      .button {
+        width: 100%;
+        min-height: 42px;
+      }
+    }
   </style>
 </head>
+
 <body>
-  <main>
-    <header>
-      <div class="brand"><span class="brand-mark">R</span> OpenWrt RMM</div>
-      <div class="route"><span>RMM</span><i></i><span>облако</span><i></i><span>LuCI</span></div>
+  <main class="system-state">
+    <header class="system-state-header">
+      <a class="system-state-brand" href="{{.ControlURL}}">
+        OpenWrt RMM
+      </a>
+
+      <span class="system-state-code">
+        {{.Code}}
+      </span>
     </header>
-    <div class="content">
-      <div class="signal" aria-hidden="true"><span>R</span><b></b><span>L</span></div>
-      <div class="code">{{.Code}}</div>
-      <h1>{{.Title}}</h1>
-      <p>{{.Description}}</p>
-      <div class="notice">Настройки роутера не изменялись. Можно безопасно вернуться в RMM и проверить состояние агента или запустить диагностику.</div>
-      <div class="actions">
-        <a class="primary" href="{{.ActionURL}}">{{.ActionLabel}}</a>
-        <a href="{{.ControlURL}}">Вернуться в RMM</a>
+
+    <div class="system-state-body">
+      <div class="system-state-symbol" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 9v4"></path>
+          <path d="M12 17h.01"></path>
+          <path d="M10.3 3.6 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"></path>
+        </svg>
       </div>
-      {{if .RequestID}}<div class="request">ID запроса: {{.RequestID}}</div>{{end}}
+
+      <h1>{{.Title}}</h1>
+
+      <p class="system-state-description">
+        {{.Description}}
+      </p>
+
+      <dl class="system-state-context">
+        <div>
+          <dt>Сервис</dt>
+          <dd>Удалённый доступ LuCI</dd>
+        </div>
+
+        <div>
+          <dt>Маршрут</dt>
+          <dd>RMM → защищённый туннель → LuCI</dd>
+        </div>
+      </dl>
+
+      <div class="system-state-notice">
+        Настройки роутера не изменялись. Можно безопасно вернуться в RMM,
+        проверить состояние устройства и при необходимости создать новый доступ.
+      </div>
+
+      <footer class="system-state-actions">
+        <a class="button primary" href="{{.ActionURL}}">
+          {{.ActionLabel}}
+        </a>
+
+        {{if ne .ActionURL .ControlURL}}
+        <a class="button" href="{{.ControlURL}}">
+          Вернуться в RMM
+        </a>
+        {{end}}
+      </footer>
+
+      {{if .RequestID}}
+      <div class="system-state-request">
+        ID запроса: {{.RequestID}}
+      </div>
+      {{end}}
     </div>
   </main>
 </body>

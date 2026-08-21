@@ -842,7 +842,7 @@ samp,
 
 .auth-capabilities div {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr);
   gap: var(--space-3);
   padding: var(--space-4) 0;
   border-bottom: 1px solid var(--color-border);
@@ -851,6 +851,7 @@ samp,
 .auth-capabilities dt {
   color: var(--color-text-muted);
   font: 600 10px/1.45 var(--font-mono);
+  white-space: nowrap;
 }
 
 .auth-capabilities dd {

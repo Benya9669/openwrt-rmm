@@ -7,6 +7,20 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.11.2
+
+Interface consistency and login layout hotfix.
+
+### Changed
+
+* LuCI remote-access error pages now match the current OpenWrt RMM design system while remaining self-contained in the Go HTTP template.
+* LuCI access errors use the same compact infrastructure-console styling, typography, spacing, controls, and semantic status presentation as the redesigned web interface.
+
+### Fixed
+
+* Login-page authentication capability labels no longer overlap their descriptions when using longer monospace labels such as `SESSION`.
+* LuCI error pages no longer render duplicate “Вернуться в RMM” actions when the primary action already points back to the control panel.
+
 ## server-v0.11.1
 
 Application icon refresh.
