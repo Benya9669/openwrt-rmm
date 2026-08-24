@@ -26,3 +26,10 @@ router_tunnel_key.pub
 node_modules/
 playwright-report/
 test-results/
+
+# Local Codex/project-review context; never publish these workspace-only files.
+/AGENTS.md
+/DESIGN.md
+/docs/UI_PHASE1_AUDIT.md
+/docs/UI_REDESIGN_SPEC.md
+/docs/ui-redesign-phase1/

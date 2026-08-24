@@ -7,6 +7,14 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.11.3
+
+Release and local-development stabilization.
+
+### Fixed
+
+- The Playwright server wrapper now has a bounded child-process shutdown path on Windows instead of leaving the local test run open after all scenarios have completed.
+
 ## server-v0.11.2
 
 Interface consistency and login layout hotfix.

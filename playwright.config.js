@@ -7,6 +7,7 @@ const reuseExternalServer = process.env.RMM_E2E_REUSE_SERVER === "true";
 module.exports = defineConfig({
   testDir: "e2e",
   globalSetup: "./e2e/global-setup.js",
+  globalTeardown: "./e2e/global-teardown.js",
   fullyParallel: true,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),

@@ -4,10 +4,16 @@ const path = require("node:path");
 
 const databasePath = path.join(process.cwd(), "test-results", "rmm-e2e.db");
 const serverPath = path.join(process.cwd(), "test-results", process.platform === "win32" ? "rmm-e2e-server.exe" : "rmm-e2e-server");
+const commandKeyPath = path.join(process.cwd(), "test-results", "rmm-e2e-command-key.pem");
+const dataKeyPath = path.join(process.cwd(), "test-results", "rmm-e2e-data-encryption.key");
+const pidPath = path.join(process.cwd(), "test-results", "rmm-e2e-server.pid");
+const stopPath = path.join(process.cwd(), "test-results", "rmm-e2e-server.stop");
 fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 for (const suffix of ["", "-shm", "-wal"]) {
   fs.rmSync(`${databasePath}${suffix}`, { force: true });
 }
+for (const keyPath of [commandKeyPath, dataKeyPath]) fs.rmSync(keyPath, { force: true });
+for (const controlPath of [pidPath, stopPath]) fs.rmSync(controlPath, { force: true });
 
 const build = spawnSync("go", ["build", "-o", serverPath, "./server/cmd/rmm-server"], {
   cwd: process.cwd(),
@@ -23,6 +29,8 @@ const server = spawn(serverPath, [], {
     ...process.env,
     RMM_ADDR: ":18081",
     RMM_DB_PATH: databasePath,
+    RMM_COMMAND_SIGNING_KEY_PATH: commandKeyPath,
+    RMM_DATA_ENCRYPTION_KEY_PATH: dataKeyPath,
     RMM_INSECURE_DEV_MODE: "true",
     RMM_COOKIE_SECURE: "false",
     RMM_WEB_DIR: "web",
@@ -32,13 +40,57 @@ const server = spawn(serverPath, [], {
   },
   stdio: "inherit",
 });
+fs.writeFileSync(pidPath, String(server.pid), { encoding: "utf8", mode: 0o600 });
 
 let stopping = false;
-for (const signal of ["SIGINT", "SIGTERM"]) {
+let forceStopTimer;
+let stopPollTimer;
+
+function cleanupControlFiles() {
+  if (stopPollTimer) clearInterval(stopPollTimer);
+  for (const controlPath of [pidPath, stopPath]) fs.rmSync(controlPath, { force: true });
+}
+
+function finishStop() {
+  if (forceStopTimer) clearTimeout(forceStopTimer);
+  cleanupControlFiles();
+  process.exit(0);
+}
+
+function stopServer(signal) {
+  if (stopping) return;
+  stopping = true;
+
+  if (!server.kill(signal)) {
+    finishStop();
+    return;
+  }
+
+  // Playwright terminates the wrapper after a run. On Windows the child Go
+  // process can outlive that signal and keep the runner open indefinitely.
+  forceStopTimer = setTimeout(() => {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/PID", String(server.pid), "/T", "/F"], { stdio: "ignore" });
+    } else {
+      server.kill("SIGKILL");
+    }
+    finishStop();
+  }, 5_000);
+}
+
+stopPollTimer = setInterval(() => {
+  if (fs.existsSync(stopPath)) stopServer("SIGTERM");
+}, 100);
+
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(signal, () => {
-    if (stopping) return;
-    stopping = true;
-    if (!server.kill(signal)) process.exit(0);
+    stopServer(signal);
   });
 }
-server.on("exit", (code) => process.exit(stopping ? 0 : (code ?? 1)));
+server.on("exit", (code) => {
+  if (stopping) finishStop();
+  else {
+    cleanupControlFiles();
+    process.exit(code ?? 1);
+  }
+});
