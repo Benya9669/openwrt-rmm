@@ -1,6 +1,6 @@
 # OpenWrt RMM Agent
 
-Current Go agent release: `0.7.0`, superseding `0.6.14`. The signed `agent-v0.6.10`
+Current Go agent source version: `0.8.0`, superseding `0.7.0`. The signed `agent-v0.6.10`
 tag did not publish packages because its release workflow used an obsolete version parser. The agent reports runtime health, pending command results,
 and the last heartbeat transport error after connectivity is restored. Its OpenWrt
 dependency uses the virtual `ip` provider, so either `ip-tiny` or `ip-full` can satisfy it.
@@ -25,6 +25,13 @@ The agent uses outbound HTTP polling:
 4. Executes only allowlisted commands.
 5. Sends command results back to the server.
 
+Starting with `0.8.0`, every command is bound to the device, signed with the server's
+Ed25519 command key, time-limited, and protected against replay by persistent local state.
+The public key is pinned during enrollment. Device token rotation uses a two-phase handoff,
+so the current token stays valid until the agent has durably stored the replacement.
+The LuCI **Re-enroll on next restart** action also clears that pin and rotates the
+per-device tunnel identity, so it must be paired with a new one-time enrollment grant.
+
 ## Config
 
 Default config path:
@@ -42,7 +49,13 @@ INTERVAL_SECONDS="30"
 TUNNEL_DEVICE_IDENTITY_FILE="/etc/rmm-agent/tunnel_device_key"
 TUNNEL_KEY_EPOCH="1"
 UPDATE_MANIFEST_PUBLIC_KEY="/etc/rmm-agent/update-manifest.pem"
+COMMAND_STATE_DIR="/etc/rmm-agent/command-state"
+RECOVERY_DIR="/etc/rmm-agent/recovery"
 ```
+
+Managed restore keeps a root-only emergency archive in `RECOVERY_DIR` and waits up to
+10 minutes for a new successful heartbeat. If the restored network configuration prevents
+cloud confirmation, the agent automatically applies the emergency archive.
 
 After enrollment the agent writes:
 

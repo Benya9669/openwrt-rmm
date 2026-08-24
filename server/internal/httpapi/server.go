@@ -33,6 +33,9 @@ type Store interface {
 	EnrollDevice(ctx context.Context, hostname, openwrtVersion string) (store.EnrolledDevice, error)
 	EnrollDeviceWithGrant(ctx context.Context, tokenHash, hostname, openwrtVersion string) (store.EnrolledDevice, bool, error)
 	AuthorizeDevice(ctx context.Context, deviceID, token string) (bool, error)
+	RotateDeviceCredential(ctx context.Context, deviceID string) (int, bool, error)
+	PendingDeviceCredential(ctx context.Context, deviceID string) (string, int, error)
+	RevokeDeviceCredential(ctx context.Context, deviceID string) (bool, error)
 	EnsureBootstrapUser(ctx context.Context, username, passwordHash string) (model.User, error)
 	CreateUser(ctx context.Context, username, displayName, email, passwordHash, role string) (model.User, error)
 	UpdateUserSecurity(ctx context.Context, userID string, disabled *bool, passwordHash, role string) (model.User, bool, error)
@@ -94,6 +97,15 @@ type Store interface {
 	GetCommand(ctx context.Context, deviceID, commandID string) (model.Command, bool, error)
 	CancelCommand(ctx context.Context, deviceID, commandID string) (model.Command, bool, error)
 	PurgeCommands(ctx context.Context, opts store.PurgeOptions) (int64, error)
+	RequestDeviceBackup(ctx context.Context, deviceID string) (model.DeviceBackup, model.Command, bool, error)
+	SaveDeviceBackup(ctx context.Context, deviceID, commandID string, archive []byte, metadata store.DeviceBackupMetadata) (model.DeviceBackup, bool, error)
+	FailDeviceBackup(ctx context.Context, commandID, errorMessage string) error
+	ListDeviceBackups(ctx context.Context, deviceID string) ([]model.DeviceBackup, bool, error)
+	GetDeviceBackup(ctx context.Context, deviceID, idOrCommand string, allowCommandID bool) (model.DeviceBackup, bool, error)
+	DeviceBackupArchive(ctx context.Context, deviceID, backupID string) (model.DeviceBackup, []byte, bool, error)
+	DeleteDeviceBackup(ctx context.Context, deviceID, backupID string) (bool, error)
+	PurgeDeviceBackupsBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	CreateSQLiteSnapshot(ctx context.Context) (string, error)
 	CreateRemoteSession(ctx context.Context, session model.RemoteSession) (model.RemoteSession, bool, error)
 	ListRemoteSessions(ctx context.Context, deviceID string, opts store.RemoteSessionListOptions) ([]model.RemoteSession, bool, error)
 	GetRemoteSession(ctx context.Context, deviceID, sessionID string) (model.RemoteSession, bool, error)
@@ -112,6 +124,7 @@ type Store interface {
 	TunnelKeyEpoch(ctx context.Context, deviceID string) (int, error)
 	TunnelCredentialReady(ctx context.Context, deviceID string) (bool, error)
 	TunnelAuthorization(ctx context.Context, fingerprint string, at time.Time) (store.TunnelAuthorization, bool, error)
+	ActiveTunnelPorts(ctx context.Context, at time.Time) ([]int, error)
 }
 
 type Config struct {
@@ -146,6 +159,8 @@ type Config struct {
 	CompatibleAgentFeed        func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
 	CandidateAgentFeed         func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
 	HistoricalAgentFeed        func(ctx context.Context, manifestURL, signatureURL, openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
+	CommandSigningPublicKey    string
+	CommandSigningKeyID        string
 }
 
 type App struct {
@@ -177,6 +192,8 @@ type App struct {
 	compatibleAgentFeed        func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
 	candidateAgentFeed         func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
 	historicalAgentFeed        func(ctx context.Context, manifestURL, signatureURL, openWrtRelease, target, packageManager string) (model.AgentFeed, bool)
+	commandSigningPublicKey    string
+	commandSigningKeyID        string
 	loginLimiter               *loginRateLimiter
 	passwordResetLimiter       *loginRateLimiter
 	loginSlots                 chan struct{}
@@ -196,8 +213,11 @@ type enrollRequest struct {
 }
 
 type enrollResponse struct {
-	DeviceID    string `json:"device_id"`
-	DeviceToken string `json:"device_token"`
+	DeviceID                string `json:"device_id"`
+	DeviceToken             string `json:"device_token"`
+	CommandSigningPublicKey string `json:"command_signing_public_key"`
+	CommandSigningKeyID     string `json:"command_signing_key_id"`
+	DeviceTokenEpoch        int    `json:"device_token_epoch"`
 }
 
 type heartbeatRequest struct {
@@ -207,8 +227,12 @@ type heartbeatRequest struct {
 }
 
 type heartbeatResponse struct {
-	Commands       []model.Command `json:"commands"`
-	TunnelKeyEpoch int             `json:"tunnel_key_epoch"`
+	Commands                []model.Command `json:"commands"`
+	TunnelKeyEpoch          int             `json:"tunnel_key_epoch"`
+	CommandSigningPublicKey string          `json:"command_signing_public_key"`
+	CommandSigningKeyID     string          `json:"command_signing_key_id"`
+	NextDeviceToken         string          `json:"next_device_token,omitempty"`
+	DeviceTokenEpoch        int             `json:"device_token_epoch"`
 }
 
 type commandRequest struct {
@@ -372,6 +396,8 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		compatibleAgentFeed:        cfg.CompatibleAgentFeed,
 		candidateAgentFeed:         cfg.CandidateAgentFeed,
 		historicalAgentFeed:        cfg.HistoricalAgentFeed,
+		commandSigningPublicKey:    strings.TrimSpace(cfg.CommandSigningPublicKey),
+		commandSigningKeyID:        strings.TrimSpace(cfg.CommandSigningKeyID),
 		loginLimiter:               newLoginRateLimiter(5, 5*time.Minute),
 		passwordResetLimiter:       newLoginRateLimiter(3, time.Hour),
 		loginSlots:                 make(chan struct{}, 4),
@@ -410,6 +436,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /internal/tunnel/authorized-key", a.handleTunnelAuthorizedKey)
+	mux.HandleFunc("GET /internal/tunnel/active-ports", a.handleTunnelActivePorts)
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.HandleFunc("POST /api/auth/password-reset/request", a.handlePasswordResetRequest)
 	mux.HandleFunc("POST /api/auth/password-reset/confirm", a.handlePasswordResetConfirm)
@@ -436,6 +463,8 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.HandleFunc("POST /api/agent/heartbeat", a.handleHeartbeat)
 	mux.HandleFunc("POST /api/agent/commands/next", a.handleNextCommand)
 	mux.HandleFunc("POST /api/agent/commands/", a.handleCommandResult)
+	mux.HandleFunc("GET /api/agent/backups/", a.handleAgentBackupArchive)
+	mux.HandleFunc("POST /api/agent/backups/", a.handleAgentBackupUpload)
 	mux.Handle("GET /api/devices", a.operatorAuth(http.HandlerFunc(a.handleListDevices)))
 	mux.Handle("GET /api/events", a.operatorAuth(http.HandlerFunc(a.handleEvents)))
 	mux.Handle("POST /api/devices/bulk-commands", a.operatorAuth(http.HandlerFunc(a.handleCreateBulkCommand)))
@@ -448,6 +477,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("POST /api/agent-rollouts", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleAgentRollouts))))
 	mux.Handle("POST /api/agent-rollouts/", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleAgentRollouts))))
 	mux.Handle("DELETE /api/audit-events", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handlePurgeAuditEvents))))
+	mux.Handle("GET /api/admin/database-snapshot", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleDatabaseSnapshot))))
 	if cfg.AllowLegacyLuCIProxy {
 		mux.Handle("GET /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
 		mux.Handle("POST /luci/", a.operatorAuth(http.HandlerFunc(a.handleLuCIProxy)))
@@ -497,7 +527,11 @@ func (a *App) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		"request_id":      requestID(r.Context()),
 	}))
 
-	writeJSON(w, http.StatusCreated, enrollResponse{DeviceID: enrolled.DeviceID, DeviceToken: enrolled.DeviceToken})
+	writeJSON(w, http.StatusCreated, enrollResponse{
+		DeviceID: enrolled.DeviceID, DeviceToken: enrolled.DeviceToken,
+		CommandSigningPublicKey: a.commandSigningPublicKey, CommandSigningKeyID: a.commandSigningKeyID,
+		DeviceTokenEpoch: enrolled.TokenEpoch,
+	})
 }
 
 func (a *App) handleReleaseMetadata(w http.ResponseWriter, r *http.Request) {
@@ -554,8 +588,17 @@ func (a *App) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 	a.events.publish("devices")
+	nextDeviceToken, deviceTokenEpoch, err := a.store.PendingDeviceCredential(r.Context(), req.DeviceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load device credential state")
+		return
+	}
 
-	writeJSON(w, http.StatusOK, heartbeatResponse{Commands: commands, TunnelKeyEpoch: tunnelKeyEpoch})
+	writeJSON(w, http.StatusOK, heartbeatResponse{
+		Commands: commands, TunnelKeyEpoch: tunnelKeyEpoch,
+		CommandSigningPublicKey: a.commandSigningPublicKey, CommandSigningKeyID: a.commandSigningKeyID,
+		NextDeviceToken: nextDeviceToken, DeviceTokenEpoch: deviceTokenEpoch,
+	})
 }
 
 func (a *App) syncHeartbeatTunnelCredential(ctx context.Context, deviceID string, inventory json.RawMessage) (int, error) {
@@ -583,14 +626,7 @@ func (a *App) syncHeartbeatTunnelCredential(ctx context.Context, deviceID string
 
 func (a *App) handleTunnelAuthorizedKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if a.tunnelAuthToken == "" {
-		http.NotFound(w, r)
-		return
-	}
-	presented := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	if presented == "" || !constantTimeEqual(presented, a.tunnelAuthToken) {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="rmm-tunnel"`)
-		writeError(w, http.StatusUnauthorized, "invalid tunnel authorization")
+	if !a.authorizeTunnelInternal(w, r) {
 		return
 	}
 	fingerprint := strings.TrimSpace(r.Header.Get("X-RMM-Key-Fingerprint"))
@@ -613,6 +649,36 @@ func (a *App) handleTunnelAuthorizedKey(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = fmt.Fprintf(w, "%s %s\n", strings.Join(options, ","), auth.PublicKey)
+}
+
+func (a *App) handleTunnelActivePorts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !a.authorizeTunnelInternal(w, r) {
+		return
+	}
+	ports, err := a.store.ActiveTunnelPorts(r.Context(), time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load active tunnel ports")
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	for _, port := range ports {
+		_, _ = fmt.Fprintf(w, "%d\n", port)
+	}
+}
+
+func (a *App) authorizeTunnelInternal(w http.ResponseWriter, r *http.Request) bool {
+	if a.tunnelAuthToken == "" {
+		http.NotFound(w, r)
+		return false
+	}
+	presented := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if presented == "" || !constantTimeEqual(presented, a.tunnelAuthToken) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="rmm-tunnel"`)
+		writeError(w, http.StatusUnauthorized, "invalid tunnel authorization")
+		return false
+	}
+	return true
 }
 
 func normalizeSSHPublicKey(value string) string {
@@ -699,6 +765,9 @@ func (a *App) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 		}))
 		writeError(w, http.StatusNotFound, "command not found")
 		return
+	}
+	if status == "failed" {
+		_ = a.store.FailDeviceBackup(r.Context(), id, req.Output)
 	}
 	_, _ = a.store.AddAuditEvent(r.Context(), "agent", "command.result", req.DeviceID, id, mustJSON(map[string]string{
 		"status":     status,
@@ -893,6 +962,49 @@ func (a *App) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
+func (a *App) handleRotateDeviceCredential(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 5 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	epoch, rotated, err := a.store.RotateDeviceCredential(r.Context(), parts[2])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to rotate device credential")
+		return
+	}
+	if !rotated {
+		writeError(w, http.StatusConflict, "device credential is unavailable")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "device.credential_rotate", parts[2], "", mustJSON(map[string]any{
+		"token_epoch": epoch, "request_id": requestID(r.Context()),
+	}))
+	writeJSON(w, http.StatusAccepted, map[string]any{"rotating": true, "device_token_epoch": epoch})
+}
+
+func (a *App) handleRevokeDeviceCredential(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 5 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	revoked, err := a.store.RevokeDeviceCredential(r.Context(), parts[2])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to revoke device credential")
+		return
+	}
+	if !revoked {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "device.credential_revoke", parts[2], "", mustJSON(map[string]string{
+		"request_id": requestID(r.Context()),
+	}))
+	a.events.publish("devices")
+	writeJSON(w, http.StatusOK, map[string]any{"revoked": true, "remote_sessions_closed": true})
+}
+
 func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 3 {
@@ -927,6 +1039,18 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 4 && parts[3] == "transfer" && r.Method == http.MethodPost {
 		a.handleTransferDevice(w, r)
+		return
+	}
+	if len(parts) == 5 && parts[3] == "credentials" && parts[4] == "rotate" && r.Method == http.MethodPost {
+		a.handleRotateDeviceCredential(w, r)
+		return
+	}
+	if len(parts) == 5 && parts[3] == "credentials" && parts[4] == "revoke" && r.Method == http.MethodPost {
+		if !principal.IsAdmin() {
+			writeError(w, http.StatusForbidden, "admin access is required")
+			return
+		}
+		a.handleRevokeDeviceCredential(w, r)
 		return
 	}
 	if len(parts) == 4 && parts[3] == "agent-update" && r.Method == http.MethodPost {
@@ -979,6 +1103,22 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 4 && parts[3] == "commands" && r.Method == http.MethodPost {
 		a.handleCreateCommand(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "backups" && r.Method == http.MethodGet {
+		a.handleListDeviceBackups(w, r)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "backups" && r.Method == http.MethodPost {
+		a.handleCreateDeviceBackup(w, r)
+		return
+	}
+	if len(parts) == 5 && parts[3] == "backups" && r.Method == http.MethodDelete {
+		a.handleDeleteDeviceBackup(w, r)
+		return
+	}
+	if len(parts) == 6 && parts[3] == "backups" && parts[5] == "restore" && r.Method == http.MethodPost {
+		a.handleRestoreDeviceBackup(w, r)
 		return
 	}
 	if len(parts) == 5 && parts[3] == "commands" && r.Method == http.MethodGet {
@@ -2550,7 +2690,7 @@ func bearerToken(r *http.Request) (string, bool) {
 
 func AllowedCommandType(t string) bool {
 	switch t {
-	case "ping", "traceroute", "route_show", "interfaces_show", "reboot", "service_restart", "pkg_list_installed", "pkg_update", "pkg_list_upgradable", "pkg_install", "pkg_remove", "opkg_list_installed", "opkg_update", "opkg_list_upgradable", "opkg_install", "opkg_remove", "agent_update", "agent_rollback", "uci_show", "uci_backup", "uci_preview", "uci_set", "uci_commit", "uci_commit_confirmed", "uci_revert", "uci_restore", "remote_ssh_reverse", "remote_ssh_close":
+	case "ping", "traceroute", "route_show", "interfaces_show", "reboot", "service_restart", "pkg_list_installed", "pkg_update", "pkg_list_upgradable", "pkg_install", "pkg_remove", "opkg_list_installed", "opkg_update", "opkg_list_upgradable", "opkg_install", "opkg_remove", "agent_update", "agent_rollback", "uci_show", "uci_backup", "uci_preview", "uci_set", "uci_commit", "uci_commit_confirmed", "uci_revert", "uci_restore", "remote_ssh_reverse", "remote_ssh_close", "system_backup_create", "system_backup_restore":
 		return true
 	default:
 		return false

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -30,10 +31,12 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"rmm-openwrt/internal/commandsig"
 )
 
 const (
-	agentVersion          = "0.7.0"
+	agentVersion          = "0.8.0"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -78,38 +81,56 @@ func (h *agentRuntimeHealth) snapshot(spoolDir string) map[string]any {
 }
 
 type config struct {
-	ServerURL        string
-	EnrollmentToken  string
-	IntervalSeconds  int
-	DeviceID         string
-	DeviceToken      string
-	LockFile         string
-	SpoolDir         string
-	BackupDir        string
-	TunnelIdentity   string
-	TunnelKeyEpoch   int
-	TunnelStateDir   string
-	UpdatePublicKey  string
-	CheckTargets     []string
-	HostnameOverride string
-	HostnameSuffix   string
-	ConfigFile       string
+	ServerURL               string
+	EnrollmentToken         string
+	IntervalSeconds         int
+	DeviceID                string
+	DeviceToken             string
+	DeviceTokenEpoch        int
+	LockFile                string
+	SpoolDir                string
+	BackupDir               string
+	TunnelIdentity          string
+	TunnelKeyEpoch          int
+	TunnelStateDir          string
+	UpdatePublicKey         string
+	CommandSigningPublicKey string
+	CommandSigningKeyID     string
+	CommandStateDir         string
+	RecoveryDir             string
+	CheckTargets            []string
+	HostnameOverride        string
+	HostnameSuffix          string
+	ConfigFile              string
 }
 
 type command struct {
-	ID   string          `json:"id"`
-	Type string          `json:"type"`
-	Args json.RawMessage `json:"args"`
+	ID             string          `json:"id"`
+	DeviceID       string          `json:"device_id"`
+	Type           string          `json:"type"`
+	Args           json.RawMessage `json:"args"`
+	CreatedAt      time.Time       `json:"created_at"`
+	ExpiresAt      *time.Time      `json:"expires_at"`
+	Nonce          string          `json:"nonce"`
+	SignatureKeyID string          `json:"signature_key_id"`
+	Signature      string          `json:"signature"`
 }
 
 type heartbeatResponse struct {
-	Commands       []command `json:"commands"`
-	TunnelKeyEpoch int       `json:"tunnel_key_epoch"`
+	Commands                []command `json:"commands"`
+	TunnelKeyEpoch          int       `json:"tunnel_key_epoch"`
+	CommandSigningPublicKey string    `json:"command_signing_public_key"`
+	CommandSigningKeyID     string    `json:"command_signing_key_id"`
+	NextDeviceToken         string    `json:"next_device_token"`
+	DeviceTokenEpoch        int       `json:"device_token_epoch"`
 }
 
 type enrollResponse struct {
-	DeviceID    string `json:"device_id"`
-	DeviceToken string `json:"device_token"`
+	DeviceID                string `json:"device_id"`
+	DeviceToken             string `json:"device_token"`
+	CommandSigningPublicKey string `json:"command_signing_public_key"`
+	CommandSigningKeyID     string `json:"command_signing_key_id"`
+	DeviceTokenEpoch        int    `json:"device_token_epoch"`
 }
 
 func main() {
@@ -141,6 +162,10 @@ func main() {
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	if cfg.DeviceID == "" || cfg.DeviceToken == "" {
+		if err := rotateTunnelIdentity(cfg.TunnelIdentity); err != nil {
+			logf("failed to prepare a new tunnel identity for enrollment: %v", err)
+			os.Exit(1)
+		}
 		if err := enroll(ctx, client, &cfg); err != nil {
 			logf("enrollment failed: %v", err)
 			os.Exit(1)
@@ -162,15 +187,29 @@ func main() {
 	backoff := time.Duration(cfg.IntervalSeconds) * time.Second
 	health := &agentRuntimeHealth{StartedAt: time.Now().UTC()}
 	for {
+		heartbeatStartedAt := time.Now().UTC()
 		if err := heartbeatOnce(ctx, client, &cfg, health.snapshot(cfg.SpoolDir)); err != nil {
 			health.recordFailure(err)
 			logf("heartbeat failed: %v", err)
-			backoff *= 2
-			if backoff > 5*time.Minute {
-				backoff = 5 * time.Minute
+			rolledBack, rollbackErr := rollbackPendingRestore(ctx, cfg, time.Now().UTC())
+			if rollbackErr != nil {
+				logf("guarded restore rollback failed: %v", rollbackErr)
+			} else if rolledBack {
+				logf("guarded restore rolled back because cloud confirmation timed out")
+			}
+			if rolledBack {
+				backoff = 5 * time.Second
+			} else {
+				backoff *= 2
+				if backoff > 5*time.Minute {
+					backoff = 5 * time.Minute
+				}
 			}
 		} else {
 			health.recordSuccess()
+			if err := confirmPendingRestore(cfg.RecoveryDir, heartbeatStartedAt); err != nil {
+				logf("failed to confirm guarded restore: %v", err)
+			}
 			backoff = time.Duration(cfg.IntervalSeconds) * time.Second
 		}
 		if *once {
@@ -186,22 +225,27 @@ func main() {
 
 func loadConfig(path string) (config, error) {
 	cfg := config{
-		ServerURL:        envDefault("SERVER_URL", "https://rmm.example.com"),
-		EnrollmentToken:  os.Getenv("ENROLLMENT_TOKEN"),
-		IntervalSeconds:  intDefault(os.Getenv("INTERVAL_SECONDS"), 30),
-		DeviceID:         os.Getenv("DEVICE_ID"),
-		DeviceToken:      os.Getenv("DEVICE_TOKEN"),
-		LockFile:         envDefault("LOCK_FILE", "/tmp/rmm-agent-go.lock"),
-		SpoolDir:         envDefault("SPOOL_DIR", "/tmp/rmm-agent-go-results"),
-		BackupDir:        envDefault("BACKUP_DIR", "/tmp/rmm-agent-backups"),
-		TunnelIdentity:   envDefault("TUNNEL_DEVICE_IDENTITY_FILE", "/etc/rmm-agent/tunnel_device_key"),
-		TunnelKeyEpoch:   intDefault(os.Getenv("TUNNEL_KEY_EPOCH"), 1),
-		TunnelStateDir:   envDefault("TUNNEL_STATE_DIR", "/tmp/rmm-agent-tunnels"),
-		UpdatePublicKey:  envDefault("UPDATE_MANIFEST_PUBLIC_KEY", "/etc/rmm-agent/update-manifest.pem"),
-		CheckTargets:     splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
-		HostnameOverride: os.Getenv("HOSTNAME_OVERRIDE"),
-		HostnameSuffix:   os.Getenv("HOSTNAME_SUFFIX"),
-		ConfigFile:       path,
+		ServerURL:               envDefault("SERVER_URL", "https://rmm.example.com"),
+		EnrollmentToken:         os.Getenv("ENROLLMENT_TOKEN"),
+		IntervalSeconds:         intDefault(os.Getenv("INTERVAL_SECONDS"), 30),
+		DeviceID:                os.Getenv("DEVICE_ID"),
+		DeviceToken:             os.Getenv("DEVICE_TOKEN"),
+		DeviceTokenEpoch:        intDefault(os.Getenv("DEVICE_TOKEN_EPOCH"), 1),
+		LockFile:                envDefault("LOCK_FILE", "/tmp/rmm-agent-go.lock"),
+		SpoolDir:                envDefault("SPOOL_DIR", "/tmp/rmm-agent-go-results"),
+		BackupDir:               envDefault("BACKUP_DIR", "/tmp/rmm-agent-backups"),
+		TunnelIdentity:          envDefault("TUNNEL_DEVICE_IDENTITY_FILE", "/etc/rmm-agent/tunnel_device_key"),
+		TunnelKeyEpoch:          intDefault(os.Getenv("TUNNEL_KEY_EPOCH"), 1),
+		TunnelStateDir:          envDefault("TUNNEL_STATE_DIR", "/tmp/rmm-agent-tunnels"),
+		UpdatePublicKey:         envDefault("UPDATE_MANIFEST_PUBLIC_KEY", "/etc/rmm-agent/update-manifest.pem"),
+		CommandSigningPublicKey: os.Getenv("COMMAND_SIGNING_PUBLIC_KEY"),
+		CommandSigningKeyID:     os.Getenv("COMMAND_SIGNING_KEY_ID"),
+		CommandStateDir:         envDefault("COMMAND_STATE_DIR", "/etc/rmm-agent/command-state"),
+		RecoveryDir:             envDefault("RECOVERY_DIR", "/etc/rmm-agent/recovery"),
+		CheckTargets:            splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
+		HostnameOverride:        os.Getenv("HOSTNAME_OVERRIDE"),
+		HostnameSuffix:          os.Getenv("HOSTNAME_SUFFIX"),
+		ConfigFile:              path,
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -226,6 +270,9 @@ func loadConfig(path string) (config, error) {
 	if value := values["DEVICE_TOKEN"]; value != "" {
 		cfg.DeviceToken = value
 	}
+	if value := values["DEVICE_TOKEN_EPOCH"]; value != "" {
+		cfg.DeviceTokenEpoch = intDefault(value, cfg.DeviceTokenEpoch)
+	}
 	if value := values["LOCK_FILE"]; value != "" {
 		cfg.LockFile = value
 	}
@@ -246,6 +293,18 @@ func loadConfig(path string) (config, error) {
 	}
 	if value := values["UPDATE_MANIFEST_PUBLIC_KEY"]; value != "" {
 		cfg.UpdatePublicKey = value
+	}
+	if value := values["COMMAND_SIGNING_PUBLIC_KEY"]; value != "" {
+		cfg.CommandSigningPublicKey = value
+	}
+	if value := values["COMMAND_SIGNING_KEY_ID"]; value != "" {
+		cfg.CommandSigningKeyID = value
+	}
+	if value := values["COMMAND_STATE_DIR"]; value != "" {
+		cfg.CommandStateDir = value
+	}
+	if value := values["RECOVERY_DIR"]; value != "" {
+		cfg.RecoveryDir = value
 	}
 	if value := values["CHECK_TARGETS"]; value != "" {
 		cfg.CheckTargets = splitWords(value)
@@ -292,6 +351,10 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "TUNNEL_KEY_EPOCH", strconv.Itoa(cfg.TunnelKeyEpoch))
 	writeConfigLine(&b, "TUNNEL_STATE_DIR", cfg.TunnelStateDir)
 	writeConfigLine(&b, "UPDATE_MANIFEST_PUBLIC_KEY", cfg.UpdatePublicKey)
+	writeConfigLine(&b, "COMMAND_SIGNING_PUBLIC_KEY", cfg.CommandSigningPublicKey)
+	writeConfigLine(&b, "COMMAND_SIGNING_KEY_ID", cfg.CommandSigningKeyID)
+	writeConfigLine(&b, "COMMAND_STATE_DIR", cfg.CommandStateDir)
+	writeConfigLine(&b, "RECOVERY_DIR", cfg.RecoveryDir)
 	if cfg.HostnameOverride != "" {
 		writeConfigLine(&b, "HOSTNAME_OVERRIDE", cfg.HostnameOverride)
 	}
@@ -300,6 +363,7 @@ func saveConfig(cfg config) error {
 	}
 	writeConfigLine(&b, "DEVICE_ID", cfg.DeviceID)
 	writeConfigLine(&b, "DEVICE_TOKEN", cfg.DeviceToken)
+	writeConfigLine(&b, "DEVICE_TOKEN_EPOCH", strconv.Itoa(cfg.DeviceTokenEpoch))
 	tmp := cfg.ConfigFile + ".tmp"
 	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
 		return err
@@ -339,8 +403,15 @@ func enroll(ctx context.Context, client *http.Client, cfg *config) error {
 	if resp.DeviceID == "" || resp.DeviceToken == "" {
 		return errors.New("server returned empty device credentials")
 	}
+	if _, err := pinCommandSigningKey(cfg, resp.CommandSigningPublicKey, resp.CommandSigningKeyID); err != nil {
+		return fmt.Errorf("command signing key: %w", err)
+	}
 	cfg.DeviceID = resp.DeviceID
 	cfg.DeviceToken = resp.DeviceToken
+	cfg.DeviceTokenEpoch = resp.DeviceTokenEpoch
+	if cfg.DeviceTokenEpoch <= 0 {
+		cfg.DeviceTokenEpoch = 1
+	}
 	cfg.EnrollmentToken = ""
 	return nil
 }
@@ -358,6 +429,25 @@ func heartbeatOnce(ctx context.Context, client *http.Client, cfg *config, agentH
 	if err := postJSON(ctx, client, cfg.ServerURL+"/api/agent/heartbeat", cfg.DeviceToken, body, &resp); err != nil {
 		return err
 	}
+	keyChanged, err := pinCommandSigningKey(cfg, resp.CommandSigningPublicKey, resp.CommandSigningKeyID)
+	if err != nil {
+		return fmt.Errorf("command signing key: %w", err)
+	}
+	if keyChanged {
+		if err := saveConfig(*cfg); err != nil {
+			return fmt.Errorf("save command signing key: %w", err)
+		}
+	}
+	if resp.NextDeviceToken != "" {
+		if resp.DeviceTokenEpoch <= cfg.DeviceTokenEpoch {
+			return errors.New("server returned a stale device credential")
+		}
+		cfg.DeviceToken = resp.NextDeviceToken
+		cfg.DeviceTokenEpoch = resp.DeviceTokenEpoch
+		if err := saveConfig(*cfg); err != nil {
+			return fmt.Errorf("save rotated device credential: %w", err)
+		}
+	}
 	if resp.TunnelKeyEpoch > 0 && resp.TunnelKeyEpoch != cfg.TunnelKeyEpoch {
 		stopAllRemoteSSHSessions(*cfg)
 		if err := rotateTunnelIdentity(cfg.TunnelIdentity); err != nil {
@@ -369,7 +459,9 @@ func heartbeatOnce(ctx context.Context, client *http.Client, cfg *config, agentH
 		}
 	}
 	for _, cmd := range resp.Commands {
-		processCommand(ctx, client, *cfg, cmd)
+		if err := processCommand(ctx, client, *cfg, cmd); err != nil {
+			logf("command %s rejected: %v", cmd.ID, err)
+		}
 	}
 	return nil
 }
@@ -541,33 +633,176 @@ func serverCheckTarget(serverURL string) string {
 	return strings.TrimSpace(host)
 }
 
-func processCommand(ctx context.Context, client *http.Client, cfg config, cmd command) {
+func pinCommandSigningKey(cfg *config, encodedPublicKey, keyID string) (bool, error) {
+	encodedPublicKey = strings.TrimSpace(encodedPublicKey)
+	keyID = strings.TrimSpace(keyID)
+	if encodedPublicKey == "" || keyID == "" {
+		return false, errors.New("server did not provide a command signing key")
+	}
+	publicKey, err := commandsig.ParsePublicKey(encodedPublicKey)
+	if err != nil {
+		return false, err
+	}
+	if commandsig.KeyID(publicKey) != keyID {
+		return false, errors.New("server command signing key ID does not match the public key")
+	}
+	if cfg.CommandSigningPublicKey == "" && cfg.CommandSigningKeyID == "" {
+		cfg.CommandSigningPublicKey = encodedPublicKey
+		cfg.CommandSigningKeyID = keyID
+		return true, nil
+	}
+	if cfg.CommandSigningPublicKey != encodedPublicKey || cfg.CommandSigningKeyID != keyID {
+		return false, errors.New("server command signing key changed; explicit agent re-enrollment is required")
+	}
+	return false, nil
+}
+
+func validateSignedCommand(cfg config, cmd command, now time.Time) error {
+	if !safeSessionID(cmd.ID) {
+		return errors.New("command ID is invalid")
+	}
+	if cmd.DeviceID != cfg.DeviceID {
+		return errors.New("command is bound to another device")
+	}
+	if cmd.ExpiresAt == nil || cmd.CreatedAt.IsZero() {
+		return errors.New("command validity period is missing")
+	}
+	if now.After(cmd.ExpiresAt.UTC()) {
+		return errors.New("command has expired")
+	}
+	if cmd.CreatedAt.After(now.Add(5 * time.Minute)) {
+		return errors.New("command creation time is in the future")
+	}
+	if !cmd.ExpiresAt.After(cmd.CreatedAt) || cmd.ExpiresAt.Sub(cmd.CreatedAt) > 25*time.Hour {
+		return errors.New("command validity period is invalid")
+	}
+	if cmd.SignatureKeyID == "" || cmd.SignatureKeyID != cfg.CommandSigningKeyID {
+		return errors.New("command signing key ID is not trusted")
+	}
+	publicKey, err := commandsig.ParsePublicKey(cfg.CommandSigningPublicKey)
+	if err != nil {
+		return err
+	}
+	return commandsig.Verify(ed25519.PublicKey(publicKey), commandsig.Envelope{
+		ID:        cmd.ID,
+		DeviceID:  cmd.DeviceID,
+		Type:      cmd.Type,
+		Args:      cmd.Args,
+		CreatedAt: cmd.CreatedAt,
+		ExpiresAt: cmd.ExpiresAt.UTC(),
+		Nonce:     cmd.Nonce,
+	}, cmd.Signature)
+}
+
+func processCommand(ctx context.Context, client *http.Client, cfg config, cmd command) error {
+	if err := validateSignedCommand(cfg, cmd, time.Now().UTC()); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cfg.CommandStateDir, 0o700); err != nil {
+		return fmt.Errorf("create command state directory: %w", err)
+	}
+	cleanupCommandState(cfg.CommandStateDir, time.Now().Add(-30*24*time.Hour))
+	resultPath := filepath.Join(cfg.CommandStateDir, cmd.ID+".json")
+	markerPath := filepath.Join(cfg.CommandStateDir, cmd.ID+".pending")
+	if data, err := os.ReadFile(resultPath); err == nil {
+		var previous map[string]any
+		if err := json.Unmarshal(data, &previous); err != nil {
+			return fmt.Errorf("read previous command result: %w", err)
+		}
+		deliverCommandResult(ctx, client, cfg, cmd.ID, previous)
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read command state: %w", err)
+	}
+	marker, err := os.OpenFile(markerPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			result := commandResult(cfg.DeviceID, "failed", 75, "command execution was interrupted; refusing unsafe replay\n", commandMetadata())
+			if err := persistCommandResult(resultPath, result); err != nil {
+				return err
+			}
+			_ = os.Remove(markerPath)
+			deliverCommandResult(ctx, client, cfg, cmd.ID, result)
+			return nil
+		}
+		return fmt.Errorf("reserve command execution: %w", err)
+	}
+	_ = marker.Close()
+
 	output, exitCode := runCommand(ctx, cfg, cmd)
 	resultDetails := commandMetadata()
 	if cmd.Type == "agent_update" || cmd.Type == "agent_rollback" {
 		output, exitCode, resultDetails = agentPackageOperation(ctx, client, cfg, cmd.Type, cmd.Args)
+	}
+	if cmd.Type == "system_backup_create" || cmd.Type == "system_backup_restore" {
+		output, exitCode, resultDetails = systemBackupOperation(ctx, client, cfg, cmd)
 	}
 	status := "completed"
 	if exitCode != 0 {
 		status = "failed"
 	}
 	output = redactSensitiveOutput(output)
-	result := map[string]any{
-		"device_id": cfg.DeviceID,
-		"status":    status,
-		"exit_code": exitCode,
-		"output":    output,
-		"result":    resultDetails,
+	result := commandResult(cfg.DeviceID, status, exitCode, output, resultDetails)
+	if err := persistCommandResult(resultPath, result); err != nil {
+		return fmt.Errorf("persist command result: %w", err)
 	}
-	if err := sendCommandResult(ctx, client, cfg, cmd.ID, result); err != nil {
-		logf("failed to send result for %s: %v", cmd.ID, err)
-		if err := spoolCommandResult(cfg.SpoolDir, cmd.ID, result); err != nil {
-			logf("failed to spool result for %s: %v", cmd.ID, err)
-		}
-	}
+	_ = os.Remove(markerPath)
+	deliverCommandResult(ctx, client, cfg, cmd.ID, result)
 	if (cmd.Type == "agent_update" || cmd.Type == "agent_rollback") && exitCode == 0 {
 		// The result is durable before replacing this running binary with the newly installed package.
 		_, _ = execCommand(context.Background(), 30*time.Second, "/etc/init.d/rmm-agent", "restart")
+	}
+	return nil
+}
+
+func commandResult(deviceID, status string, exitCode int, output string, details map[string]any) map[string]any {
+	return map[string]any{
+		"device_id": deviceID,
+		"status":    status,
+		"exit_code": exitCode,
+		"output":    redactSensitiveOutput(output),
+		"result":    details,
+	}
+}
+
+func persistCommandResult(path string, result map[string]any) error {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	temporary := path + ".new"
+	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return nil
+}
+
+func deliverCommandResult(ctx context.Context, client *http.Client, cfg config, commandID string, result map[string]any) {
+	if err := sendCommandResult(ctx, client, cfg, commandID, result); err != nil {
+		logf("failed to send result for %s: %v", commandID, err)
+		if err := spoolCommandResult(cfg.SpoolDir, commandID, result); err != nil {
+			logf("failed to spool result for %s: %v", commandID, err)
+		}
+	}
+}
+
+func cleanupCommandState(dir string, cutoff time.Time) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), ".pending")) {
+			continue
+		}
+		info, err := entry.Info()
+		if err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, entry.Name()))
+		}
 	}
 }
 
@@ -597,6 +832,8 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 		return execCommand(ctx, 10*time.Second, "ip", "-o", "addr", "show")
 	case "reboot":
 		return scheduleReboot()
+	case "system_backup_create", "system_backup_restore":
+		return "backup operation requires the managed transfer path\n", 2
 	case "service_restart":
 		service := strings.TrimSpace(args["service"])
 		if !safeServiceName(service) {

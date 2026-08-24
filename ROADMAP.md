@@ -1,6 +1,6 @@
 # OpenWrt RMM — roadmap
 
-Актуализировано: 2026-08-20.
+Актуализировано: 2026-08-24.
 
 Этот файл — единственный источник порядка продуктовой разработки. Инженерные и
 production-проверки находятся в `CHECKLIST.md`, UI-критерии — в `UI_CHECKLIST.md`.
@@ -16,7 +16,7 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 ### Агент и OpenWrt-пакеты
 
-- [x] Go-агент `0.7.0` в `main`: enrollment, heartbeat, inventory, метрики, очередь команд,
+- [x] Go-агент `0.8.0` в `main`: enrollment, heartbeat, inventory, метрики, очередь команд,
   проверяемые update/rollback операции и персональный tunnel credential.
 - [x] Allowlist операций, backoff, восстановление связи и очистка lock-файла.
 - [x] WAN, интерфейсы, DHCP/Wi-Fi-клиенты, память, диск и connectivity checks.
@@ -55,6 +55,8 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 - [x] Карточка роутера, графики, alerts, диагностика, UCI, пакеты и аудит.
 - [x] Cloud LuCI со сценариями starting/offline/timeout/error.
 - [x] Адаптивный desktop/tablet/4:3/mobile layout.
+- [x] Полный infrastructure-console redesign, единые dialogs/status/system states и Tabler icon system выпущены в `server-v0.11.0`.
+- [x] Favicon/PWA assets и согласованные Login/LuCI error layouts выпущены в `server-v0.11.1`/`server-v0.11.2`.
 - [x] Hardened Docker image, Compose, NPMplus и wildcard overlay.
 - [x] Версионированные server/tunnel images, SBOM/provenance и Cosign.
 - [x] Подписанный IPK/APK feed через GitHub Pages.
@@ -80,6 +82,9 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
   подключением существующих volumes и отображением версии сервера в UI.
 - [x] Подготовить `server-v0.10.2` с совместимой с OpenSSH передачей внутреннего
   tunnel token через защищённые runtime-файлы вместо очищаемого окружения.
+- [x] Выпустить полный UI redesign и последующие Login/LuCI visual fixes в `server-v0.11.0`–`server-v0.11.2`.
+- [x] Подготовить стабилизацию Windows E2E teardown и deployment defaults для следующего server release.
+- [ ] Выпустить security/recovery pair `server-v0.12.0` и `agent-v0.8.0`.
 - [x] Локально собрать и проверить server image `0.9.3` и APK-пакеты `0.6.10`/LuCI/i18n
   для OpenWrt 25.12.4 ramips/mt7621.
 - [ ] Проверить установку и обновление `rmm-agent-go-production`,
@@ -99,14 +104,15 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 - [x] Персональный Ed25519 SSH credential для каждого устройства; приватный ключ остаётся на роутере.
 - [x] Автоматический отзыв tunnel credential при transfer/delete и ротация по key epoch.
-- [ ] Явное аварийное завершение уже подключённой SSH-сессии при подтверждённой компрометации.
+- [x] Аварийный отзыв device credential закрывает активные SSH/LuCI-сессии и временные grants.
 - [x] Авторизованное выделение портов без возможности pre-bind/hijack другой сессии.
 - [ ] Проверка полной цепочки agent → SSH → LuCI HTTP → wildcard TLS.
 - [x] Лимиты одновременных сессий и rate limit создания tunnel session.
 - [ ] Настраиваемая административная политика remote access.
-- [ ] Device token rotation и явный отзыв device credentials.
-- [ ] Подписанные команды, срок действия, nonce и replay protection.
-- [ ] Шифрование webhook secrets и чувствительных полей notification queue в SQLite.
+- [x] Device token rotation и явный отзыв device credentials.
+- [x] Подписанные команды, срок действия, nonce, device binding и replay protection.
+- [x] Context-bound AES-GCM для webhook secrets, verification destinations, notification queue,
+  pending device credentials и router backup archives; key IDs закреплены в SQLite.
 
 ### 2. Автоматические проверки и наблюдаемость
 
@@ -123,11 +129,12 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 ### 3. Backup и безопасное восстановление
 
-- [ ] Получение `sysupgrade -b` архива через агент.
-- [ ] Шифрованное хранение, retention и контроль доступа к backup.
-- [ ] Скачивание, безопасный diff и проверка совместимости с target/device/version.
-- [ ] Restore preview, повторное подтверждение и план отката.
-- [ ] Backup/restore SQLite через согласованный snapshot, а не копирование активного файла.
+- [x] Получение `sysupgrade -b` архива через агент.
+- [x] Шифрованное хранение, retention и контроль доступа к backup.
+- [ ] Расширить файловый manifest до сравнения с текущей конфигурацией без раскрытия секретов.
+- [x] Restore preview, target/SHA-256 validation, повторное подтверждение и guarded auto-rollback
+  по постоянной аварийной копии при отсутствии следующего heartbeat.
+- [x] Backup SQLite через согласованный snapshot, а не копирование активного файла.
 - [ ] Disaster recovery runbook и регулярный restore drill.
 
 ### 4. Обновления агента и LuCI

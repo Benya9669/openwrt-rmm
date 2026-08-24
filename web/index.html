@@ -521,6 +521,19 @@
             </form>
           </section>
 
+          <section class="panel expert-panel credential-panel" data-device-tab="expert">
+            <div class="section-title">
+              <div><span class="eyebrow">SECURITY / AGENT</span><h2>Учётные данные агента</h2><p class="section-subtitle">Плановая ротация проходит без разрыва мониторинга. Аварийный отзыв немедленно закрывает SSH и LuCI.</p></div>
+            </div>
+            <div class="security-action-grid">
+              <div class="security-action-copy"><strong>Ротация токена</strong><span>Новый токен будет передан по текущему защищённому каналу и активируется после подтверждения агентом.</span></div>
+              <button id="rotateDeviceCredentialBtn" class="warning requires-online" type="button">Сменить токен</button>
+              <div class="security-action-copy admin-only"><strong>Аварийный отзыв</strong><span>Агент потеряет доступ до повторной регистрации; активные туннели и ссылки будут закрыты.</span></div>
+              <button id="revokeDeviceCredentialBtn" class="danger admin-only" type="button">Отозвать доступ</button>
+            </div>
+            <p id="credentialActionMessage" class="form-message" role="status"></p>
+          </section>
+
           <section class="panel expert-panel uci-panel" data-device-tab="expert">
             <div class="section-title">
               <div><span class="eyebrow">CONFIGURATION / UCI</span><h2>UCI configuration</h2><p class="section-subtitle">Preview → Stage → Commit. Для direct commit используйте расширенные действия.</p></div>
@@ -669,6 +682,18 @@
             <div id="remoteSessionList" class="table-list remote-session-list" role="list"></div>
           </section>
 
+          <section id="backupPanel" class="panel backup-panel" data-device-tab="operations">
+            <div class="section-title">
+              <div><h2>Резервные копии роутера</h2><p class="section-subtitle">Зашифрованные sysupgrade-архивы с проверкой модели, target и контрольной суммы.</p></div>
+              <div class="section-actions">
+                <button id="refreshBackupsBtn" type="button">Обновить</button>
+                <button id="createBackupBtn" class="primary requires-online" type="button">Создать копию</button>
+              </div>
+            </div>
+            <div id="backupCompatibilityNote" class="data-context-state" role="status">Restore сохраняет текущую идентичность агента и автоматически откатывается к аварийной копии, если облако не подтвердит связь за 10 минут.</div>
+            <div id="backupList" class="backup-list" role="list"></div>
+          </section>
+
           <section class="panel" data-device-tab="operations">
             <div class="section-title">
               <div>
@@ -799,6 +824,7 @@
                 <button id="clearCommandsBtn" type="button">Очистить историю команд</button>
                 <button id="clearAlertsBtn" type="button">Очистить алерты</button>
                 <button id="clearAuditBtn" type="button">Очистить аудит</button>
+                <button id="downloadDatabaseSnapshotBtn" class="admin-only" type="button">Скачать snapshot БД</button>
               </div>
             </section>
             <div class="danger-zone">

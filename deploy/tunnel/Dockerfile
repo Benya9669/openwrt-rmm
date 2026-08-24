@@ -6,7 +6,8 @@ RUN apk add --no-cache curl openssh-server netcat-openbsd
 COPY sshd_config /etc/ssh/sshd_config
 COPY entrypoint.sh /usr/local/bin/tunnel-entrypoint
 COPY authorized-key.sh /usr/local/bin/tunnel-authorized-key
-RUN chmod 0755 /usr/local/bin/tunnel-entrypoint /usr/local/bin/tunnel-authorized-key
+COPY session-reaper.sh /usr/local/bin/tunnel-session-reaper
+RUN chmod 0755 /usr/local/bin/tunnel-entrypoint /usr/local/bin/tunnel-authorized-key /usr/local/bin/tunnel-session-reaper
 
 EXPOSE 22 22000-22099
 VOLUME ["/data"]

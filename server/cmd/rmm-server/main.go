@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"rmm-openwrt/internal/commandsig"
+	"rmm-openwrt/internal/fieldcrypto"
 	"rmm-openwrt/server/internal/httpapi"
 	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
@@ -19,7 +21,7 @@ import (
 var (
 	serverVersion      = "dev"
 	serverRevision     = "unknown"
-	stableAgentVersion = "0.7.0"
+	stableAgentVersion = "0.8.0"
 )
 
 func main() {
@@ -166,6 +168,24 @@ func main() {
 		log.Fatal(err)
 	}
 	defer st.Close()
+	commandSigningKey, err := commandsig.LoadOrCreatePrivateKey(env("RMM_COMMAND_SIGNING_KEY_PATH", "/data/command-signing-ed25519.pem"))
+	if err != nil {
+		log.Fatalf("initialize command signing key: %v", err)
+	}
+	if err := st.SetCommandSigningKey(commandSigningKey); err != nil {
+		log.Fatalf("configure command signing key: %v", err)
+	}
+	sensitiveCipher, err := fieldcrypto.LoadOrCreate(env("RMM_DATA_ENCRYPTION_KEY_PATH", "/data/data-encryption.key"))
+	if err != nil {
+		log.Fatalf("initialize data encryption key: %v", err)
+	}
+	if err := st.SetSensitiveDataCipher(sensitiveCipher); err != nil {
+		log.Fatalf("configure data encryption: %v", err)
+	}
+	if err := st.MigrateSensitiveData(context.Background()); err != nil {
+		log.Fatalf("encrypt existing sensitive data: %v", err)
+	}
+	commandSigningPublicKey := st.CommandSigningPublicKey()
 	if err := runMaintenance(context.Background(), st); err != nil {
 		log.Printf("initial maintenance failed: %v", err)
 	}
@@ -202,6 +222,8 @@ func main() {
 		CompatibleAgentFeed:        compatibleAgentFeed,
 		CandidateAgentFeed:         candidateAgentFeed,
 		HistoricalAgentFeed:        historicalAgentFeed,
+		CommandSigningPublicKey:    commandsig.EncodePublicKey(commandSigningPublicKey),
+		CommandSigningKeyID:        commandsig.KeyID(commandSigningPublicKey),
 	})
 
 	srv := &http.Server{
@@ -227,6 +249,7 @@ type maintenanceStore interface {
 	PurgeExpiredSecurityData(ctx context.Context) error
 	PurgeMetricSamplesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	PurgeNotificationDeliveriesBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	PurgeDeviceBackupsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 type agentRolloutHealthStore interface {
@@ -275,6 +298,14 @@ func runMaintenance(ctx context.Context, st maintenanceStore) error {
 	}
 	if deleted > 0 {
 		log.Printf("maintenance removed %d expired notification deliveries", deleted)
+	}
+	backupRetentionDays := envInt("RMM_BACKUP_RETENTION_DAYS", 90, 1, 3650)
+	deleted, err = st.PurgeDeviceBackupsBefore(ctx, time.Now().UTC().Add(-time.Duration(backupRetentionDays)*24*time.Hour))
+	if err != nil {
+		return err
+	}
+	if deleted > 0 {
+		log.Printf("maintenance removed %d expired device backups", deleted)
 	}
 	return nil
 }

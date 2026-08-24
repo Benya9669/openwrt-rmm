@@ -111,3 +111,39 @@ WHERE device_id = ?
 	sort.Ints(auth.Ports)
 	return auth, len(auth.Ports) > 0, nil
 }
+
+func (s *Store) ActiveTunnelPorts(ctx context.Context, at time.Time) ([]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT remote_port, luci_port
+FROM remote_sessions
+WHERE status IN ('requested', 'queued', 'active')
+  AND julianday(expires_at) > julianday(?)
+`, at.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	unique := make(map[int]struct{})
+	for rows.Next() {
+		var remotePort, luciPort int
+		if err := rows.Scan(&remotePort, &luciPort); err != nil {
+			return nil, err
+		}
+		for _, port := range []int{remotePort, luciPort} {
+			if port >= 22000 && port <= 22199 {
+				unique[port] = struct{}{}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	ports := make([]int, 0, len(unique))
+	for port := range unique {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	return ports, nil
+}

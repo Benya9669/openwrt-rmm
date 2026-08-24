@@ -1,6 +1,6 @@
 services:
   rmm-server:
-    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-0.11.0}"
+    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-0.12.0}"
     pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     environment:
       RMM_ADDR: ":8080"
@@ -24,8 +24,11 @@ services:
       RMM_PUBLIC_URL: "${RMM_PUBLIC_URL:-}"
       RMM_METRIC_RETENTION_DAYS: "${RMM_METRIC_RETENTION_DAYS:-30}"
       RMM_NOTIFICATION_RETENTION_DAYS: "${RMM_NOTIFICATION_RETENTION_DAYS:-90}"
+      RMM_BACKUP_RETENTION_DAYS: "${RMM_BACKUP_RETENTION_DAYS:-90}"
+      RMM_COMMAND_SIGNING_KEY_PATH: "${RMM_COMMAND_SIGNING_KEY_PATH:-/data/command-signing-ed25519.pem}"
+      RMM_DATA_ENCRYPTION_KEY_PATH: "${RMM_DATA_ENCRYPTION_KEY_PATH:-/data/data-encryption.key}"
       RMM_NOTIFICATION_MAX_ATTEMPTS: "${RMM_NOTIFICATION_MAX_ATTEMPTS:-5}"
-      RMM_STABLE_AGENT_VERSION: "${RMM_STABLE_AGENT_VERSION:-0.7.0}"
+      RMM_STABLE_AGENT_VERSION: "${RMM_STABLE_AGENT_VERSION:-0.8.0}"
       RMM_AGENT_RECONNECT_TIMEOUT_SECONDS: "${RMM_AGENT_RECONNECT_TIMEOUT_SECONDS:-300}"
       RMM_UPDATE_MANIFEST_URL: "${RMM_UPDATE_MANIFEST_URL:-https://packages.daemonlord.ru/update-manifest.json}"
       RMM_UPDATE_MANIFEST_SIGNATURE_URL: "${RMM_UPDATE_MANIFEST_SIGNATURE_URL:-https://packages.daemonlord.ru/update-manifest.sig}"
@@ -57,7 +60,7 @@ services:
     restart: unless-stopped
 
   tunnel-ssh:
-    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-0.11.0}"
+    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-0.12.0}"
     pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     ports:
       - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:${RMM_TUNNEL_SSH_PORT:-2222}:22"
@@ -65,6 +68,7 @@ services:
     environment:
       RMM_TUNNEL_AUTH_TOKEN: "${RMM_TUNNEL_AUTH_TOKEN:-}"
       RMM_TUNNEL_AUTH_URL: "http://rmm-server:8080/internal/tunnel/authorized-key"
+      RMM_TUNNEL_ACTIVE_PORTS_URL: "http://rmm-server:8080/internal/tunnel/active-ports"
     volumes:
       - tunnel-data:/data
       - "${RMM_TUNNEL_KEY_PATH:-./secrets/router_tunnel_key.pub}:/bootstrap/router_tunnel_key.pub:ro"

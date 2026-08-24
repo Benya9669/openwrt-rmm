@@ -80,13 +80,13 @@ test.describe("authenticated operator flows", () => {
     await expect(page.locator("#rollbackAgentBtn")).toBeVisible();
     await page.locator("#rollbackAgentBtn").click();
     await expect(page.locator("#agentRollbackDialog")).toBeVisible();
-    await expect(page.locator("#agentRollbackPreview")).toContainText("0.6.10");
+    await expect(page.locator("#agentRollbackPreview")).toContainText("0.8.0");
 
-    await page.locator("#agentRollbackVersion").fill("0.6.10");
+    await page.locator("#agentRollbackVersion").fill("0.8.0");
     await page.locator("#agentRollbackForm").press("Enter");
     await expect(page.locator("#agentRollbackMessage")).toContainText("ниже установленной");
 
-    await page.locator("#agentRollbackVersion").fill("0.6.9");
+    await page.locator("#agentRollbackVersion").fill("0.7.9");
     await expect.poll(() => page.locator("#agentRollbackVersion").evaluate((input) => input.checkValidity())).toBe(true);
     await expect.poll(() => page.locator("#agentRollbackDialog").evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
   });

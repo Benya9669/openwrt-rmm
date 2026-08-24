@@ -11,6 +11,7 @@ ARG RMM_GOAMD64=v1
 WORKDIR /src
 
 COPY go.mod go.sum ./
+COPY internal internal
 COPY agent/go agent/go
 
 RUN export CGO_ENABLED=0 GOOS=linux GOARCH="${RMM_GOARCH}" \

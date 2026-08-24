@@ -1,10 +1,10 @@
 # Recent Progress
 
-Updated: 2026-08-20.
+Updated: 2026-08-24.
 
 ## Implemented in `main`
 
-- Go agent `0.7.0` source with stable lock cleanup, tunnel endpoint validation, active LAN
+- Go agent `0.8.0` source with stable lock cleanup, tunnel endpoint validation, active LAN
   client probes and resilient UCI-to-runtime configuration synchronization.
 - OpenWrt IPK/APK packaging for the current matrix plus a manual legacy tier.
 - LuCI application with English as the default language and optional
@@ -25,7 +25,16 @@ Updated: 2026-08-20.
 - Managed single-device updates, canary rollout, signed historical rollback, reconnect
   verification and package health reporting.
 - Opt-in secure tunnel mode with per-device Ed25519 keys, pinned SSH host keys,
-  port-scoped dynamic authorization, key epochs and transactional session limits.
+  port-scoped dynamic authorization, key epochs, transactional session limits and
+  active listener termination after revoke, close or expiry.
+- A complete infrastructure-console UI redesign with unified dialogs, status patterns,
+  responsive records, Tabler icons and public/error surfaces.
+- Device-bound Ed25519 command signatures, expiry/nonces, durable replay protection,
+  two-phase agent credential rotation and emergency credential revocation.
+- Context-bound AES-256-GCM encryption for notification secrets, pending credentials and
+  payloads; key IDs are pinned to SQLite. Managed sysupgrade backups add encrypted storage,
+  compatibility guards, heartbeat-confirmed automatic rollback and consistent streamed
+  SQLite snapshots.
 
 ## Release state
 
@@ -52,6 +61,8 @@ Updated: 2026-08-20.
   running server version in the authenticated UI.
 - Server `0.10.2` fixes secure tunnel authorization under OpenSSH's sanitized
   `AuthorizedKeysCommand` environment by using protected runtime credential files.
+- Server `0.11.0` is published with the complete UI redesign. Server `0.11.1` refreshes
+  application icons and `0.11.2` aligns Login and cloud LuCI error states.
 - Local pre-release checks pass for the `0.9.3` server image and for unsigned OpenWrt
   25.12.4 ramips/mt7621 APK artifacts (agent, LuCI, Russian i18n, and repository index).
 - The browser suite covers notification overflow in addition to the existing
@@ -61,7 +72,7 @@ Updated: 2026-08-20.
 
 The authoritative development order is maintained in `ROADMAP.md`. Immediate work is:
 
-1. test reconnect timeout, rollout pause/resume and signed historical rollback;
-2. complete production notification, LAN-client and tunnel smoke tests;
-3. perform the staged per-device tunnel rollout and verify the full SSH/LuCI/TLS chain;
-4. add signed, expiring and replay-protected commands ahead of backup/restore work.
+1. run migration and package smoke for `server-v0.12.0` / `agent-v0.8.0`;
+2. verify command-key pinning, token rotation and emergency revoke on a test router;
+3. perform a router backup/restore drill and preserve all three server recovery files;
+4. complete production notification, LAN-client and tunnel smoke tests.

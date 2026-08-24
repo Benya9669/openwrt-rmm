@@ -3,22 +3,29 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
+	"rmm-openwrt/internal/commandsig"
+	"rmm-openwrt/internal/fieldcrypto"
 	"rmm-openwrt/server/internal/model"
 
 	_ "modernc.org/sqlite"
 )
 
 type Store struct {
-	db *sql.DB
+	db                *sql.DB
+	dbPath            string
+	commandSigningKey ed25519.PrivateKey
+	sensitiveCipher   *fieldcrypto.Cipher
 }
 
 type CommandListOptions struct {
@@ -63,6 +70,7 @@ type RemoteSessionListOptions struct {
 type EnrolledDevice struct {
 	DeviceID    string
 	DeviceToken string
+	TokenEpoch  int
 }
 
 func OpenSQLite(ctx context.Context, path string) (*Store, error) {
@@ -86,7 +94,13 @@ func OpenSQLite(ctx context.Context, path string) (*Store, error) {
 		}
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, dbPath: path}
+	_, ephemeralCommandKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	s.commandSigningKey = ephemeralCommandKey
 	if err := s.Migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -98,12 +112,113 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) SetCommandSigningKey(privateKey ed25519.PrivateKey) error {
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return errors.New("invalid command signing key")
+	}
+	publicKey, _ := privateKey.Public().(ed25519.PublicKey)
+	if err := s.pinSecurityKey("command_signing_key_id", commandsig.KeyID(publicKey)); err != nil {
+		return err
+	}
+	s.commandSigningKey = append(ed25519.PrivateKey(nil), privateKey...)
+	return nil
+}
+
+func (s *Store) CommandSigningPublicKey() ed25519.PublicKey {
+	if len(s.commandSigningKey) != ed25519.PrivateKeySize {
+		return nil
+	}
+	publicKey, _ := s.commandSigningKey.Public().(ed25519.PublicKey)
+	return append(ed25519.PublicKey(nil), publicKey...)
+}
+
+func (s *Store) SetSensitiveDataCipher(cipher *fieldcrypto.Cipher) error {
+	if cipher == nil {
+		return errors.New("sensitive data cipher is nil")
+	}
+	if err := s.pinSecurityKey("data_encryption_key_id", cipher.KeyID()); err != nil {
+		return err
+	}
+	s.sensitiveCipher = cipher
+	return nil
+}
+
+func (s *Store) pinSecurityKey(name, keyID string) error {
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(keyID) == "" {
+		return errors.New("security key metadata is incomplete")
+	}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO security_metadata (name, value) VALUES (?, ?)`, name, keyID); err != nil {
+		return err
+	}
+	var stored string
+	if err := s.db.QueryRow(`SELECT value FROM security_metadata WHERE name = ?`, name).Scan(&stored); err != nil {
+		return err
+	}
+	if stored != keyID {
+		return fmt.Errorf("%s mismatch: restore the key that belongs to this database", name)
+	}
+	return nil
+}
+
+func (s *Store) encryptSensitive(context, value string) (string, error) {
+	if s.sensitiveCipher == nil {
+		return value, nil
+	}
+	return s.sensitiveCipher.EncryptWithContext(context, value)
+}
+
+func (s *Store) decryptSensitive(context, value string) (string, error) {
+	if s.sensitiveCipher == nil {
+		return value, nil
+	}
+	return s.sensitiveCipher.DecryptWithContext(context, value)
+}
+
+func sensitiveContext(recordType, recordID, field string) string {
+	return recordType + "\x00" + recordID + "\x00" + field
+}
+
+func (s *Store) newCommand(deviceID, commandType string, args json.RawMessage, ttl time.Duration) (model.Command, error) {
+	if len(s.commandSigningKey) != ed25519.PrivateKeySize {
+		return model.Command{}, errors.New("command signing is unavailable")
+	}
+	id, err := randomID("cmd")
+	if err != nil {
+		return model.Command{}, err
+	}
+	nonce, err := commandsig.NewNonce()
+	if err != nil {
+		return model.Command{}, err
+	}
+	args = NormalizeRawJSON(args)
+	createdAt := time.Now().UTC()
+	expiresAt := createdAt.Add(ttl)
+	command := model.Command{
+		ID: id, DeviceID: deviceID, Type: commandType, Args: args, Status: "queued",
+		Result: json.RawMessage(`{}`), MaxAttempts: 3, CreatedAt: createdAt,
+		ExpiresAt: &expiresAt, Nonce: nonce,
+	}
+	publicKey := s.CommandSigningPublicKey()
+	command.SignatureKeyID = commandsig.KeyID(publicKey)
+	command.Signature, err = commandsig.Sign(s.commandSigningKey, commandsig.Envelope{
+		ID: command.ID, DeviceID: command.DeviceID, Type: command.Type, Args: command.Args,
+		CreatedAt: command.CreatedAt, ExpiresAt: expiresAt, Nonce: command.Nonce,
+	})
+	if err != nil {
+		return model.Command{}, err
+	}
+	return command, nil
+}
+
 func (s *Store) Migrate(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS devices (
 	id TEXT PRIMARY KEY,
 	token TEXT NOT NULL UNIQUE,
 	token_hash TEXT NOT NULL DEFAULT '',
+	next_token_hash TEXT NOT NULL DEFAULT '',
+	next_token_ciphertext TEXT NOT NULL DEFAULT '',
+	token_epoch INTEGER NOT NULL DEFAULT 1,
 	tunnel_public_key TEXT NOT NULL DEFAULT '',
 	tunnel_key_fingerprint TEXT NOT NULL DEFAULT '',
 	tunnel_key_epoch INTEGER NOT NULL DEFAULT 1,
@@ -137,11 +252,40 @@ CREATE TABLE IF NOT EXISTS commands (
 		completed_at TEXT,
 		cancelled_at TEXT,
 		expired_at TEXT,
+		nonce TEXT NOT NULL DEFAULT '',
+		signature_key_id TEXT NOT NULL DEFAULT '',
+		signature TEXT NOT NULL DEFAULT '',
 		FOREIGN KEY(device_id) REFERENCES devices(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_commands_device_status ON commands(device_id, status);
 CREATE INDEX IF NOT EXISTS idx_commands_device_created_at ON commands(device_id, created_at);
+
+CREATE TABLE IF NOT EXISTS device_backups (
+	id TEXT PRIMARY KEY,
+	device_id TEXT NOT NULL,
+	command_id TEXT NOT NULL UNIQUE,
+	status TEXT NOT NULL,
+	archive_ciphertext BLOB,
+	size_bytes INTEGER NOT NULL DEFAULT 0,
+	sha256 TEXT NOT NULL DEFAULT '',
+	openwrt_version TEXT NOT NULL DEFAULT '',
+	target TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	manifest_json TEXT NOT NULL DEFAULT '[]',
+	error TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	completed_at TEXT,
+	FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE,
+	FOREIGN KEY(command_id) REFERENCES commands(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_device_backups_device_created ON device_backups(device_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_device_backups_one_creating ON device_backups(device_id) WHERE status = 'creating';
+
+CREATE TABLE IF NOT EXISTS security_metadata (
+	name TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS agent_rollouts (
  id TEXT PRIMARY KEY, channel TEXT NOT NULL, target_version TEXT NOT NULL, batch_size INTEGER NOT NULL,
@@ -420,6 +564,9 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`ALTER TABLE devices ADD COLUMN group_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE devices ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN next_token_hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN next_token_ciphertext TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN token_epoch INTEGER NOT NULL DEFAULT 1`,
 		`ALTER TABLE devices ADD COLUMN tunnel_public_key TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN tunnel_key_fingerprint TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN tunnel_key_epoch INTEGER NOT NULL DEFAULT 1`,
@@ -431,6 +578,9 @@ CREATE TABLE IF NOT EXISTS device_access_sessions (
 		`ALTER TABLE commands ADD COLUMN expires_at TEXT`,
 		`ALTER TABLE commands ADD COLUMN cancelled_at TEXT`,
 		`ALTER TABLE commands ADD COLUMN expired_at TEXT`,
+		`ALTER TABLE commands ADD COLUMN nonce TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE commands ADD COLUMN signature_key_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE commands ADD COLUMN signature TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE remote_sessions ADD COLUMN target TEXT NOT NULL DEFAULT 'ssh'`,
 		`ALTER TABLE remote_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'failed'`,
 		`ALTER TABLE remote_sessions ADD COLUMN server_host TEXT NOT NULL DEFAULT ''`,
@@ -505,6 +655,13 @@ WHERE status IN ('queued', 'retry') AND next_attempt_at = ''
 `); err != nil {
 		return err
 	}
+	if _, err := s.db.ExecContext(ctx, `
+UPDATE commands
+SET status = 'failed', output = 'Command predates signed-command enforcement and was not executed.', completed_at = ?
+WHERE status IN ('queued', 'claimed') AND signature = ''
+`, nowText()); err != nil {
+		return err
+	}
 	return s.migrateDeviceTokens(ctx)
 }
 
@@ -552,7 +709,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		return EnrolledDevice{}, err
 	}
 
-	return EnrolledDevice{DeviceID: id, DeviceToken: token}, nil
+	return EnrolledDevice{DeviceID: id, DeviceToken: token, TokenEpoch: 1}, nil
 }
 
 func (s *Store) AuthorizeDevice(ctx context.Context, deviceID, token string) (bool, error) {
@@ -560,11 +717,101 @@ func (s *Store) AuthorizeDevice(ctx context.Context, deviceID, token string) (bo
 		return false, nil
 	}
 
-	var exists bool
-	err := s.db.QueryRowContext(ctx, `
-SELECT EXISTS(SELECT 1 FROM devices WHERE id = ? AND token_hash = ?)
-`, deviceID, TokenHash(token)).Scan(&exists)
-	return exists, err
+	var currentHash, nextHash string
+	err := s.db.QueryRowContext(ctx, `SELECT token_hash, next_token_hash FROM devices WHERE id = ?`, deviceID).Scan(&currentHash, &nextHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	presentedHash := TokenHash(token)
+	if presentedHash == currentHash && currentHash != "" {
+		return true, nil
+	}
+	if presentedHash != nextHash || nextHash == "" {
+		return false, nil
+	}
+	res, err := s.db.ExecContext(ctx, `
+UPDATE devices SET token_hash = next_token_hash, next_token_hash = '', next_token_ciphertext = '', token = ?
+WHERE id = ? AND next_token_hash = ?
+`, "redacted:"+deviceID, deviceID, nextHash)
+	if err != nil {
+		return false, err
+	}
+	updated, err := res.RowsAffected()
+	return updated == 1, err
+}
+
+func (s *Store) RotateDeviceCredential(ctx context.Context, deviceID string) (int, bool, error) {
+	if s.sensitiveCipher == nil {
+		return 0, false, errors.New("sensitive data encryption is unavailable")
+	}
+	token, err := randomID("tok")
+	if err != nil {
+		return 0, false, err
+	}
+	encrypted, err := s.encryptSensitive(sensitiveContext("device", deviceID, "next_token"), token)
+	if err != nil {
+		return 0, false, err
+	}
+	res, err := s.db.ExecContext(ctx, `
+UPDATE devices SET next_token_hash = ?, next_token_ciphertext = ?, token_epoch = token_epoch + 1
+WHERE id = ? AND token_hash != ''
+`, TokenHash(token), encrypted, strings.TrimSpace(deviceID))
+	if err != nil {
+		return 0, false, err
+	}
+	updated, err := res.RowsAffected()
+	if err != nil || updated == 0 {
+		return 0, false, err
+	}
+	var epoch int
+	err = s.db.QueryRowContext(ctx, `SELECT token_epoch FROM devices WHERE id = ?`, deviceID).Scan(&epoch)
+	return epoch, err == nil, err
+}
+
+func (s *Store) PendingDeviceCredential(ctx context.Context, deviceID string) (string, int, error) {
+	var encrypted string
+	var epoch int
+	err := s.db.QueryRowContext(ctx, `SELECT next_token_ciphertext, token_epoch FROM devices WHERE id = ?`, deviceID).Scan(&encrypted, &epoch)
+	if err != nil || encrypted == "" {
+		return "", epoch, err
+	}
+	token, err := s.decryptSensitive(sensitiveContext("device", deviceID, "next_token"), encrypted)
+	return token, epoch, err
+}
+
+func (s *Store) RevokeDeviceCredential(ctx context.Context, deviceID string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
+UPDATE devices
+SET token_hash = '', next_token_hash = '', next_token_ciphertext = '', token_epoch = token_epoch + 1,
+    tunnel_key_epoch = tunnel_key_epoch + 1, tunnel_public_key = '', tunnel_key_fingerprint = ''
+WHERE id = ?
+`, strings.TrimSpace(deviceID))
+	if err != nil {
+		return false, err
+	}
+	updated, err := res.RowsAffected()
+	if err != nil || updated == 0 {
+		return false, err
+	}
+	now := nowText()
+	if _, err := tx.ExecContext(ctx, `UPDATE remote_sessions SET status = 'closed', closed_at = ?, updated_at = ? WHERE device_id = ? AND status IN ('requested', 'queued', 'active')`, now, now, deviceID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM device_access_grants WHERE device_id = ?`, deviceID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM device_access_sessions WHERE device_id = ?`, deviceID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 func (s *Store) SaveHeartbeat(ctx context.Context, deviceID string, inventory, metrics json.RawMessage) ([]model.Command, error) {
@@ -594,27 +841,18 @@ WHERE id = ?
 		return nil, err
 	}
 
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at
-FROM commands
-WHERE device_id = ? AND status = 'queued' AND (expires_at IS NULL OR julianday(expires_at) > julianday(?))
-ORDER BY created_at ASC
-LIMIT 5
-`, deviceID, nowText())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	commands := make([]model.Command, 0)
-	for rows.Next() {
-		c, err := scanCommand(rows)
+	for len(commands) < 5 {
+		command, found, err := s.ClaimNextCommand(ctx, deviceID)
 		if err != nil {
 			return nil, err
 		}
-		commands = append(commands, c)
+		if !found {
+			break
+		}
+		commands = append(commands, command)
 	}
-	return commands, rows.Err()
+	return commands, nil
 }
 
 func (s *Store) ClaimNextCommand(ctx context.Context, deviceID string) (model.Command, bool, error) {
@@ -629,7 +867,7 @@ func (s *Store) ClaimNextCommand(ctx context.Context, deviceID string) (model.Co
 	defer tx.Rollback()
 
 	row := tx.QueryRowContext(ctx, `
-SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at
+SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at, nonce, signature_key_id, signature
 FROM commands
 WHERE device_id = ? AND status = 'queued' AND attempt_count < max_attempts AND (expires_at IS NULL OR julianday(expires_at) > julianday(?))
 ORDER BY created_at ASC
@@ -830,10 +1068,6 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 		if err = rows.Scan(&deviceID, &feedURL, &manager, &packageVersion, &manifestURL, &signatureURL); err != nil {
 			return err
 		}
-		commandID, e := randomID("cmd")
-		if e != nil {
-			return e
-		}
 		commandArgs := map[string]string{"rollout_id": id, "channel": channel, "target_version": version, "feed_url": feedURL, "package_manager": manager, "package": "rmm-agent-go-production", "package_version": packageVersion}
 		if manifestURL != "" && signatureURL != "" {
 			commandArgs["manifest_url"] = manifestURL
@@ -843,10 +1077,17 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO commands (id, device_id, type, args_json, status, created_at) VALUES (?, ?, 'agent_update', ?, 'queued', ?)`, commandID, deviceID, string(args), nowText()); err != nil {
+		command, err := s.newCommand(deviceID, "agent_update", args, 24*time.Hour)
+		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'queued', batch = ?, command_id = ? WHERE rollout_id = ? AND device_id = ?`, batch, commandID, id, deviceID); err != nil {
+		if _, err = tx.ExecContext(ctx, `
+INSERT INTO commands (id, device_id, type, args_json, status, max_attempts, created_at, expires_at, nonce, signature_key_id, signature)
+VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
+`, command.ID, command.DeviceID, command.Type, string(command.Args), command.MaxAttempts, command.CreatedAt.Format(time.RFC3339Nano), command.ExpiresAt.Format(time.RFC3339Nano), command.Nonce, command.SignatureKeyID, command.Signature); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE agent_rollout_devices SET status = 'queued', batch = ?, command_id = ? WHERE rollout_id = ? AND device_id = ?`, batch, command.ID, id, deviceID); err != nil {
 			return err
 		}
 		count++
@@ -1092,11 +1333,18 @@ WHERE status = 'claimed' AND claimed_at IS NOT NULL AND julianday(claimed_at) <=
 `, now, cutoff); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `
+	if _, err := s.db.ExecContext(ctx, `
 UPDATE commands
 SET status = 'queued', claimed_at = NULL
 WHERE status = 'claimed' AND claimed_at IS NOT NULL AND julianday(claimed_at) <= julianday(?) AND attempt_count < max_attempts
-`, cutoff)
+`, cutoff); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+UPDATE device_backups
+SET status = 'failed', error = 'backup command expired or was cancelled', completed_at = ?
+WHERE status = 'creating' AND command_id IN (SELECT id FROM commands WHERE status IN ('failed', 'expired', 'cancelled'))
+`, now)
 	return err
 }
 
@@ -1423,33 +1671,20 @@ func (s *Store) CreateCommand(ctx context.Context, deviceID, commandType string,
 		return model.Command{}, false, nil
 	}
 
-	id, err := randomID("cmd")
+	command, err := s.newCommand(deviceID, commandType, args, 24*time.Hour)
 	if err != nil {
 		return model.Command{}, false, err
 	}
-	args = NormalizeRawJSON(args)
-	now := nowText()
-	expiresAt := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano)
 
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO commands (id, device_id, type, args_json, status, max_attempts, created_at, expires_at)
-VALUES (?, ?, ?, ?, 'queued', 3, ?, ?)
-`, id, deviceID, commandType, string(args), now, expiresAt)
+INSERT INTO commands (id, device_id, type, args_json, status, max_attempts, created_at, expires_at, nonce, signature_key_id, signature)
+VALUES (?, ?, ?, ?, 'queued', 3, ?, ?, ?, ?, ?)
+`, command.ID, command.DeviceID, command.Type, string(command.Args), command.CreatedAt.Format(time.RFC3339Nano), command.ExpiresAt.Format(time.RFC3339Nano), command.Nonce, command.SignatureKeyID, command.Signature)
 	if err != nil {
 		return model.Command{}, false, err
 	}
 
-	return model.Command{
-		ID:          id,
-		DeviceID:    deviceID,
-		Type:        commandType,
-		Args:        args,
-		Status:      "queued",
-		Result:      json.RawMessage(`{}`),
-		MaxAttempts: 3,
-		CreatedAt:   parseTime(now),
-		ExpiresAt:   ptrTime(parseTime(expiresAt)),
-	}, true, nil
+	return command, true, nil
 }
 
 func (s *Store) ListCommands(ctx context.Context, deviceID string, opts CommandListOptions) ([]model.Command, bool, error) {
@@ -1471,7 +1706,7 @@ func (s *Store) ListCommands(ctx context.Context, deviceID string, opts CommandL
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at
+SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at, nonce, signature_key_id, signature
 FROM commands
 WHERE device_id = ?
 ORDER BY created_at DESC
@@ -1495,7 +1730,7 @@ LIMIT ? OFFSET ?
 
 func (s *Store) GetCommand(ctx context.Context, deviceID, commandID string) (model.Command, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at
+SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at, nonce, signature_key_id, signature
 FROM commands
 WHERE device_id = ? AND id = ?
 `, deviceID, commandID)
@@ -1901,6 +2136,9 @@ func scanCommand(s scanner) (model.Command, error) {
 		&completedAt,
 		&cancelledAt,
 		&expiredAt,
+		&c.Nonce,
+		&c.SignatureKeyID,
+		&c.Signature,
 	); err != nil {
 		return c, err
 	}

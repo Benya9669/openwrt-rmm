@@ -49,7 +49,7 @@ jobs:
           go test ./server/...
           go vet ./server/...
           npm run check:web
-          bash -n deploy/tunnel/entrypoint.sh deploy/tunnel/authorized-key.sh scripts/test-tunnel-authorized-key.sh
+          bash -n deploy/tunnel/entrypoint.sh deploy/tunnel/authorized-key.sh deploy/tunnel/session-reaper.sh scripts/test-tunnel-authorized-key.sh
           bash scripts/test-tunnel-authorized-key.sh
 
       - name: Resolve image version
@@ -93,7 +93,7 @@ jobs:
           build-args: |
             RMM_SERVER_VERSION=${{ steps.version.outputs.value }}
             RMM_SOURCE_REVISION=${{ github.sha }}
-            RMM_STABLE_AGENT_VERSION=0.7.0
+            RMM_STABLE_AGENT_VERSION=0.8.0
           cache-from: type=gha,scope=rmm-server
           cache-to: type=gha,mode=max,scope=rmm-server
           provenance: mode=max

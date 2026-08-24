@@ -31,6 +31,7 @@ const state = {
   notificationUnread: 0,
   lanClients: [],
   remoteSessions: [],
+  backups: [],
   selectedCommand: null,
   presetReview: null,
   luciAction: "setup",
@@ -203,6 +204,13 @@ const els = {
   cloudAccessState: document.querySelector("#cloudAccessState"),
   remoteSummary: document.querySelector("#remoteSummary"),
   remoteSessionList: document.querySelector("#remoteSessionList"),
+  backupList: document.querySelector("#backupList"),
+  createBackupBtn: document.querySelector("#createBackupBtn"),
+  refreshBackupsBtn: document.querySelector("#refreshBackupsBtn"),
+  downloadDatabaseSnapshotBtn: document.querySelector("#downloadDatabaseSnapshotBtn"),
+  rotateDeviceCredentialBtn: document.querySelector("#rotateDeviceCredentialBtn"),
+  revokeDeviceCredentialBtn: document.querySelector("#revokeDeviceCredentialBtn"),
+  credentialActionMessage: document.querySelector("#credentialActionMessage"),
   uciConfig: document.querySelector("#uciConfig"),
   uciSection: document.querySelector("#uciSection"),
   uciOption: document.querySelector("#uciOption"),
@@ -862,6 +870,9 @@ function showApp(user) {
   els.addUserBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.profileAdminTab.classList.toggle("is-hidden", !user || user.role !== "admin");
   els.rollbackAgentBtn.classList.toggle("is-hidden", !user || user.role !== "admin");
+  for (const element of document.querySelectorAll(".admin-only")) {
+    element.classList.toggle("is-hidden", !user || user.role !== "admin");
+  }
   els.loginView.classList.add("is-hidden");
   els.loginView.hidden = true;
   els.loginView.setAttribute("aria-hidden", "true");
@@ -1476,6 +1487,9 @@ function renderDeviceDetail(device) {
   els.deviceBadge.className = `badge ${device.online ? "online" : "offline"}`;
   els.updateAgentBtn.classList.toggle("is-hidden", !hasAgentUpdateAvailable(device));
   els.rollbackAgentBtn.classList.toggle("is-hidden", !(state.user && state.user.role === "admin" && supportsManagedAgentUpdate(device)));
+  for (const element of document.querySelectorAll(".admin-only")) {
+    element.classList.toggle("is-hidden", !(state.user && state.user.role === "admin"));
+  }
   els.lastSeen.textContent = formatDate(device.last_seen_at);
   els.loadAvg.textContent = formatLoadAverage(device.metrics && device.metrics.loadavg);
   els.uptime.textContent = formatUptime(device.metrics && device.metrics.uptime);
@@ -2064,7 +2078,7 @@ async function loadDevices() {
   renderDevices();
   renderDeviceDetail(currentDevice());
   if (state.selectedDeviceId) {
-    await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions(), loadLANClients()]);
+    await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions(), loadLANClients(), loadBackups()]);
   }
   state.lastUpdatedAt = new Date();
   updateLiveStateLabel();
@@ -2080,11 +2094,12 @@ async function selectDevice(id) {
   state.commands = [];
   state.auditEvents = [];
   state.lanClients = [];
+  state.backups = [];
   renderDevices();
   renderDeviceDetail(currentDevice());
   setMobileRoute("fleet");
   window.scrollTo({ top: 0, behavior: "auto" });
-  await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions(), loadLANClients()]);
+  await Promise.all([loadCommands(), loadAudit(), loadMetricsHistory(), loadAlerts(), loadRemoteSessions(), loadLANClients(), loadBackups()]);
 }
 
 async function loadLANClients() {
@@ -3151,6 +3166,142 @@ function renderAudit(events) {
     `;
     els.auditList.appendChild(row);
   }
+}
+
+async function loadBackups() {
+  if (!state.selectedDeviceId || !els.backupList) return;
+  els.backupList.innerHTML = inlineStateMarkup("Загрузка резервных копий", "Проверяем зашифрованное хранилище.", "loading");
+  try {
+    const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/backups`);
+    state.backups = data.backups || [];
+    renderBackups();
+  } catch (error) {
+    els.backupList.innerHTML = inlineStateMarkup("Не удалось загрузить копии", error.message || "Повторите обновление.", "error");
+    throw error;
+  }
+}
+
+function backupStatusLabel(status) {
+  return { creating: "СОЗДАЁТСЯ", ready: "ГОТОВА", failed: "ОШИБКА" }[status] || String(status || "UNKNOWN").toUpperCase();
+}
+
+function renderBackups() {
+  if (!els.backupList) return;
+  els.backupList.replaceChildren();
+  if (!state.backups.length) {
+    els.backupList.innerHTML = inlineStateMarkup("Резервных копий пока нет", "Создайте первую зашифрованную копию конфигурации роутера.");
+    return;
+  }
+  for (const backup of state.backups) {
+    const files = Array.isArray(backup.manifest) ? backup.manifest : [];
+    const row = document.createElement("article");
+    row.className = "backup-row";
+    row.setAttribute("role", "listitem");
+    row.innerHTML = `
+      <div class="backup-row-main"><strong>${escapeHtml(formatDate(backup.created_at))}</strong><span>${escapeHtml(backup.model || "OpenWrt router")}</span></div>
+      <div class="backup-row-meta"><span><small>Target</small><code>${escapeHtml(backup.target || "-")}</code></span><span><small>Версия</small><code>${escapeHtml(backup.openwrt_version || "-")}</code></span><span><small>Размер</small><code>${escapeHtml(formatBytes(backup.size_bytes))}</code></span></div>
+      <span class="status ${backup.status === "ready" ? "success" : backup.status === "failed" ? "danger" : "warning"}">${escapeHtml(backupStatusLabel(backup.status))}</span>
+      <div class="row-actions backup-actions"><button type="button" data-backup-restore ${backup.status === "ready" ? "" : "disabled"}>Восстановить</button><button type="button" data-backup-delete class="danger">Удалить</button></div>
+      <details class="backup-manifest"><summary>Состав копии · ${files.length} файлов</summary><pre>${escapeHtml(files.slice(0, 250).join("\n") || backup.error || "Manifest пока недоступен")}</pre></details>
+    `;
+    row.querySelector("[data-backup-restore]").addEventListener("click", () => restoreBackup(backup).catch(reportError));
+    row.querySelector("[data-backup-delete]").addEventListener("click", () => deleteBackup(backup).catch(reportError));
+    els.backupList.appendChild(row);
+  }
+}
+
+async function createBackup() {
+  const device = currentDevice();
+  if (!device) return;
+  els.createBackupBtn.disabled = true;
+  try {
+    await api(`/api/devices/${encodeURIComponent(device.id)}/backups`, { method: "POST" });
+    notify("Создание резервной копии поставлено в очередь", "success");
+    await Promise.all([loadBackups(), loadCommands()]);
+  } finally {
+    els.createBackupBtn.disabled = false;
+  }
+}
+
+async function restoreBackup(backup) {
+  const device = currentDevice();
+  if (!device) return;
+  const confirmed = await confirmAction({
+    variant: "danger",
+    context: "RECOVERY / ROUTER",
+    title: "Восстановить конфигурацию роутера?",
+    message: "Сетевые настройки могут измениться. Агент проверит target и SHA-256, сохранит аварийную локальную копию и автоматически откатится, если облако не подтвердит связь за 10 минут.",
+    values: [["Router", deviceDisplayName(device)], ["Target", backup.target], ["Backup", formatDate(backup.created_at)], ["SHA-256", backup.sha256]],
+    confirmLabel: "Восстановить",
+    loadingLabel: "Постановка в очередь…",
+    onConfirm: () => api(`/api/devices/${encodeURIComponent(device.id)}/backups/${encodeURIComponent(backup.id)}/restore`, { method: "POST" }),
+    failureMessage: "Не удалось запустить восстановление.",
+  });
+  if (!confirmed) return;
+  notify("Восстановление поставлено в очередь", "success");
+  await loadCommands();
+}
+
+async function deleteBackup(backup) {
+  const device = currentDevice();
+  if (!device) return;
+  const confirmed = await confirmAction({
+    variant: "danger", context: "BACKUP STORAGE", title: "Удалить резервную копию?",
+    message: "Зашифрованный архив и metadata будут удалены без возможности восстановления.",
+    values: [["Backup", formatDate(backup.created_at)], ["Target", backup.target]], confirmLabel: "Удалить копию", loadingLabel: "Удаление…",
+    onConfirm: () => api(`/api/devices/${encodeURIComponent(device.id)}/backups/${encodeURIComponent(backup.id)}`, { method: "DELETE" }),
+    failureMessage: "Не удалось удалить резервную копию.",
+  });
+  if (!confirmed) return;
+  notify("Резервная копия удалена", "success");
+  await loadBackups();
+}
+
+async function rotateDeviceCredential() {
+  const device = currentDevice();
+  if (!device) return;
+  const confirmed = await confirmAction({
+    variant: "warning", context: "SECURITY / AGENT", title: "Сменить токен агента?",
+    message: "Старый токен останется действителен только до подтверждения нового агентом. Мониторинг не должен прерываться.",
+    values: [["Router", deviceDisplayName(device)]], confirmLabel: "Начать ротацию", loadingLabel: "Ротация…",
+    onConfirm: () => api(`/api/devices/${encodeURIComponent(device.id)}/credentials/rotate`, { method: "POST" }),
+    failureMessage: "Не удалось начать ротацию.",
+  });
+  if (!confirmed) return;
+  setFormMessage(els.credentialActionMessage, "Новый токен ожидает подтверждения агентом.", "success");
+  notify("Ротация токена начата", "success");
+}
+
+async function revokeDeviceCredential() {
+  const device = currentDevice();
+  if (!device) return;
+  const confirmed = await confirmAction({
+    variant: "danger", context: "SECURITY / EMERGENCY", title: "Немедленно отозвать доступ агента?",
+    message: "Агент перестанет подключаться, а все активные SSH/LuCI-сессии и временные ссылки будут закрыты. Для возврата потребуется повторная регистрация роутера.",
+    values: [["Router", deviceDisplayName(device)], ["Device ID", device.id]], confirmLabel: "Отозвать доступ", loadingLabel: "Отзыв…",
+    input: { label: "Введите REVOKE", type: "text", expected: "REVOKE", validationMessage: "Введите REVOKE заглавными буквами." },
+    onConfirm: () => api(`/api/devices/${encodeURIComponent(device.id)}/credentials/revoke`, { method: "POST" }),
+    failureMessage: "Не удалось отозвать доступ.",
+  });
+  if (!confirmed) return;
+  setFormMessage(els.credentialActionMessage, "Доступ отозван. Требуется повторная регистрация агента.", "success");
+  notify("Доступ агента отозван", "success");
+  await loadDevices();
+}
+
+async function downloadDatabaseSnapshot() {
+  const response = await fetch("/api/admin/database-snapshot", { credentials: "same-origin" });
+  if (!response.ok) throw new Error(`Не удалось создать snapshot БД: HTTP ${response.status}`);
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "rmm-snapshot.db";
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  notify("Консистентный snapshot БД создан", "success");
 }
 
 async function loadRemoteSessions() {
@@ -4336,6 +4487,11 @@ els.deviceTransferForm.addEventListener("submit", (event) => {
 els.sendPackageCommandBtn.addEventListener("click", () => sendPackageCommand().catch(reportError));
 els.createRemoteSessionBtn.addEventListener("click", () => createRemoteSession().catch(reportError));
 els.openCloudAccessBtn.addEventListener("click", () => openCloudAccess().catch(reportError));
+els.createBackupBtn.addEventListener("click", () => createBackup().catch(reportError));
+els.refreshBackupsBtn.addEventListener("click", () => loadBackups().catch(reportError));
+els.rotateDeviceCredentialBtn.addEventListener("click", () => rotateDeviceCredential().catch(reportError));
+els.revokeDeviceCredentialBtn.addEventListener("click", () => revokeDeviceCredential().catch(reportError));
+els.downloadDatabaseSnapshotBtn.addEventListener("click", () => downloadDatabaseSnapshot().catch(reportError));
 els.uciBackupBtn.addEventListener("click", () => sendUciCommand("uci_backup").catch(reportError));
 els.uciPreviewBtn.addEventListener("click", () => sendUciCommand("uci_preview").catch(reportError));
 els.uciShowBtn.addEventListener("click", () => sendUciCommand("uci_show").catch(reportError));

@@ -7,6 +7,47 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.12.0
+
+Security and encrypted recovery release.
+
+### Added
+
+- Commands are signed with a persistent Ed25519 server key and include device binding, an expiry time, and a random nonce for agent-side replay protection.
+- Device credentials support a two-phase, interruption-safe rotation and an administrator-only emergency revoke; the tunnel sidecar terminates already-established reverse listeners after revoke, close, or expiry.
+- Webhook secrets, Telegram identifiers, verification destinations, pending device credentials, and sensitive notification delivery payloads are encrypted at rest with context-bound AES-256-GCM.
+- Managed router backups use `sysupgrade -b`, encrypted SQLite storage, SHA-256 verification, target compatibility checks, retention, archive manifests, and a guarded restore workflow with a local emergency backup.
+- Administrators can download a consistent SQLite snapshot created with `VACUUM INTO` from the maintenance interface.
+
+### Changed
+
+- Docker Compose defaults and deployment documentation now target the `0.12.0` server/tunnel pair and advertise agent `0.8.0`.
+- Existing plaintext notification secrets are encrypted automatically after the persistent data-encryption key is initialized.
+- The database pins the command-signing and data-encryption key identifiers and refuses startup with unrelated recovery keys.
+- Consistent SQLite snapshots stream from a temporary `VACUUM INTO` file instead of loading the complete database into server memory.
+
+### Fixed
+
+- Heartbeat command claiming no longer returns the same queued operation repeatedly before its result is received.
+- The Playwright server wrapper uses a graceful test teardown signal before the bounded Windows child-process fallback.
+
+## agent-v0.8.0
+
+Signed commands and managed recovery.
+
+### Added
+
+- The agent pins the server command-signing public key and verifies every command signature, device ID, nonce, creation time, and expiry before execution.
+- Persistent result and pending markers prevent a command from running twice after a crash or lost response.
+- Two-phase device-token rotation is stored atomically without interrupting normal heartbeat delivery.
+- Managed encrypted cloud backup upload and guarded restore verify size, target, and SHA-256, preserve the current agent identity, and automatically roll back if a later heartbeat does not confirm cloud connectivity.
+
+### Security
+
+- A changed server command-signing key is rejected until explicit re-enrollment.
+- Explicit re-enrollment clears the old command-key pin and creates a new per-device tunnel identity.
+- Interrupted state-changing commands fail closed instead of being replayed automatically.
+
 ## server-v0.11.3
 
 Release and local-development stabilization.

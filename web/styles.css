@@ -2295,10 +2295,132 @@ samp,
 .client-list,
 .network-list,
 .remote-session-list,
+.backup-list,
 .user-list,
 .notification-history,
 .notification-center-list {
   min-width: 0;
+}
+
+.backup-list {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.backup-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(280px, 1.6fr) auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface-raised) 88%, transparent);
+}
+
+.backup-row-main,
+.backup-row-meta,
+.backup-row-meta > span {
+  min-width: 0;
+}
+
+.backup-row-main {
+  display: grid;
+  gap: 3px;
+}
+
+.backup-row-main span,
+.backup-row-meta small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.backup-row-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.backup-row-meta > span {
+  display: grid;
+  gap: 3px;
+}
+
+.backup-row-meta code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.backup-manifest {
+  grid-column: 1 / -1;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.backup-manifest summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.backup-manifest pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-deep);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.security-action-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .backup-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .backup-row-meta {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .backup-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .backup-row,
+  .security-action-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backup-row-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backup-actions,
+  .backup-actions button,
+  .security-action-grid > button {
+    width: 100%;
+  }
 }
 
 .alert-row,

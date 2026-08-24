@@ -52,11 +52,14 @@ Telegram notifications use one server-side bot token and a per-user numeric Chat
 RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
 RMM_NOTIFICATION_MAX_ATTEMPTS=5
 RMM_NOTIFICATION_RETENTION_DAYS=90
-RMM_STABLE_AGENT_VERSION=0.7.0
+RMM_BACKUP_RETENTION_DAYS=90
+RMM_STABLE_AGENT_VERSION=0.8.0
 RMM_AGENT_RECONNECT_TIMEOUT_SECONDS=300
 RMM_UPDATE_MANIFEST_URL=https://packages.daemonlord.ru/update-manifest.json
 RMM_UPDATE_MANIFEST_SIGNATURE_URL=https://packages.daemonlord.ru/update-manifest.sig
 RMM_UPDATE_MANIFEST_PUBLIC_KEY=/app/keys/rmm-openwrt.pem
+RMM_COMMAND_SIGNING_KEY_PATH=/data/command-signing-ed25519.pem
+RMM_DATA_ENCRYPTION_KEY_PATH=/data/data-encryption.key
 ```
 
 Do not commit this token. After deployment, each user enables Telegram and enters their
@@ -71,7 +74,7 @@ For a production deployment, pin the server release in `.env`. The base Compose 
 the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.11.0
+RMM_RELEASE_VERSION=0.12.0
 ```
 
 ```powershell
@@ -89,6 +92,34 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 docker compose ps
 docker compose logs --tail 100
 ```
+
+### Upgrade order for server 0.12 and agent 0.8
+
+Deploy the server and tunnel images first. On its first successful start, server 0.12
+creates `/data/command-signing-ed25519.pem` and `/data/data-encryption.key`, pins both key
+identifiers to the SQLite database, and encrypts existing sensitive notification fields.
+Only then upgrade routers to agent 0.8, which pins the command-signing public key received
+from the server and rejects unsigned, expired, replayed, or incorrectly bound commands.
+Agent 0.8 must not be deployed against an older server because the older heartbeat response
+does not contain a command-signing key.
+
+Treat the SQLite snapshot and both key files as one recovery set. A restored database with
+different keys is rejected at startup instead of silently making encrypted records or
+enrolled agents unusable. Copy the key files to encrypted offline storage after the first
+0.12 start; never commit or attach them to a release.
+
+This is field-level protection, not full SQLite/SQLCipher encryption. Command handoff
+tokens, notification destinations and payloads, verification destinations, webhook
+secrets, and router backup archives are encrypted with context-bound AES-256-GCM; password
+material and access tokens are stored as one-way hashes. Inventory, metrics, usernames,
+e-mail addresses, and audit metadata remain readable to the database process. Use encrypted
+host storage as well when offline theft of the complete RMM volume is in scope.
+
+An image-only rollback to 0.11.x is not safe after the field migration because older
+servers do not decrypt the new records and agent 0.8 expects signed-command metadata.
+Rollback must restore the pre-upgrade RMM data volume (or its consistent SQLite snapshot)
+together with the 0.11.x image and compatible agents. Keep that recovery set until the
+0.12 production smoke and router restore drill are complete.
 
 ### Recreate a GitOps stack without losing data
 
@@ -120,7 +151,7 @@ tar tzf backups/tunnel-data.tgz | head
 Configure Arcane with the existing volume names and the exact image release:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.10.2
+RMM_RELEASE_VERSION=0.12.0
 RMM_DATA_VOLUME=openwrt-rmm_rmm-data
 RMM_TUNNEL_DATA_VOLUME=openwrt-rmm_tunnel-data
 ```
@@ -268,11 +299,16 @@ Stop without deleting data:
 docker compose down
 ```
 
-Back up the SQLite database:
+Create a consistent SQLite backup from **Expert → Maintenance → Download database snapshot**.
+The server uses SQLite `VACUUM INTO`, so the downloaded file is a self-contained snapshot
+rather than a copy of the live WAL-backed database. Router sysupgrade backups are managed
+from the device **Operations** tab, encrypted in the database, and removed after
+`RMM_BACKUP_RETENTION_DAYS`.
 
-```powershell
-docker compose cp rmm-server:/data/rmm.db .\tmp\rmm-backup.db
-```
+The `/data/command-signing-ed25519.pem` and `/data/data-encryption.key` files are generated
+on first start. Keep encrypted offline copies together with the database snapshot. Losing
+the data-encryption key makes encrypted notification fields and router backups unrecoverable;
+replacing the command-signing key requires explicit agent re-enrollment because agents pin it.
 
 ## Security Notes
 
@@ -281,6 +317,8 @@ docker compose cp rmm-server:/data/rmm.db .\tmp\rmm-backup.db
 - Ports `22000-22099` should only be reachable by trusted operators or VPN clients.
 - Use long random enrollment/operator tokens.
 - SSH shell, PTY and SFTP sessions are disabled on the tunnel account; only remote forwarding is allowed.
+- In secure mode the tunnel sidecar polls the authenticated active-port endpoint every five seconds and terminates listeners whose session was revoked, closed or expired. If the server cannot be reached, it retries without dropping otherwise valid maintenance access.
 - Keep `RMM_TUNNEL_AUTH_TOKEN` independent from user, device, enrollment and session tokens.
 - Never commit the authorization token, tunnel host private key or router device keys.
+- Never commit the command-signing or data-encryption keys; protect backups of both keys separately from the database.
 - Roll out secure mode in two stages; enabling it before agent `0.7.0` heartbeats will intentionally reject legacy shared-key authentication.

@@ -73,6 +73,18 @@ func TestTunnelAuthorizedKeyEndpointUsesDeviceCredentialAndSessionPorts(t *testi
 		t.Fatalf("authorized key response status=%d body=%q", resp.StatusCode, body)
 	}
 
+	portsRequest, _ := http.NewRequest(http.MethodGet, srv.URL+"/internal/tunnel/active-ports", nil)
+	portsRequest.Header.Set("Authorization", "Bearer 0123456789abcdef0123456789abcdef")
+	portsResponse, err := http.DefaultClient.Do(portsRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer portsResponse.Body.Close()
+	portsBody, _ := io.ReadAll(portsResponse.Body)
+	if portsResponse.StatusCode != http.StatusOK || string(portsBody) != "22055\n22155\n" {
+		t.Fatalf("active ports response status=%d body=%q", portsResponse.StatusCode, portsBody)
+	}
+
 	unauthorized, _ := http.NewRequest(http.MethodGet, srv.URL+"/internal/tunnel/authorized-key", nil)
 	unauthorized.Header.Set("X-RMM-Key-Fingerprint", fingerprint)
 	unauthorizedResponse, err := http.DefaultClient.Do(unauthorized)
@@ -82,6 +94,15 @@ func TestTunnelAuthorizedKeyEndpointUsesDeviceCredentialAndSessionPorts(t *testi
 	defer unauthorizedResponse.Body.Close()
 	if unauthorizedResponse.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthorized status=%d", unauthorizedResponse.StatusCode)
+	}
+	unauthorizedPorts, _ := http.NewRequest(http.MethodGet, srv.URL+"/internal/tunnel/active-ports", nil)
+	unauthorizedPortsResponse, err := http.DefaultClient.Do(unauthorizedPorts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unauthorizedPortsResponse.Body.Close()
+	if unauthorizedPortsResponse.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthorized active ports status=%d", unauthorizedPortsResponse.StatusCode)
 	}
 }
 

@@ -15,13 +15,18 @@ func VerificationCodeHash(code string) (string, error) {
 }
 
 func (s *Store) BeginContactVerification(ctx context.Context, userID, channel, destination, codeHash string, expiresAt time.Time) error {
-	_, err := s.db.ExecContext(ctx, `
+	scope := sensitiveContext("contact_verification", userID+":"+channel, "destination")
+	encryptedDestination, err := s.encryptSensitive(scope, strings.TrimSpace(destination))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 INSERT INTO contact_verifications (user_id, channel, destination, code_hash, expires_at, verified_at, created_at)
 VALUES (?, ?, ?, ?, ?, NULL, ?)
 ON CONFLICT(user_id, channel) DO UPDATE SET
   destination = excluded.destination, code_hash = excluded.code_hash,
   expires_at = excluded.expires_at, verified_at = NULL, created_at = excluded.created_at
-`, userID, channel, destination, codeHash, notificationTimeText(expiresAt), nowText())
+`, userID, channel, encryptedDestination, codeHash, notificationTimeText(expiresAt), nowText())
 	return err
 }
 
@@ -37,6 +42,10 @@ WHERE user_id = ? AND channel = ? AND verified_at IS NULL
 	if err != nil {
 		return "", false, err
 	}
+	destination, err = s.decryptSensitive(sensitiveContext("contact_verification", userID+":"+channel, "destination"), destination)
+	if err != nil {
+		return "", false, err
+	}
 	if time.Now().UTC().After(parseTime(expires)) ||
 		!authn.VerifyPassword(expected, "verification:"+strings.TrimSpace(code)) {
 		return "", false, nil
@@ -48,12 +57,17 @@ UPDATE contact_verifications SET verified_at = ? WHERE user_id = ? AND channel =
 }
 
 func (s *Store) ContactVerified(ctx context.Context, userID, channel, destination string) (bool, error) {
-	var verified bool
+	var storedDestination string
 	err := s.db.QueryRowContext(ctx, `
-SELECT EXISTS(
-  SELECT 1 FROM contact_verifications
-  WHERE user_id = ? AND channel = ? AND destination = ? AND verified_at IS NOT NULL
-)
-`, userID, channel, strings.TrimSpace(destination)).Scan(&verified)
-	return verified, err
+SELECT destination FROM contact_verifications
+WHERE user_id = ? AND channel = ? AND verified_at IS NOT NULL
+`, userID, channel).Scan(&storedDestination)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	storedDestination, err = s.decryptSensitive(sensitiveContext("contact_verification", userID+":"+channel, "destination"), storedDestination)
+	return strings.TrimSpace(destination) == storedDestination, err
 }

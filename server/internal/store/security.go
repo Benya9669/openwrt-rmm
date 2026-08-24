@@ -468,7 +468,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	if err := tx.Commit(); err != nil {
 		return EnrolledDevice{}, false, err
 	}
-	return EnrolledDevice{DeviceID: id, DeviceToken: deviceToken}, true, nil
+	return EnrolledDevice{DeviceID: id, DeviceToken: deviceToken, TokenEpoch: 1}, true, nil
 }
 
 func (s *Store) ListDevicesForUser(ctx context.Context, userID string, admin bool) ([]model.Device, error) {

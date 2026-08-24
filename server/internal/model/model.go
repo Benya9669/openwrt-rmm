@@ -43,22 +43,41 @@ type EnrollmentGrant struct {
 }
 
 type Command struct {
-	ID           string          `json:"id"`
-	DeviceID     string          `json:"device_id"`
-	Type         string          `json:"type"`
-	Args         json.RawMessage `json:"args"`
-	Status       string          `json:"status"`
-	Result       json.RawMessage `json:"result,omitempty"`
-	Output       string          `json:"output,omitempty"`
-	ExitCode     *int            `json:"exit_code,omitempty"`
-	AttemptCount int             `json:"attempt_count"`
-	MaxAttempts  int             `json:"max_attempts"`
-	CreatedAt    time.Time       `json:"created_at"`
-	ExpiresAt    *time.Time      `json:"expires_at,omitempty"`
-	ClaimedAt    *time.Time      `json:"claimed_at,omitempty"`
-	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
-	CancelledAt  *time.Time      `json:"cancelled_at,omitempty"`
-	ExpiredAt    *time.Time      `json:"expired_at,omitempty"`
+	ID             string          `json:"id"`
+	DeviceID       string          `json:"device_id"`
+	Type           string          `json:"type"`
+	Args           json.RawMessage `json:"args"`
+	Status         string          `json:"status"`
+	Result         json.RawMessage `json:"result,omitempty"`
+	Output         string          `json:"output,omitempty"`
+	ExitCode       *int            `json:"exit_code,omitempty"`
+	AttemptCount   int             `json:"attempt_count"`
+	MaxAttempts    int             `json:"max_attempts"`
+	CreatedAt      time.Time       `json:"created_at"`
+	ExpiresAt      *time.Time      `json:"expires_at,omitempty"`
+	ClaimedAt      *time.Time      `json:"claimed_at,omitempty"`
+	CompletedAt    *time.Time      `json:"completed_at,omitempty"`
+	CancelledAt    *time.Time      `json:"cancelled_at,omitempty"`
+	ExpiredAt      *time.Time      `json:"expired_at,omitempty"`
+	Nonce          string          `json:"nonce,omitempty"`
+	SignatureKeyID string          `json:"signature_key_id,omitempty"`
+	Signature      string          `json:"signature,omitempty"`
+}
+
+type DeviceBackup struct {
+	ID             string          `json:"id"`
+	DeviceID       string          `json:"device_id"`
+	CommandID      string          `json:"command_id"`
+	Status         string          `json:"status"`
+	SizeBytes      int64           `json:"size_bytes"`
+	SHA256         string          `json:"sha256,omitempty"`
+	OpenWrtVersion string          `json:"openwrt_version,omitempty"`
+	Target         string          `json:"target,omitempty"`
+	Model          string          `json:"model,omitempty"`
+	Manifest       json.RawMessage `json:"manifest,omitempty"`
+	Error          string          `json:"error,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	CompletedAt    *time.Time      `json:"completed_at,omitempty"`
 }
 
 type AgentRollout struct {

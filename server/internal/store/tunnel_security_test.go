@@ -45,11 +45,35 @@ func TestTunnelCredentialEpochAndPortAuthorization(t *testing.T) {
 	if err != nil || !found || auth.DeviceID != device.DeviceID || len(auth.Ports) != 2 || auth.Ports[0] != 22040 || auth.Ports[1] != 22140 {
 		t.Fatalf("unexpected tunnel authorization: found=%v auth=%#v err=%v", found, auth, err)
 	}
+	ports, err := st.ActiveTunnelPorts(ctx, time.Now().UTC())
+	if err != nil || len(ports) != 2 || ports[0] != 22040 || ports[1] != 22140 {
+		t.Fatalf("unexpected active ports: ports=%v err=%v", ports, err)
+	}
 	if _, _, err := st.CreateRemoteSession(ctx, model.RemoteSession{
 		DeviceID: device.DeviceID, Status: "requested", RemotePort: session.RemotePort, LuCIPort: 22141,
 		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
 	}); !errors.Is(err, ErrTunnelPortUnavailable) {
 		t.Fatalf("duplicate tunnel port error = %v", err)
+	}
+	if _, closed, err := st.CloseRemoteSession(ctx, device.DeviceID, session.ID); err != nil || !closed {
+		t.Fatalf("close remote session: closed=%v err=%v", closed, err)
+	}
+	ports, err = st.ActiveTunnelPorts(ctx, time.Now().UTC())
+	if err != nil || len(ports) != 0 {
+		t.Fatalf("closed session ports remained active: ports=%v err=%v", ports, err)
+	}
+	if _, found, err := st.CreateRemoteSession(ctx, model.RemoteSession{
+		DeviceID: device.DeviceID, Status: "queued", RemotePort: 22042, LuCIPort: 22142,
+		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
+	}); err != nil || !found {
+		t.Fatalf("create session before revoke: found=%v err=%v", found, err)
+	}
+	if revoked, err := st.RevokeDeviceCredential(ctx, device.DeviceID); err != nil || !revoked {
+		t.Fatalf("revoke device credential: revoked=%v err=%v", revoked, err)
+	}
+	ports, err = st.ActiveTunnelPorts(ctx, time.Now().UTC())
+	if err != nil || len(ports) != 0 {
+		t.Fatalf("revoked session ports remained active: ports=%v err=%v", ports, err)
 	}
 }
 

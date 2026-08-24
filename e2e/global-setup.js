@@ -26,7 +26,7 @@ module.exports = async () => {
       device_id: enrolled.device_id,
       inventory: {
         hostname: "E2E OpenWrt",
-        agent_version: "0.6.10",
+        agent_version: "0.8.0",
         agent_runtime: "go",
         agent_package: "rmm-agent-go-production",
         package_manager: "apk",

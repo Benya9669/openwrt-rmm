@@ -51,6 +51,15 @@ FROM notification_settings WHERE user_id = ?
 	if err != nil {
 		return model.NotificationSettings{}, false, err
 	}
+	if settings.TelegramChatID, err = s.decryptSensitive(sensitiveContext("notification_settings", userID, "telegram_chat_id"), settings.TelegramChatID); err != nil {
+		return model.NotificationSettings{}, false, err
+	}
+	if settings.WebhookURL, err = s.decryptSensitive(sensitiveContext("notification_settings", userID, "webhook_url"), settings.WebhookURL); err != nil {
+		return model.NotificationSettings{}, false, err
+	}
+	if settings.WebhookSecret, err = s.decryptSensitive(sensitiveContext("notification_settings", userID, "webhook_secret"), settings.WebhookSecret); err != nil {
+		return model.NotificationSettings{}, false, err
+	}
 	settings.Configured = true
 	settings.EmailEnabled = emailEnabled != 0
 	settings.TelegramEnabled = telegramEnabled != 0
@@ -70,8 +79,20 @@ FROM notification_settings WHERE user_id = ?
 }
 
 func (s *Store) UpsertNotificationSettings(ctx context.Context, settings model.NotificationSettings) (model.NotificationSettings, error) {
+	telegramChatID, err := s.encryptSensitive(sensitiveContext("notification_settings", settings.UserID, "telegram_chat_id"), strings.TrimSpace(settings.TelegramChatID))
+	if err != nil {
+		return model.NotificationSettings{}, err
+	}
+	webhookURL, err := s.encryptSensitive(sensitiveContext("notification_settings", settings.UserID, "webhook_url"), strings.TrimSpace(settings.WebhookURL))
+	if err != nil {
+		return model.NotificationSettings{}, err
+	}
+	webhookSecret, err := s.encryptSensitive(sensitiveContext("notification_settings", settings.UserID, "webhook_secret"), strings.TrimSpace(settings.WebhookSecret))
+	if err != nil {
+		return model.NotificationSettings{}, err
+	}
 	now := nowText()
-	_, err := s.db.ExecContext(ctx, `
+	_, err = s.db.ExecContext(ctx, `
 INSERT INTO notification_settings (
   user_id, email_enabled, telegram_enabled, telegram_chat_id, notify_warning, notify_critical,
   notify_resolved, memory_threshold_percent, disk_threshold_percent, packet_loss_percent,
@@ -99,12 +120,12 @@ ON CONFLICT(user_id) DO UPDATE SET
   webhook_url = excluded.webhook_url,
   webhook_secret = CASE WHEN excluded.webhook_secret != '' THEN excluded.webhook_secret ELSE notification_settings.webhook_secret END,
   updated_at = excluded.updated_at
-`, settings.UserID, boolInt(settings.EmailEnabled), boolInt(settings.TelegramEnabled), strings.TrimSpace(settings.TelegramChatID),
+`, settings.UserID, boolInt(settings.EmailEnabled), boolInt(settings.TelegramEnabled), telegramChatID,
 		boolInt(settings.NotifyWarning), boolInt(settings.NotifyCritical), boolInt(settings.NotifyResolved),
 		settings.MemoryThresholdPercent, settings.DiskThresholdPercent, settings.PacketLossPercent,
 		settings.LatencyThresholdMS, settings.RepeatMinutes, settings.Timezone, boolInt(settings.QuietHoursEnabled),
 		settings.QuietHoursStart, settings.QuietHoursEnd, nullableTime(settings.AlertsPausedUntil),
-		boolInt(settings.WebhookEnabled), strings.TrimSpace(settings.WebhookURL), strings.TrimSpace(settings.WebhookSecret), now, now)
+		boolInt(settings.WebhookEnabled), webhookURL, webhookSecret, now, now)
 	if err != nil {
 		return model.NotificationSettings{}, err
 	}
@@ -126,6 +147,18 @@ func (s *Store) CreateNotificationDelivery(ctx context.Context, delivery model.N
 	if strings.TrimSpace(delivery.DeviceID) != "" {
 		deviceID = delivery.DeviceID
 	}
+	title, err := s.encryptSensitive(sensitiveContext("notification_delivery", id, "title"), delivery.Title)
+	if err != nil {
+		return model.NotificationDelivery{}, false, err
+	}
+	body, err := s.encryptSensitive(sensitiveContext("notification_delivery", id, "body"), delivery.Body)
+	if err != nil {
+		return model.NotificationDelivery{}, false, err
+	}
+	destination, err := s.encryptSensitive(sensitiveContext("notification_delivery", id, "destination"), delivery.Destination)
+	if err != nil {
+		return model.NotificationDelivery{}, false, err
+	}
 	res, err := s.db.ExecContext(ctx, `
 INSERT OR IGNORE INTO notification_deliveries (
   id, user_id, device_id, alert_id, dedupe_key, event, channel, status, title, body,
@@ -133,7 +166,7 @@ INSERT OR IGNORE INTO notification_deliveries (
   next_attempt_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, '', 0, ?, ?, ?, ?)
 `, id, delivery.UserID, deviceID, delivery.AlertID, dedupeKey, delivery.Event, delivery.Channel,
-		delivery.Title, delivery.Body, delivery.Destination, delivery.DestinationMasked, maxAttempts, now, now, now)
+		title, body, destination, delivery.DestinationMasked, maxAttempts, now, now, now)
 	if err != nil {
 		return model.NotificationDelivery{}, false, err
 	}
@@ -277,6 +310,9 @@ WHERE id = ? AND attempt_count < max_attempts
 		if err != nil {
 			return nil, err
 		}
+		if err := s.decryptNotificationDelivery(&delivery); err != nil {
+			return nil, err
+		}
 		claimed = append(claimed, delivery)
 	}
 	if err := tx.Commit(); err != nil {
@@ -310,6 +346,9 @@ ORDER BY created_at DESC LIMIT 1
 	delivery, err := scanNotificationDelivery(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.NotificationDelivery{}, false, nil
+	}
+	if err == nil {
+		err = s.decryptNotificationDelivery(&delivery)
 	}
 	return delivery, err == nil, err
 }
@@ -359,6 +398,9 @@ WHERE nd.user_id = ?`
 	for rows.Next() {
 		delivery, err := scanNotificationDeliveryWithSeverity(rows)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.decryptNotificationDelivery(&delivery); err != nil {
 			return nil, err
 		}
 		deliveries = append(deliveries, delivery)
@@ -486,6 +528,20 @@ func scanNotificationDeliveryWithSeverity(scanner notificationScanner) (model.No
 		delivery.SentAt = &value
 	}
 	return delivery, nil
+}
+
+func (s *Store) decryptNotificationDelivery(delivery *model.NotificationDelivery) error {
+	var err error
+	if delivery.Title, err = s.decryptSensitive(sensitiveContext("notification_delivery", delivery.ID, "title"), delivery.Title); err != nil {
+		return err
+	}
+	if delivery.Body, err = s.decryptSensitive(sensitiveContext("notification_delivery", delivery.ID, "body"), delivery.Body); err != nil {
+		return err
+	}
+	if delivery.Destination, err = s.decryptSensitive(sensitiveContext("notification_delivery", delivery.ID, "destination"), delivery.Destination); err != nil {
+		return err
+	}
+	return nil
 }
 
 func boolInt(value bool) int {

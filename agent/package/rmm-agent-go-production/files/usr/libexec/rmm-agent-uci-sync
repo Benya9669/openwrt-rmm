@@ -20,6 +20,9 @@ escape_value() {
 
 device_id="$(shell_get DEVICE_ID)"
 device_token="$(shell_get DEVICE_TOKEN)"
+device_token_epoch="$(shell_get DEVICE_TOKEN_EPOCH)"
+[ -n "$device_token_epoch" ] || device_token_epoch="1"
+identity_reset="0"
 if [ "$(uci_get migration_complete)" != "1" ]; then
 	legacy_url="$(shell_get SERVER_URL)"
 	if [ -n "$device_id" ] && [ -n "$device_token" ]; then
@@ -42,6 +45,8 @@ esac
 if [ "$(uci_get reset_identity)" = "1" ]; then
 	device_id=""
 	device_token=""
+	device_token_epoch="1"
+	identity_reset="1"
 	uci -q set "$UCI_CONFIG.main.reset_identity=0"
 	uci -q commit "$UCI_CONFIG"
 fi
@@ -61,6 +66,17 @@ if [ -z "$tunnel_identity" ] || [ "$tunnel_identity" = "/etc/rmm-agent/tunnel_ke
 fi
 tunnel_key_epoch="$(shell_get TUNNEL_KEY_EPOCH)"
 [ -n "$tunnel_key_epoch" ] || tunnel_key_epoch="1"
+command_signing_public_key="$(shell_get COMMAND_SIGNING_PUBLIC_KEY)"
+command_signing_key_id="$(shell_get COMMAND_SIGNING_KEY_ID)"
+if [ "$identity_reset" = "1" ]; then
+	tunnel_key_epoch="1"
+	command_signing_public_key=""
+	command_signing_key_id=""
+fi
+command_state_dir="$(shell_get COMMAND_STATE_DIR)"
+[ -n "$command_state_dir" ] || command_state_dir="/etc/rmm-agent/command-state"
+recovery_dir="$(shell_get RECOVERY_DIR)"
+[ -n "$recovery_dir" ] || recovery_dir="/etc/rmm-agent/recovery"
 
 umask 077
 temporary="${SHELL_CONFIG}.tmp"
@@ -71,8 +87,13 @@ temporary="${SHELL_CONFIG}.tmp"
 	printf 'CHECK_TARGETS="%s"\n' "$(escape_value "$(uci_get check_targets)")"
 	printf 'TUNNEL_DEVICE_IDENTITY_FILE="%s"\n' "$(escape_value "$tunnel_identity")"
 	printf 'TUNNEL_KEY_EPOCH="%s"\n' "$(escape_value "$tunnel_key_epoch")"
+	printf 'COMMAND_SIGNING_PUBLIC_KEY="%s"\n' "$(escape_value "$command_signing_public_key")"
+	printf 'COMMAND_SIGNING_KEY_ID="%s"\n' "$(escape_value "$command_signing_key_id")"
+	printf 'COMMAND_STATE_DIR="%s"\n' "$(escape_value "$command_state_dir")"
+	printf 'RECOVERY_DIR="%s"\n' "$(escape_value "$recovery_dir")"
 	printf 'DEVICE_ID="%s"\n' "$(escape_value "$device_id")"
 	printf 'DEVICE_TOKEN="%s"\n' "$(escape_value "$device_token")"
+	printf 'DEVICE_TOKEN_EPOCH="%s"\n' "$(escape_value "$device_token_epoch")"
 } > "$temporary"
 chmod 0600 "$temporary"
 mv "$temporary" "$SHELL_CONFIG"

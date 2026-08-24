@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io"
@@ -21,11 +22,57 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"rmm-openwrt/internal/commandsig"
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.7.0" {
+	if agentVersion != "0.8.0" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
+	}
+}
+
+func TestSignedCommandValidation(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	expires := now.Add(time.Hour)
+	args := json.RawMessage(`{"target":"1.1.1.1"}`)
+	cfg := config{DeviceID: "dev_test", CommandSigningPublicKey: commandsig.EncodePublicKey(publicKey), CommandSigningKeyID: commandsig.KeyID(publicKey)}
+	cmd := command{ID: "cmd_test", DeviceID: cfg.DeviceID, Type: "ping", Args: args, CreatedAt: now, ExpiresAt: &expires, Nonce: "unique-nonce", SignatureKeyID: cfg.CommandSigningKeyID}
+	cmd.Signature, err = commandsig.Sign(privateKey, commandsig.Envelope{ID: cmd.ID, DeviceID: cmd.DeviceID, Type: cmd.Type, Args: cmd.Args, CreatedAt: now, ExpiresAt: expires, Nonce: cmd.Nonce})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSignedCommand(cfg, cmd, now); err != nil {
+		t.Fatalf("valid command was rejected: %v", err)
+	}
+	cmd.DeviceID = "dev_other"
+	if err := validateSignedCommand(cfg, cmd, now); err == nil {
+		t.Fatal("command bound to another device was accepted")
+	}
+}
+
+func TestRestoreGuardRequiresANewerSuccessfulHeartbeat(t *testing.T) {
+	dir := t.TempDir()
+	createdAt := time.Now().UTC().Truncate(time.Second)
+	guard := restoreGuard{EmergencyPath: filepath.Join(dir, "emergency.tar.gz"), CreatedAt: createdAt, Deadline: createdAt.Add(time.Minute)}
+	if err := writeRestoreGuard(dir, guard); err != nil {
+		t.Fatal(err)
+	}
+	if err := confirmPendingRestore(dir, createdAt.Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := readRestoreGuard(dir); err != nil || !found {
+		t.Fatalf("restore guard was confirmed by the heartbeat that applied it: found=%v err=%v", found, err)
+	}
+	if err := confirmPendingRestore(dir, createdAt.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := readRestoreGuard(dir); err != nil || found {
+		t.Fatalf("restore guard remained after a later successful heartbeat: found=%v err=%v", found, err)
 	}
 }
 

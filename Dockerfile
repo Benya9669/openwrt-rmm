@@ -3,12 +3,13 @@ FROM golang:1.26.5-alpine AS build
 
 ARG RMM_SERVER_VERSION=dev
 ARG RMM_SOURCE_REVISION=unknown
-ARG RMM_STABLE_AGENT_VERSION=0.7.0
+ARG RMM_STABLE_AGENT_VERSION=0.8.0
 
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
+COPY internal ./internal
 COPY server ./server
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
   -ldflags="-s -w -X main.serverVersion=${RMM_SERVER_VERSION} -X main.serverRevision=${RMM_SOURCE_REVISION} -X main.stableAgentVersion=${RMM_STABLE_AGENT_VERSION}" \
