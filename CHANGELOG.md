@@ -7,6 +7,21 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.12.1
+
+Web interface polish and agent-update status hotfix.
+
+### Changed
+
+- Router backups now use a compact, responsive list with consistent actions and a concise safety notice that explains identity preservation and automatic recovery.
+- Completed agent updates and rollbacks are reported through one-time toast notifications instead of remaining as a persistent status banner above the device tabs.
+- Docker Compose defaults and deployment documentation now target the `0.12.1` server and tunnel images.
+
+### Fixed
+
+- Backup recovery guidance no longer collapses into a narrow column or forces horizontal overflow on laptop and mobile viewports.
+- Historical completed agent operations no longer generate stale notifications when a router is opened, while newly completed operations still notify the operator once.
+
 ## server-v0.12.0
 
 Security and encrypted recovery release.

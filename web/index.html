@@ -686,11 +686,17 @@
             <div class="section-title">
               <div><h2>Резервные копии роутера</h2><p class="section-subtitle">Зашифрованные sysupgrade-архивы с проверкой модели, target и контрольной суммы.</p></div>
               <div class="section-actions">
-                <button id="refreshBackupsBtn" type="button">Обновить</button>
-                <button id="createBackupBtn" class="primary requires-online" type="button">Создать копию</button>
+                <button id="refreshBackupsBtn" class="icon-text-button" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-refresh"></use></svg>Обновить</button>
+                <button id="createBackupBtn" class="primary icon-text-button requires-online" type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-cloud-lock"></use></svg>Создать копию</button>
               </div>
             </div>
-            <div id="backupCompatibilityNote" class="data-context-state" role="status">Restore сохраняет текущую идентичность агента и автоматически откатывается к аварийной копии, если облако не подтвердит связь за 10 минут.</div>
+            <div id="backupCompatibilityNote" class="backup-safety-note" role="note">
+              <span class="backup-safety-icon" aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-shield-check"></use></svg></span>
+              <div>
+                <strong>Безопасное восстановление</strong>
+                <p>Идентичность агента сохраняется. Если облако не подтвердит связь за 10 минут, роутер автоматически вернётся к аварийной копии.</p>
+              </div>
+            </div>
             <div id="backupList" class="backup-list" role="list"></div>
           </section>
 

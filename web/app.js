@@ -32,6 +32,8 @@ const state = {
   lanClients: [],
   remoteSessions: [],
   backups: [],
+  notifiedAgentOperations: new Set(),
+  initializedAgentOperationDevices: new Set(),
   selectedCommand: null,
   presetReview: null,
   luciAction: "setup",
@@ -1515,8 +1517,17 @@ function renderDeviceDetail(device) {
 
 function renderAgentUpdateStatus() {
   const operations = state.commands.filter((item) => item.type === "agent_update" || item.type === "agent_rollback").slice(0, 5);
-  const command = operations[0];
-  const pending = operations.some((item) => item.status === "queued" || item.status === "claimed" || (item.result && item.result.health_status === "waiting_reconnect"));
+  const deviceID = state.selectedDeviceId;
+  if (deviceID && operations.length && !state.initializedAgentOperationDevices.has(deviceID)) {
+    state.initializedAgentOperationDevices.add(deviceID);
+    for (const operation of operations) {
+      if (!agentOperationIsRunning(operation)) state.notifiedAgentOperations.add(operation.id);
+    }
+  } else {
+    for (const operation of operations) notifyAgentOperationResult(operation);
+  }
+  const command = operations.find((item) => agentOperationIsRunning(item));
+  const pending = Boolean(command);
   els.updateAgentBtn.classList.toggle("is-hidden", !hasAgentUpdateAvailable(currentDevice()) || pending);
   if (!command) {
     els.agentUpdateStatus.classList.add("is-hidden");
@@ -1525,7 +1536,7 @@ function renderAgentUpdateStatus() {
   }
 
   const healthStatus = command.result && command.result.health_status;
-  const running = command.status === "queued" || command.status === "claimed" || healthStatus === "waiting_reconnect";
+  const running = agentOperationIsRunning(command);
   const targetVersion = command.args && command.args.target_version;
   const output = command.output ? ` ${outputSummary(command.output)}` : "";
   const operationLabel = command.type === "agent_rollback" ? "Откат агента" : "Обновление агента";
@@ -1546,6 +1557,28 @@ function renderAgentUpdateStatus() {
     <span class="operation-icon" aria-hidden="true">${icon(running ? "loader-2" : healthStatus === "healthy" || command.status === "completed" ? "check" : "alert-triangle")}</span>
     <div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small><ul class="agent-operation-history">${history}</ul></div>
   `;
+}
+
+function agentOperationIsRunning(command) {
+  const healthStatus = command && command.result && command.result.health_status;
+  return command && (command.status === "queued" || command.status === "claimed" || healthStatus === "waiting_reconnect");
+}
+
+function notifyAgentOperationResult(command) {
+  if (!command || !command.id || agentOperationIsRunning(command) || state.notifiedAgentOperations.has(command.id)) return;
+  if (!["completed", "failed", "cancelled", "expired"].includes(command.status)) return;
+  state.notifiedAgentOperations.add(command.id);
+
+  const healthStatus = command.result && command.result.health_status;
+  const operationLabel = command.type === "agent_rollback" ? "Откат агента" : "Обновление агента";
+  const targetVersion = command.args && command.args.target_version;
+  const succeeded = command.status === "completed" && healthStatus !== "reconnect_timeout";
+  const message = succeeded
+    ? operationLabel + " завершено" + (targetVersion ? ": версия " + targetVersion : "") + (healthStatus === "healthy" ? " подтверждена" : "")
+    : healthStatus === "reconnect_timeout"
+      ? operationLabel + ": роутер не подтвердил подключение после установки"
+      : operationLabel + ": " + statusLabel(command.status);
+  showToast(message, succeeded ? "success" : "error");
 }
 
 function renderDeviceInformation(device) {

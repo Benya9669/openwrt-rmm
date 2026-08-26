@@ -116,6 +116,91 @@ test.describe("authenticated operator flows", () => {
     await expect(page.locator("#agentUpdateStatus")).toContainText("сервер ждёт heartbeat");
   });
 
+  test("completed agent update becomes a one-time toast", async ({ page }) => {
+    let completed = false;
+    await page.route("**/api/devices/*/commands?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          commands: [{
+            id: "cmd_update_completed",
+            type: "agent_update",
+            status: completed ? "completed" : "claimed",
+            args: { target_version: "0.8.0" },
+            result: completed ? { health_status: "healthy", reconnect_verified_at: new Date().toISOString() } : {},
+            attempt_count: 1,
+            max_attempts: 3,
+            created_at: new Date().toISOString(),
+          }],
+        }),
+      });
+    });
+    await page.getByRole("button", { name: "Открыть роутер E2E OpenWrt" }).click();
+    await expect(page.locator("#agentUpdateStatus")).toBeVisible();
+
+    completed = true;
+    await page.locator("#refreshBtn").click();
+    await expect(page.locator("#agentUpdateStatus")).toBeHidden();
+    await expect(page.locator("#toastRegion .toast")).toHaveText("Обновление агента завершено: версия 0.8.0 подтверждена");
+
+    await page.locator("#refreshBtn").click();
+    await expect(page.locator("#toastRegion .toast")).toHaveCount(1);
+  });
+
+  for (const [name, viewport] of Object.entries({
+    laptop: { width: 1366, height: 768 },
+    mobile: { width: 390, height: 844 },
+  })) {
+    test(`router backups remain composed at ${name}`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.route("**/api/devices/*/backups", (route) => route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          backups: [
+            {
+              id: "bkp-ready",
+              status: "ready",
+              created_at: "2026-08-25T08:15:00Z",
+              model: "E2E OpenWrt",
+              target: "ramips/mt7621",
+              openwrt_version: "25.12.4",
+              size_bytes: 786432,
+              manifest: ["etc/config/network", "etc/config/firewall"],
+            },
+            {
+              id: "bkp-creating",
+              status: "creating",
+              created_at: "2026-08-25T09:20:00Z",
+              model: "E2E OpenWrt",
+              target: "ramips/mt7621",
+              openwrt_version: "25.12.4",
+              size_bytes: 0,
+              manifest: [],
+            },
+          ],
+        }),
+      }));
+
+      await page.getByRole("button", { name: "Открыть роутер E2E OpenWrt" }).click();
+      await page.getByRole("tab", { name: "Операции" }).click();
+      await expect(page.locator("#backupCompatibilityNote")).toBeVisible();
+      await expect(page.locator("#backupCompatibilityNote")).toContainText("Безопасное восстановление");
+      await expect(page.locator("#backupList .backup-row")).toHaveCount(2);
+      await expect.poll(() => page.locator("#backupCompatibilityNote").evaluate((note) => {
+        const bounds = note.getBoundingClientRect();
+        return bounds.height < 120 && bounds.width > 250;
+      })).toBe(true);
+      await expect.poll(() => page.locator("#backupList").evaluate(
+        (list) => list.scrollWidth <= list.clientWidth,
+      )).toBe(true);
+      await expect.poll(() => page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      )).toBe(true);
+    });
+  }
+
   for (const [name, viewport] of Object.entries({
     fullHD: { width: 1920, height: 1080 },
     laptop16x9: { width: 1366, height: 768 },
