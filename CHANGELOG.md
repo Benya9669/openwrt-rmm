@@ -7,6 +7,15 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.12.2
+
+Cloud LuCI login compatibility hotfix.
+
+### Fixed
+
+- Firefox can submit the LuCI login form opened through a cloud access link when it sends an opaque `Origin: null`; the exception is limited to an already-authorized device session with `Sec-Fetch-Site: same-origin`.
+- Docker Compose defaults and deployment examples now target the `0.12.2` server and tunnel images.
+
 ## server-v0.12.1
 
 Web interface polish and agent-update status hotfix.

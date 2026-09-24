@@ -592,11 +592,19 @@ func (a *App) handleDeviceHost(w http.ResponseWriter, r *http.Request, dnsLabel 
 		a.writeLuCIError(w, r, http.StatusUnauthorized, "LuCI access session has expired")
 		return
 	}
-	if unsafeMethod(r.Method) && !sameOrigin(r) {
+	if unsafeMethod(r.Method) && !sameOrigin(r) && !sameOriginOpaqueLuCIRequest(r) {
 		a.writeLuCIError(w, r, http.StatusForbidden, "cross-origin request rejected")
 		return
 	}
 	a.proxyLuCIWithPrefix(w, r, route.DeviceID, route.RemoteSessionID, r.URL.Path, "")
+}
+
+func sameOriginOpaqueLuCIRequest(r *http.Request) bool {
+	// Firefox can submit the LuCI form with an opaque Origin after the one-time access redirect.
+	// The device access cookie was verified before this check; Fetch Metadata keeps the exception
+	// limited to a same-origin browser request.
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Origin")), "null") &&
+		strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "same-origin")
 }
 
 func (a *App) consumeDeviceAccess(w http.ResponseWriter, r *http.Request, dnsLabel string) {

@@ -126,3 +126,29 @@ func TestLuCIErrorCopyCoversUserFacingFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestSameOriginOpaqueLuCIRequest(t *testing.T) {
+	tests := []struct {
+		name      string
+		origin    string
+		fetchSite string
+		want      bool
+	}{
+		{name: "same origin opaque request", origin: "null", fetchSite: "same-origin", want: true},
+		{name: "cross site opaque request", origin: "null", fetchSite: "cross-site"},
+		{name: "missing fetch metadata", origin: "null"},
+		{name: "ordinary origin", origin: "https://router.routers.example"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "https://router.routers.example/cgi-bin/luci/", nil)
+			req.Header.Set("Origin", test.origin)
+			if test.fetchSite != "" {
+				req.Header.Set("Sec-Fetch-Site", test.fetchSite)
+			}
+			if got := sameOriginOpaqueLuCIRequest(req); got != test.want {
+				t.Fatalf("sameOriginOpaqueLuCIRequest() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
