@@ -22,10 +22,90 @@ import (
 )
 
 type Store struct {
-	db                *sql.DB
+	db                *sqliteDB
 	dbPath            string
 	commandSigningKey ed25519.PrivateKey
 	sensitiveCipher   *fieldcrypto.Cipher
+}
+
+// sqliteDB isolates the shared SQLite connection from HTTP request cancellation.
+// modernc.org/sqlite maps a cancelled context to sqlite3_interrupt(), which affects
+// every statement on that connection. The application intentionally uses one
+// connection to serialize SQLite writes, so cancelling one browser request must
+// not interrupt unrelated tunnel, agent, or background work.
+type sqliteDB struct {
+	db *sql.DB
+}
+
+func (db *sqliteDB) Close() error {
+	return db.db.Close()
+}
+
+func (db *sqliteDB) SetMaxOpenConns(n int) {
+	db.db.SetMaxOpenConns(n)
+}
+
+func (db *sqliteDB) SetMaxIdleConns(n int) {
+	db.db.SetMaxIdleConns(n)
+}
+
+func (db *sqliteDB) Exec(query string, args ...any) (sql.Result, error) {
+	return db.db.Exec(query, args...)
+}
+
+func (db *sqliteDB) QueryRow(query string, args ...any) *sql.Row {
+	return db.db.QueryRow(query, args...)
+}
+
+func (db *sqliteDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return db.db.ExecContext(sqliteContext(ctx), query, args...)
+}
+
+func (db *sqliteDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return db.db.QueryContext(sqliteContext(ctx), query, args...)
+}
+
+func (db *sqliteDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return db.db.QueryRowContext(sqliteContext(ctx), query, args...)
+}
+
+func (db *sqliteDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sqliteTx, error) {
+	tx, err := db.db.BeginTx(sqliteContext(ctx), opts)
+	if err != nil {
+		return nil, err
+	}
+	return &sqliteTx{tx: tx}, nil
+}
+
+type sqliteTx struct {
+	tx *sql.Tx
+}
+
+func (tx *sqliteTx) Commit() error {
+	return tx.tx.Commit()
+}
+
+func (tx *sqliteTx) Rollback() error {
+	return tx.tx.Rollback()
+}
+
+func (tx *sqliteTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return tx.tx.ExecContext(sqliteContext(ctx), query, args...)
+}
+
+func (tx *sqliteTx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return tx.tx.QueryContext(sqliteContext(ctx), query, args...)
+}
+
+func (tx *sqliteTx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return tx.tx.QueryRowContext(sqliteContext(ctx), query, args...)
+}
+
+func sqliteContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 type CommandListOptions struct {
@@ -74,10 +154,11 @@ type EnrolledDevice struct {
 }
 
 func OpenSQLite(ctx context.Context, path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	rawDB, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
+	db := &sqliteDB{db: rawDB}
 
 	// SQLite permits one writer at a time. Keep access serialized inside this
 	// process and wait briefly for locks held during startup or maintenance.

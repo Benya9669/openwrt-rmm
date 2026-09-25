@@ -13,6 +13,52 @@ import (
 	"rmm-openwrt/server/internal/model"
 )
 
+func TestStoreIgnoresCancelledCallerContext(t *testing.T) {
+	store, err := OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "cancelled-context.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if _, err := store.EnsureBootstrapUser(context.Background(), "admin", "password-hash"); err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	user, _, found, err := store.GetUserByUsername(cancelled, "admin")
+	if err != nil || !found || user.Username != "admin" {
+		t.Fatalf("GetUserByUsername() = %#v, %v, %v", user, found, err)
+	}
+}
+
+func TestSQLiteTransactionIgnoresCancelledCallerContext(t *testing.T) {
+	store, err := OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "cancelled-transaction.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	tx, err := store.db.BeginTx(cancelled, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(cancelled, `INSERT INTO security_metadata (name, value) VALUES ('context-test', 'ok')`); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	var value string
+	if err := store.db.QueryRowContext(context.Background(), `SELECT value FROM security_metadata WHERE name = 'context-test'`).Scan(&value); err != nil || value != "ok" {
+		t.Fatalf("transaction result = %q, %v", value, err)
+	}
+}
+
 func TestAgentRolloutQueuesSequentialBatchesAndPausesOnFailure(t *testing.T) {
 	ctx := context.Background()
 	s, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "rollout.db"))

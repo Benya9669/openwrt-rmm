@@ -7,6 +7,15 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.12.3
+
+SQLite request-cancellation resilience hotfix.
+
+### Fixed
+
+- Cancelling a browser request no longer interrupts the shared SQLite connection and causes unrelated RMM API, tunnel, agent, or background operations to fail.
+- Docker Compose defaults and deployment examples now target the `0.12.3` server and tunnel images.
+
 ## server-v0.12.2
 
 Cloud LuCI login compatibility hotfix.

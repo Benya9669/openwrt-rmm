@@ -74,7 +74,7 @@ For a production deployment, pin the server release in `.env`. The base Compose 
 the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.12.2
+RMM_RELEASE_VERSION=0.12.3
 ```
 
 ```powershell
@@ -151,7 +151,7 @@ tar tzf backups/tunnel-data.tgz | head
 Configure Arcane with the existing volume names and the exact image release:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.12.2
+RMM_RELEASE_VERSION=0.12.3
 RMM_DATA_VOLUME=openwrt-rmm_rmm-data
 RMM_TUNNEL_DATA_VOLUME=openwrt-rmm_tunnel-data
 ```
