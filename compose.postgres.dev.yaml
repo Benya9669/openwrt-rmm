@@ -1,0 +1,6 @@
+services:
+  postgres-tls-init:
+    image: openwrt-rmm-postgres-tls-init:dev
+    pull_policy: build
+    build:
+      context: ./deploy/postgres-tls

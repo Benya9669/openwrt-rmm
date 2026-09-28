@@ -24,8 +24,14 @@ import (
 type Store struct {
 	db                *sqliteDB
 	dbPath            string
+	postgresDSN       string
 	commandSigningKey ed25519.PrivateKey
 	sensitiveCipher   *fieldcrypto.Cipher
+}
+
+// Ping checks that the configured database can serve requests.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.db.PingContext(ctx)
 }
 
 // sqliteDB isolates the shared SQLite connection from HTTP request cancellation.
@@ -34,7 +40,8 @@ type Store struct {
 // connection to serialize SQLite writes, so cancelling one browser request must
 // not interrupt unrelated tunnel, agent, or background work.
 type sqliteDB struct {
-	db *sql.DB
+	db       *sql.DB
+	postgres bool
 }
 
 func (db *sqliteDB) Close() error {
@@ -50,26 +57,48 @@ func (db *sqliteDB) SetMaxIdleConns(n int) {
 }
 
 func (db *sqliteDB) Exec(query string, args ...any) (sql.Result, error) {
+	if db.postgres {
+		return db.db.Exec(rewritePostgresSQL(query), postgresArgs(args)...)
+	}
 	return db.db.Exec(query, args...)
 }
 
 func (db *sqliteDB) QueryRow(query string, args ...any) *sql.Row {
+	if db.postgres {
+		return db.db.QueryRow(rewritePostgresSQL(query), postgresArgs(args)...)
+	}
 	return db.db.QueryRow(query, args...)
 }
 
 func (db *sqliteDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if db.postgres {
+		return db.db.ExecContext(ctx, rewritePostgresSQL(query), postgresArgs(args)...)
+	}
 	return db.db.ExecContext(sqliteContext(ctx), query, args...)
 }
 
 func (db *sqliteDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if db.postgres {
+		return db.db.QueryContext(ctx, rewritePostgresSQL(query), postgresArgs(args)...)
+	}
 	return db.db.QueryContext(sqliteContext(ctx), query, args...)
 }
 
 func (db *sqliteDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if db.postgres {
+		return db.db.QueryRowContext(ctx, rewritePostgresSQL(query), postgresArgs(args)...)
+	}
 	return db.db.QueryRowContext(sqliteContext(ctx), query, args...)
 }
 
 func (db *sqliteDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sqliteTx, error) {
+	if db.postgres {
+		tx, err := db.db.BeginTx(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		return &sqliteTx{tx: tx, postgres: true}, nil
+	}
 	tx, err := db.db.BeginTx(sqliteContext(ctx), opts)
 	if err != nil {
 		return nil, err
@@ -78,7 +107,8 @@ func (db *sqliteDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sqliteTx
 }
 
 type sqliteTx struct {
-	tx *sql.Tx
+	tx       *sql.Tx
+	postgres bool
 }
 
 func (tx *sqliteTx) Commit() error {
@@ -90,14 +120,23 @@ func (tx *sqliteTx) Rollback() error {
 }
 
 func (tx *sqliteTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if tx.postgres {
+		return tx.tx.ExecContext(ctx, rewritePostgresSQL(query), postgresArgs(args)...)
+	}
 	return tx.tx.ExecContext(sqliteContext(ctx), query, args...)
 }
 
 func (tx *sqliteTx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if tx.postgres {
+		return tx.tx.QueryContext(ctx, rewritePostgresSQL(query), postgresArgs(args)...)
+	}
 	return tx.tx.QueryContext(sqliteContext(ctx), query, args...)
 }
 
 func (tx *sqliteTx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if tx.postgres {
+		return tx.tx.QueryRowContext(ctx, rewritePostgresSQL(query), postgresArgs(args)...)
+	}
 	return tx.tx.QueryRowContext(sqliteContext(ctx), query, args...)
 }
 
@@ -292,6 +331,9 @@ func (s *Store) newCommand(deviceID, commandType string, args json.RawMessage, t
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
+	if s.db.postgres {
+		return errors.New("PostgreSQL schema migrations must run before OpenPostgres")
+	}
 	_, err := s.db.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS devices (
 	id TEXT PRIMARY KEY,
@@ -947,13 +989,17 @@ func (s *Store) ClaimNextCommand(ctx context.Context, deviceID string) (model.Co
 	}
 	defer tx.Rollback()
 
-	row := tx.QueryRowContext(ctx, `
+	claimQuery := `
 SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at, nonce, signature_key_id, signature
 FROM commands
 WHERE device_id = ? AND status = 'queued' AND attempt_count < max_attempts AND (expires_at IS NULL OR julianday(expires_at) > julianday(?))
 ORDER BY created_at ASC
 LIMIT 1
-`, deviceID, nowText())
+`
+	if s.db.postgres {
+		claimQuery += " FOR UPDATE SKIP LOCKED"
+	}
+	row := tx.QueryRowContext(ctx, claimQuery, deviceID, nowText())
 
 	c, err := scanCommand(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1140,15 +1186,32 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	batch := 1
-	_ = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(batch), 0) + 1 FROM agent_rollout_devices WHERE rollout_id = ?`, id).Scan(&batch)
-	count := 0
+	type pendingDevice struct {
+		deviceID, feedURL, manager, packageVersion, manifestURL, signatureURL string
+	}
+	var pending []pendingDevice
 	for rows.Next() {
-		var deviceID, feedURL, manager, packageVersion, manifestURL, signatureURL string
-		if err = rows.Scan(&deviceID, &feedURL, &manager, &packageVersion, &manifestURL, &signatureURL); err != nil {
+		var item pendingDevice
+		if err := rows.Scan(&item.deviceID, &item.feedURL, &item.manager, &item.packageVersion, &item.manifestURL, &item.signatureURL); err != nil {
+			rows.Close()
 			return err
 		}
+		pending = append(pending, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	batch := 1
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(batch), 0) + 1 FROM agent_rollout_devices WHERE rollout_id = ?`, id).Scan(&batch); err != nil {
+		return err
+	}
+	count := 0
+	for _, item := range pending {
+		deviceID, feedURL, manager, packageVersion, manifestURL, signatureURL := item.deviceID, item.feedURL, item.manager, item.packageVersion, item.manifestURL, item.signatureURL
 		commandArgs := map[string]string{"rollout_id": id, "channel": channel, "target_version": version, "feed_url": feedURL, "package_manager": manager, "package": "rmm-agent-go-production", "package_version": packageVersion}
 		if manifestURL != "" && signatureURL != "" {
 			commandArgs["manifest_url"] = manifestURL
@@ -1868,6 +1931,13 @@ func (s *Store) CreateRemoteSession(ctx context.Context, session model.RemoteSes
 		return model.RemoteSession{}, false, err
 	}
 	defer tx.Rollback()
+	if tx.postgres {
+		// Serialize allocation across server instances, including the active
+		// session limit and the shared remote/LuCI port range.
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(7766442212)`); err != nil {
+			return model.RemoteSession{}, false, err
+		}
+	}
 	now := nowText()
 	if _, err := tx.ExecContext(ctx, `
 UPDATE remote_sessions SET status = 'expired', closed_at = ?, updated_at = ?

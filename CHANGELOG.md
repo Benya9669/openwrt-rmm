@@ -7,6 +7,37 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.13.0
+
+PostgreSQL backend and automatic SQLite migration.
+
+### Added
+
+- PostgreSQL 16–18 storage support with versioned schema migrations applied on startup. SQLite remains the default backend.
+- An automatic first-start import from the existing SQLite database into an empty PostgreSQL database. The import validates recovery keys, source integrity, table counts and critical encrypted values, then commits the schema and data together.
+- A Compose overlay with PostgreSQL 18 on a private network, an application role without superuser privileges, and automatically generated TLS certificates verified by the RMM server.
+- A versioned PostgreSQL TLS initializer image and a `pg_dump` backup script that checks the custom-format dump before preserving it.
+- PostgreSQL database snapshots in custom `pg_dump` format through the existing maintenance interface.
+
+### Changed
+
+- A stopped SQLite database with committed pages in its WAL is imported from a standalone recovery snapshot. The original SQLite database and WAL remain available for rollback.
+- The server and tunnel Compose defaults now target `0.13.0`; the stable agent fallback is `0.9.0`.
+
+## agent-v0.9.0
+
+Independent heartbeat and connectivity-check intervals.
+
+### Added
+
+- `CONNECTIVITY_CHECK_INTERVAL_SECONDS` configures how often the agent pings its connectivity targets. The default is 300 seconds in both Go and shell runtimes.
+- LuCI exposes the connectivity-check interval separately from the heartbeat interval.
+- The LuCI application and its Russian translation advance to package version `0.2.3` so package managers install the new setting.
+
+### Changed
+
+- Heartbeats and command polling continue every 30 seconds by default while reusing the latest connectivity results between checks.
+
 ## server-v0.12.3
 
 SQLite request-cancellation resilience hotfix.

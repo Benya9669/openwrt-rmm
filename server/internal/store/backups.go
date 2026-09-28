@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -199,6 +201,79 @@ func (s *Store) CreateSQLiteSnapshot(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// DatabaseSnapshot is a temporary, consistent export. The caller removes Path.
+type DatabaseSnapshot struct {
+	Path        string
+	ContentType string
+	Extension   string
+}
+
+func (s *Store) CreateDatabaseSnapshot(ctx context.Context) (DatabaseSnapshot, error) {
+	if !s.db.postgres {
+		path, err := s.CreateSQLiteSnapshot(ctx)
+		return DatabaseSnapshot{Path: path, ContentType: "application/vnd.sqlite3", Extension: "db"}, err
+	}
+	return s.createPostgresSnapshot(ctx)
+}
+
+func (s *Store) createPostgresSnapshot(ctx context.Context) (DatabaseSnapshot, error) {
+	u, err := url.Parse(s.postgresDSN)
+	if err != nil || u.Hostname() == "" || u.User == nil || strings.TrimPrefix(u.Path, "/") == "" {
+		return DatabaseSnapshot{}, errors.New("invalid PostgreSQL backup connection settings")
+	}
+	pgDump, err := exec.LookPath("pg_dump")
+	if err != nil {
+		return DatabaseSnapshot{}, errors.New("pg_dump is required for PostgreSQL database snapshots")
+	}
+	temporary, err := os.CreateTemp("", ".rmm-snapshot-*.dump")
+	if err != nil {
+		return DatabaseSnapshot{}, err
+	}
+	path := temporary.Name()
+	if err := temporary.Close(); err != nil {
+		_ = os.Remove(path)
+		return DatabaseSnapshot{}, err
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			_ = os.Remove(path)
+		}
+	}()
+	password, hasPassword := u.User.Password()
+	port := u.Port()
+	if port == "" {
+		port = "5432"
+	}
+	env := append(os.Environ(),
+		"PGHOST="+u.Hostname(), "PGPORT="+port,
+		"PGUSER="+u.User.Username(),
+		"PGDATABASE="+strings.TrimPrefix(u.Path, "/"),
+	)
+	if hasPassword {
+		env = append(env, "PGPASSWORD="+password)
+	}
+	for key, variable := range map[string]string{
+		"sslmode": "PGSSLMODE", "sslrootcert": "PGSSLROOTCERT",
+		"sslcert": "PGSSLCERT", "sslkey": "PGSSLKEY",
+		"connect_timeout": "PGCONNECT_TIMEOUT",
+	} {
+		if value := u.Query().Get(key); value != "" {
+			env = append(env, variable+"="+value)
+		}
+	}
+	command := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-acl", "--file", path)
+	command.Env = env
+	if err := command.Run(); err != nil {
+		return DatabaseSnapshot{}, fmt.Errorf("PostgreSQL snapshot failed: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return DatabaseSnapshot{}, err
+	}
+	keep = true
+	return DatabaseSnapshot{Path: path, ContentType: "application/octet-stream", Extension: "dump"}, nil
 }
 
 const backupSelect = `SELECT id, device_id, command_id, status, size_bytes, sha256, openwrt_version, target, model, manifest_json, error, created_at, completed_at FROM device_backups`

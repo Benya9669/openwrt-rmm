@@ -105,7 +105,8 @@ type Store interface {
 	DeviceBackupArchive(ctx context.Context, deviceID, backupID string) (model.DeviceBackup, []byte, bool, error)
 	DeleteDeviceBackup(ctx context.Context, deviceID, backupID string) (bool, error)
 	PurgeDeviceBackupsBefore(ctx context.Context, cutoff time.Time) (int64, error)
-	CreateSQLiteSnapshot(ctx context.Context) (string, error)
+	CreateDatabaseSnapshot(ctx context.Context) (store.DatabaseSnapshot, error)
+	Ping(ctx context.Context) error
 	CreateRemoteSession(ctx context.Context, session model.RemoteSession) (model.RemoteSession, bool, error)
 	ListRemoteSessions(ctx context.Context, deviceID string, opts store.RemoteSessionListOptions) ([]model.RemoteSession, bool, error)
 	GetRemoteSession(ctx context.Context, deviceID, sessionID string) (model.RemoteSession, bool, error)
@@ -487,6 +488,10 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		}
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		if err := a.store.Ping(r.Context()); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "database unavailable")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	if cfg.StaticDir != "" {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"rmm-openwrt/internal/commandsig"
 	"rmm-openwrt/internal/fieldcrypto"
+	"rmm-openwrt/server/internal/dbmigrate"
 	"rmm-openwrt/server/internal/httpapi"
 	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
@@ -21,7 +23,7 @@ import (
 var (
 	serverVersion      = "dev"
 	serverRevision     = "unknown"
-	stableAgentVersion = "0.8.0"
+	stableAgentVersion = "0.9.0"
 )
 
 func main() {
@@ -163,19 +165,21 @@ func main() {
 		}
 	}
 
-	st, err := store.OpenSQLite(context.Background(), dbPath)
+	commandKeyPath := env("RMM_COMMAND_SIGNING_KEY_PATH", "/data/command-signing-ed25519.pem")
+	dataKeyPath := env("RMM_DATA_ENCRYPTION_KEY_PATH", "/data/data-encryption.key")
+	st, err := openConfiguredStore(context.Background(), dbPath, commandKeyPath, dataKeyPath, insecureDevMode)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer st.Close()
-	commandSigningKey, err := commandsig.LoadOrCreatePrivateKey(env("RMM_COMMAND_SIGNING_KEY_PATH", "/data/command-signing-ed25519.pem"))
+	commandSigningKey, err := commandsig.LoadOrCreatePrivateKey(commandKeyPath)
 	if err != nil {
 		log.Fatalf("initialize command signing key: %v", err)
 	}
 	if err := st.SetCommandSigningKey(commandSigningKey); err != nil {
 		log.Fatalf("configure command signing key: %v", err)
 	}
-	sensitiveCipher, err := fieldcrypto.LoadOrCreate(env("RMM_DATA_ENCRYPTION_KEY_PATH", "/data/data-encryption.key"))
+	sensitiveCipher, err := fieldcrypto.LoadOrCreate(dataKeyPath)
 	if err != nil {
 		log.Fatalf("initialize data encryption key: %v", err)
 	}
@@ -238,6 +242,47 @@ func main() {
 
 	log.Printf("rmm server listening on %s", addr)
 	log.Fatal(srv.ListenAndServe())
+}
+
+func openConfiguredStore(ctx context.Context, dbPath, commandKeyPath, dataKeyPath string, insecureDevMode bool) (*store.Store, error) {
+	switch strings.ToLower(env("RMM_DB_DRIVER", "sqlite")) {
+	case "sqlite":
+		if strings.TrimSpace(os.Getenv("RMM_DATABASE_URL")) != "" {
+			return nil, fmt.Errorf("RMM_DATABASE_URL is set while RMM_DB_DRIVER=sqlite")
+		}
+		return store.OpenSQLite(ctx, dbPath)
+	case "postgres":
+		url := strings.TrimSpace(os.Getenv("RMM_DATABASE_URL"))
+		if err := dbmigrate.ValidatePostgresURL(url, insecureDevMode); err != nil {
+			return nil, err
+		}
+		imported, err := dbmigrate.AutoImport(ctx, dbmigrate.Options{
+			SourceSQLite:       dbPath,
+			TargetPostgres:     url,
+			DataEncryptionKey:  dataKeyPath,
+			CommandSigningKey:  commandKeyPath,
+			AllowInsecureLocal: insecureDevMode,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("automatic SQLite to PostgreSQL import: %w", err)
+		}
+		if imported {
+			log.Print("existing SQLite data imported into PostgreSQL; original SQLite file retained")
+		}
+		migrationDB, err := sql.Open("pgx", url)
+		if err != nil {
+			return nil, fmt.Errorf("open PostgreSQL for schema migrations failed")
+		}
+		defer migrationDB.Close()
+		if err := dbmigrate.EnsurePostgres(ctx, migrationDB); err != nil {
+			return nil, err
+		}
+		return store.OpenPostgres(ctx, url,
+			envInt("RMM_DB_MAX_OPEN_CONNS", 16, 1, 128),
+			envInt("RMM_DB_MAX_IDLE_CONNS", 4, 0, 128))
+	default:
+		return nil, fmt.Errorf("RMM_DB_DRIVER must be sqlite or postgres")
+	}
 }
 
 func insecurePlaceholder(value string) bool {

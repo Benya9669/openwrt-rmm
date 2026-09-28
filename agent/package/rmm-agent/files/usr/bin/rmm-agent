@@ -6,6 +6,7 @@ CONFIG_FILE="${CONFIG_FILE:-/etc/rmm-agent.conf}"
 SERVER_URL="${SERVER_URL:-https://rmm.example.com}"
 ENROLLMENT_TOKEN="${ENROLLMENT_TOKEN:-}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-30}"
+CONNECTIVITY_CHECK_INTERVAL_SECONDS="${CONNECTIVITY_CHECK_INTERVAL_SECONDS:-300}"
 DEVICE_ID="${DEVICE_ID:-}"
 DEVICE_TOKEN="${DEVICE_TOKEN:-}"
 LOCK_FILE="${LOCK_FILE:-/tmp/rmm-agent.lock}"
@@ -386,6 +387,14 @@ connectivity_checks_json() {
 	printf ']'
 }
 
+refresh_connectivity_checks() {
+	now="$(date +%s)"
+	if [ "$CONNECTIVITY_LAST_CHECK" -eq 0 ] || [ $((now - CONNECTIVITY_LAST_CHECK)) -ge "$CONNECTIVITY_CHECK_INTERVAL_SECONDS" ]; then
+		CONNECTIVITY_CACHE="$(connectivity_checks_json)"
+		CONNECTIVITY_LAST_CHECK="$now"
+	fi
+}
+
 build_inventory() {
 	hn="$(json_escape "$(hostname_value)")"
 	ver="$(json_escape "$(openwrt_version)")"
@@ -407,7 +416,7 @@ build_metrics() {
 	memory="$(json_object_or_empty "$(memory_json)")"
 	disk="$(json_object_or_empty "$(disk_json)")"
 	counters="$(json_array_or_empty "$(interface_counters_json)")"
-	connectivity="$(json_array_or_empty "$(connectivity_checks_json)")"
+	connectivity="$(json_array_or_empty "$CONNECTIVITY_CACHE")"
 	server_target="$(json_escape "$(server_check_target)")"
 
 	printf '{"system":%s,"loadavg":"%s","uptime":"%s","memory":%s,"disk":%s,"interface_counters":%s,"connectivity_checks":%s,"server_check_target":"%s"}' "$info" "$loadavg" "$uptime" "$memory" "$disk" "$counters" "$connectivity" "$server_target"
@@ -419,6 +428,7 @@ save_config() {
 		printf 'SERVER_URL="%s"\n' "$SERVER_URL"
 		printf 'ENROLLMENT_TOKEN="%s"\n' "$ENROLLMENT_TOKEN"
 		printf 'INTERVAL_SECONDS="%s"\n' "$INTERVAL_SECONDS"
+		printf 'CONNECTIVITY_CHECK_INTERVAL_SECONDS="%s"\n' "$CONNECTIVITY_CHECK_INTERVAL_SECONDS"
 		printf 'CHECK_TARGETS="%s"\n' "$CHECK_TARGETS"
 		printf 'TUNNEL_IDENTITY_FILE="%s"\n' "$TUNNEL_IDENTITY_FILE"
 		printf 'DEVICE_ID="%s"\n' "$DEVICE_ID"
@@ -936,6 +946,7 @@ process_commands() {
 
 heartbeat_once() {
 	flush_spooled_results
+	refresh_connectivity_checks
 	inventory="$(build_inventory)"
 	metrics="$(build_metrics)"
 	body="$(printf '{"device_id":"%s","inventory":%s,"metrics":%s}' \
@@ -953,6 +964,11 @@ heartbeat_once() {
 
 main() {
 	acquire_lock || exit 1
+	case "$CONNECTIVITY_CHECK_INTERVAL_SECONDS" in
+		''|*[!0-9]*|0) CONNECTIVITY_CHECK_INTERVAL_SECONDS=300 ;;
+	esac
+	CONNECTIVITY_LAST_CHECK=0
+	CONNECTIVITY_CACHE='[]'
 	if [ -z "$DEVICE_ID" ] || [ -z "$DEVICE_TOKEN" ]; then
 		enroll || exit 1
 	fi

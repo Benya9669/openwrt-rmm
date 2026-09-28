@@ -266,6 +266,9 @@ WHERE attempt_count < max_attempts
 		args = append(args, onlyID)
 	}
 	query += ` ORDER BY created_at ASC LIMIT ?`
+	if s.db.postgres {
+		query += ` FOR UPDATE SKIP LOCKED`
+	}
 	args = append(args, limit)
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {

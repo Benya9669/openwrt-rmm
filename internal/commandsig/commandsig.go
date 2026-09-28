@@ -181,6 +181,15 @@ func LoadOrCreatePrivateKey(path string) (ed25519.PrivateKey, error) {
 	return privateKey, nil
 }
 
+// LoadPrivateKey reads an existing key without creating or modifying files.
+func LoadPrivateKey(path string) (ed25519.PrivateKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parsePrivateKey(data)
+}
+
 func parsePrivateKey(data []byte) (ed25519.PrivateKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil || block.Type != "PRIVATE KEY" {

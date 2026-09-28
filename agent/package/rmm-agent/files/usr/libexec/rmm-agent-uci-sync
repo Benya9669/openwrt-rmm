@@ -47,6 +47,8 @@ if [ "$(uci_get reset_identity)" = "1" ]; then
 fi
 
 enrollment_token="$(uci_get enrollment_token)"
+connectivity_interval="$(uci_get connectivity_check_interval_seconds)"
+[ -n "$connectivity_interval" ] || connectivity_interval="300"
 if [ -n "$device_id" ] && [ -n "$device_token" ]; then
 	enrollment_token=""
 	uci -q delete "$UCI_CONFIG.main.enrollment_token" 2>/dev/null || true
@@ -59,6 +61,7 @@ temporary="${SHELL_CONFIG}.tmp"
 	printf 'SERVER_URL="%s"\n' "$(escape_value "$server_url")"
 	printf 'ENROLLMENT_TOKEN="%s"\n' "$(escape_value "$enrollment_token")"
 	printf 'INTERVAL_SECONDS="%s"\n' "$(escape_value "$(uci_get interval_seconds)")"
+	printf 'CONNECTIVITY_CHECK_INTERVAL_SECONDS="%s"\n' "$(escape_value "$connectivity_interval")"
 	printf 'CHECK_TARGETS="%s"\n' "$(escape_value "$(uci_get check_targets)")"
 	printf 'TUNNEL_IDENTITY_FILE="%s"\n' "$(escape_value "$(uci_get tunnel_identity_file)")"
 	printf 'DEVICE_ID="%s"\n' "$(escape_value "$device_id")"

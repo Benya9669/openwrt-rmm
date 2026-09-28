@@ -27,7 +27,7 @@ import (
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.8.0" {
+	if agentVersion != "0.9.0" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
 }
@@ -401,6 +401,30 @@ func TestEffectiveCheckTargetsAddsServerTarget(t *testing.T) {
 	got = effectiveCheckTargets([]string{"1.1.1.1"}, "10.10.10.10")
 	if len(got) != 2 || got[1] != "10.10.10.10" {
 		t.Fatalf("expected server target to be appended, got %#v", got)
+	}
+}
+
+func TestConnectivitySamplerKeepsChecksBetweenHeartbeats(t *testing.T) {
+	var sampler connectivitySampler
+	start := time.Unix(1000, 0)
+	probes := 0
+	probe := func(targets []string) []map[string]any {
+		probes++
+		return []map[string]any{{"target": targets[0], "reachable": true}}
+	}
+	for _, seconds := range []int{0, 30, 60, 270} {
+		checks := sampler.current(start.Add(time.Duration(seconds)*time.Second), 5*time.Minute, []string{"1.1.1.1"}, probe)
+		if len(checks) != 1 || probes != 1 {
+			t.Fatalf("heartbeat at %d seconds unexpectedly probed: checks=%#v probes=%d", seconds, checks, probes)
+		}
+	}
+	sampler.current(start.Add(5*time.Minute), 5*time.Minute, []string{"1.1.1.1"}, probe)
+	if probes != 2 {
+		t.Fatalf("expected scheduled connectivity check, got %d probes", probes)
+	}
+	sampler.current(start.Add(5*time.Minute+30*time.Second), 5*time.Minute, []string{"8.8.8.8"}, probe)
+	if probes != 3 {
+		t.Fatalf("target change must trigger a new check, got %d probes", probes)
 	}
 }
 

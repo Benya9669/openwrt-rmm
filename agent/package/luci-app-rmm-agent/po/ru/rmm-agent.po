@@ -41,8 +41,14 @@ msgstr "Одноразовый код подключения"
 msgid "The grant is consumed once and removed from the router after successful enrollment."
 msgstr "Код используется один раз и удаляется с роутера после успешного подключения."
 
-msgid "Polling interval"
-msgstr "Интервал опроса"
+msgid "Heartbeat interval (seconds)"
+msgstr "Интервал heartbeat (сек.)"
+
+msgid "Connectivity check interval (seconds)"
+msgstr "Интервал проверки связи (сек.)"
+
+msgid "Ping results are reused between checks while heartbeats continue at their own interval."
+msgstr "Между проверками используются последние результаты ping; heartbeat отправляется со своим интервалом."
 
 msgid "Connectivity check targets"
 msgstr "Адреса для проверки соединения"

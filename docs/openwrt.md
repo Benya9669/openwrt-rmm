@@ -108,7 +108,7 @@ The MVP agent also uses:
 - a result spool at `/tmp/rmm-agent-results`;
 - heartbeat backoff up to 300 seconds on repeated failures.
 
-`CHECK_TARGETS` controls heartbeat connectivity probes. The agent pings each target and sends `reachable`, `packet_loss_percent`, and `latency_ms` in `metrics.connectivity_checks`.
+`CHECK_TARGETS` selects the connectivity targets. Heartbeats normally run every 30 seconds, while ping checks use the independent `CONNECTIVITY_CHECK_INTERVAL_SECONDS` setting (default 300 seconds). Each heartbeat sends the latest cached `reachable`, `packet_loss_percent`, and `latency_ms` values in `metrics.connectivity_checks`.
 
 For a router and server in the same LAN, verify the server from the router with the server LAN IP:
 

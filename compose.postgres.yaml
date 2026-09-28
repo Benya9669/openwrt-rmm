@@ -1,0 +1,73 @@
+# Add to compose.yaml for a private PostgreSQL 18 instance in the same project.
+services:
+  postgres-tls-init:
+    image: "${RMM_POSTGRES_TLS_INIT_IMAGE:-ghcr.io/benya9669/openwrt-rmm-postgres-tls-init}:${RMM_RELEASE_VERSION:-0.13.0}"
+    pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
+    network_mode: none
+    volumes:
+      - postgres-tls-ca:/ca
+      - postgres-tls-server:/server
+      - postgres-tls-client:/client
+    restart: "no"
+
+  postgres:
+    image: postgres:18.6-alpine3.23
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: rmm
+      POSTGRES_PASSWORD: "${RMM_POSTGRES_ADMIN_PASSWORD:?set RMM_POSTGRES_ADMIN_PASSWORD}"
+      RMM_POSTGRES_PASSWORD: "${RMM_POSTGRES_PASSWORD:?set a strong RMM_POSTGRES_PASSWORD}"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/tls/current/server.crt
+      - -c
+      - ssl_key_file=/tls/current/server.key
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    depends_on:
+      postgres-tls-init:
+        condition: service_completed_successfully
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - postgres-tls-server:/tls:ro
+      - ./deploy/postgres-tls/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./deploy/postgres-tls/init-rmm-role.sh:/docker-entrypoint-initdb.d/010-rmm-role.sh:ro
+    networks:
+      - postgres-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rmm -d rmm"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  rmm-server:
+    environment:
+      RMM_DB_DRIVER: postgres
+      RMM_DATABASE_URL: "postgres://rmm@postgres:5432/rmm?sslmode=verify-full&sslrootcert=/run/postgres-tls/ca.crt"
+      PGPASSWORD: "${RMM_POSTGRES_PASSWORD:?set a strong RMM_POSTGRES_PASSWORD}"
+      RMM_DB_MAX_OPEN_CONNS: "${RMM_DB_MAX_OPEN_CONNS:-16}"
+      RMM_DB_MAX_IDLE_CONNS: "${RMM_DB_MAX_IDLE_CONNS:-4}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres-tls-client:/run/postgres-tls:ro
+    networks:
+      - default
+      - postgres-internal
+
+networks:
+  postgres-internal:
+    internal: true
+
+volumes:
+  postgres-data:
+  postgres-tls-ca:
+  postgres-tls-server:
+  postgres-tls-client:

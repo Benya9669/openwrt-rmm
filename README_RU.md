@@ -29,7 +29,7 @@ OpenWrt. В неё входят облачный сервер на Go, комп�
 ## Компоненты
 
 ```text
-Браузер ──HTTPS──> RMM-сервер ──SQLite
+Браузер ──HTTPS──> RMM-сервер ──SQLite / PostgreSQL
                          │
                          ├── обработчики уведомлений
                          └── изолированный SSH tunnel-сервис
@@ -68,6 +68,7 @@ docker compose ps
 обязательные переменные окружения.
 
 - [Развёртывание через Docker Compose](docs/docker-compose.md)
+- [Пошаговый переход production на PostgreSQL](docs/postgres-production-migration.md)
 - [Настройка NPMplus](docs/npmplus.md)
 - [Wildcard-доступ к роутерам в стиле KeenDNS](docs/keendns.md)
 - [Архитектура](docs/architecture.md)

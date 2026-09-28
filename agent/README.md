@@ -1,11 +1,13 @@
 # OpenWrt RMM Agent
 
-Current Go agent source version: `0.8.0`, superseding `0.7.0`. The signed `agent-v0.6.10`
+Current Go agent source version: `0.9.0`, superseding `0.8.0`. The signed `agent-v0.6.10`
 tag did not publish packages because its release workflow used an obsolete version parser. The agent reports runtime health, pending command results,
 and the last heartbeat transport error after connectivity is restored. Its OpenWrt
 dependency uses the virtual `ip` provider, so either `ip-tiny` or `ip-full` can satisfy it.
 Production package upgrades restart an already running agent so the new binary takes effect.
 Managed upgrades defer that restart until the command result has been persisted and sent.
+The LuCI application and Russian translation use package version `0.2.3` for
+the new connectivity-check setting.
 
 Production Go agent for OpenWrt, with the shell implementation retained as a fallback runtime.
 
@@ -46,12 +48,19 @@ Example:
 SERVER_URL="https://rmm.example.com"
 ENROLLMENT_TOKEN="paste-a-one-time-grant-from-your-account"
 INTERVAL_SECONDS="30"
+CONNECTIVITY_CHECK_INTERVAL_SECONDS="300"
 TUNNEL_DEVICE_IDENTITY_FILE="/etc/rmm-agent/tunnel_device_key"
 TUNNEL_KEY_EPOCH="1"
 UPDATE_MANIFEST_PUBLIC_KEY="/etc/rmm-agent/update-manifest.pem"
 COMMAND_STATE_DIR="/etc/rmm-agent/command-state"
 RECOVERY_DIR="/etc/rmm-agent/recovery"
 ```
+
+`INTERVAL_SECONDS` controls the normal heartbeat and command polling delay
+(30 seconds by default). `CONNECTIVITY_CHECK_INTERVAL_SECONDS` controls ping
+checks separately (300 seconds by default). Every heartbeat reports the most
+recent ping results; the first heartbeat after agent start runs a fresh check.
+On heartbeat failures, the existing retry backoff still applies.
 
 Managed restore keeps a root-only emergency archive in `RECOVERY_DIR` and waits up to
 10 minutes for a new successful heartbeat. If the restored network configuration prevents

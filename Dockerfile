@@ -3,7 +3,7 @@ FROM golang:1.26.5-alpine AS build
 
 ARG RMM_SERVER_VERSION=dev
 ARG RMM_SOURCE_REVISION=unknown
-ARG RMM_STABLE_AGENT_VERSION=0.8.0
+ARG RMM_STABLE_AGENT_VERSION=0.9.0
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -14,13 +14,15 @@ COPY server ./server
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
   -ldflags="-s -w -X main.serverVersion=${RMM_SERVER_VERSION} -X main.serverRevision=${RMM_SOURCE_REVISION} -X main.stableAgentVersion=${RMM_STABLE_AGENT_VERSION}" \
   -o /out/rmm-server ./server/cmd/rmm-server
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/rmm-db-migrate ./server/cmd/rmm-db-migrate
 
-FROM alpine:3.21
+FROM alpine:3.23
 
-RUN apk add --no-cache ca-certificates su-exec tzdata
+RUN apk add --no-cache ca-certificates su-exec tzdata postgresql18-client
 
 WORKDIR /app
 COPY --from=build /out/rmm-server /usr/local/bin/rmm-server
+COPY --from=build /out/rmm-db-migrate /usr/local/bin/rmm-db-migrate
 COPY web ./web
 COPY keys/openwrt/apk/rmm-openwrt.pem ./keys/rmm-openwrt.pem
 COPY deploy/server/entrypoint.sh /usr/local/bin/rmm-entrypoint

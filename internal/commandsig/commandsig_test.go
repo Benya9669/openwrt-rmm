@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -61,5 +62,15 @@ func TestLoadOrCreatePrivateKey(t *testing.T) {
 	}
 	if !first.Equal(second) {
 		t.Fatal("persisted command signing key changed")
+	}
+}
+
+func TestLoadPrivateKeyNeverCreatesMissingKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.pem")
+	if _, err := LoadPrivateKey(path); !os.IsNotExist(err) {
+		t.Fatalf("expected missing key error, got %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("missing key was created: %v", err)
 	}
 }

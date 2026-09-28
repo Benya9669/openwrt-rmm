@@ -187,13 +187,13 @@ func (a *App) handleAgentBackupArchive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDatabaseSnapshot(w http.ResponseWriter, r *http.Request) {
-	path, err := a.store.CreateSQLiteSnapshot(r.Context())
+	snapshot, err := a.store.CreateDatabaseSnapshot(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create consistent database snapshot")
 		return
 	}
-	defer os.Remove(path)
-	file, err := os.Open(path)
+	defer os.Remove(snapshot.Path)
+	file, err := os.Open(snapshot.Path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to open database snapshot")
 		return
@@ -205,8 +205,8 @@ func (a *App) handleDatabaseSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "database.snapshot", "", "", mustJSON(map[string]string{"request_id": requestID(r.Context())}))
-	w.Header().Set("Content-Type", "application/vnd.sqlite3")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="rmm-%s.db"`, time.Now().UTC().Format("20060102T150405Z")))
+	w.Header().Set("Content-Type", snapshot.ContentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="rmm-%s.%s"`, time.Now().UTC().Format("20060102T150405Z"), snapshot.Extension))
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = io.Copy(w, file)

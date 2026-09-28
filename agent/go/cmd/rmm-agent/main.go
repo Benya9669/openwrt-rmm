@@ -24,6 +24,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,7 +37,7 @@ import (
 )
 
 const (
-	agentVersion          = "0.8.0"
+	agentVersion          = "0.9.0"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -48,6 +49,21 @@ type agentRuntimeHealth struct {
 	LastHeartbeatError   string
 	LastHeartbeatErrorAt time.Time
 	LastHeartbeatSuccess time.Time
+}
+
+type connectivitySampler struct {
+	checks      []map[string]any
+	targets     []string
+	nextCheckAt time.Time
+}
+
+func (s *connectivitySampler) current(now time.Time, interval time.Duration, targets []string, probe func([]string) []map[string]any) []map[string]any {
+	if s.checks == nil || !now.Before(s.nextCheckAt) || !slices.Equal(s.targets, targets) {
+		s.checks = probe(targets)
+		s.targets = slices.Clone(targets)
+		s.nextCheckAt = now.Add(interval)
+	}
+	return s.checks
 }
 
 func (h *agentRuntimeHealth) recordFailure(err error) {
@@ -84,6 +100,7 @@ type config struct {
 	ServerURL               string
 	EnrollmentToken         string
 	IntervalSeconds         int
+	CheckIntervalSeconds    int
 	DeviceID                string
 	DeviceToken             string
 	DeviceTokenEpoch        int
@@ -186,9 +203,10 @@ func main() {
 
 	backoff := time.Duration(cfg.IntervalSeconds) * time.Second
 	health := &agentRuntimeHealth{StartedAt: time.Now().UTC()}
+	connectivity := &connectivitySampler{}
 	for {
 		heartbeatStartedAt := time.Now().UTC()
-		if err := heartbeatOnce(ctx, client, &cfg, health.snapshot(cfg.SpoolDir)); err != nil {
+		if err := heartbeatOnce(ctx, client, &cfg, health.snapshot(cfg.SpoolDir), connectivity); err != nil {
 			health.recordFailure(err)
 			logf("heartbeat failed: %v", err)
 			rolledBack, rollbackErr := rollbackPendingRestore(ctx, cfg, time.Now().UTC())
@@ -228,6 +246,7 @@ func loadConfig(path string) (config, error) {
 		ServerURL:               envDefault("SERVER_URL", "https://rmm.example.com"),
 		EnrollmentToken:         os.Getenv("ENROLLMENT_TOKEN"),
 		IntervalSeconds:         intDefault(os.Getenv("INTERVAL_SECONDS"), 30),
+		CheckIntervalSeconds:    intDefault(os.Getenv("CONNECTIVITY_CHECK_INTERVAL_SECONDS"), 300),
 		DeviceID:                os.Getenv("DEVICE_ID"),
 		DeviceToken:             os.Getenv("DEVICE_TOKEN"),
 		DeviceTokenEpoch:        intDefault(os.Getenv("DEVICE_TOKEN_EPOCH"), 1),
@@ -263,6 +282,9 @@ func loadConfig(path string) (config, error) {
 	}
 	if value := values["INTERVAL_SECONDS"]; value != "" {
 		cfg.IntervalSeconds = intDefault(value, cfg.IntervalSeconds)
+	}
+	if value := values["CONNECTIVITY_CHECK_INTERVAL_SECONDS"]; value != "" {
+		cfg.CheckIntervalSeconds = intDefault(value, cfg.CheckIntervalSeconds)
 	}
 	if value := values["DEVICE_ID"]; value != "" {
 		cfg.DeviceID = value
@@ -319,6 +341,9 @@ func loadConfig(path string) (config, error) {
 	if cfg.IntervalSeconds <= 0 {
 		cfg.IntervalSeconds = 30
 	}
+	if cfg.CheckIntervalSeconds <= 0 {
+		cfg.CheckIntervalSeconds = 300
+	}
 	return cfg, nil
 }
 
@@ -345,6 +370,7 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "SERVER_URL", cfg.ServerURL)
 	writeConfigLine(&b, "ENROLLMENT_TOKEN", cfg.EnrollmentToken)
 	writeConfigLine(&b, "INTERVAL_SECONDS", strconv.Itoa(cfg.IntervalSeconds))
+	writeConfigLine(&b, "CONNECTIVITY_CHECK_INTERVAL_SECONDS", strconv.Itoa(cfg.CheckIntervalSeconds))
 	writeConfigLine(&b, "CHECK_TARGETS", strings.Join(cfg.CheckTargets, " "))
 	writeConfigLine(&b, "BACKUP_DIR", cfg.BackupDir)
 	writeConfigLine(&b, "TUNNEL_DEVICE_IDENTITY_FILE", cfg.TunnelIdentity)
@@ -416,14 +442,14 @@ func enroll(ctx context.Context, client *http.Client, cfg *config) error {
 	return nil
 }
 
-func heartbeatOnce(ctx context.Context, client *http.Client, cfg *config, agentHealth map[string]any) error {
+func heartbeatOnce(ctx context.Context, client *http.Client, cfg *config, agentHealth map[string]any, connectivity *connectivitySampler) error {
 	if err := flushSpooledResults(ctx, client, *cfg); err != nil {
 		logf("spool flush warning: %v", err)
 	}
 	body := map[string]any{
 		"device_id": cfg.DeviceID,
 		"inventory": buildInventory(*cfg),
-		"metrics":   buildMetrics(*cfg, agentHealth),
+		"metrics":   buildMetrics(*cfg, agentHealth, connectivity),
 	}
 	var resp heartbeatResponse
 	if err := postJSON(ctx, client, cfg.ServerURL+"/api/agent/heartbeat", cfg.DeviceToken, body, &resp); err != nil {
@@ -569,8 +595,10 @@ func (cfg config) displayHostname() string {
 	return hostnameValue() + strings.TrimSpace(cfg.HostnameSuffix)
 }
 
-func buildMetrics(cfg config, agentHealth map[string]any) map[string]any {
+func buildMetrics(cfg config, agentHealth map[string]any, connectivity *connectivitySampler) map[string]any {
 	serverTarget := serverCheckTarget(cfg.ServerURL)
+	checks := connectivity.current(time.Now(), time.Duration(cfg.CheckIntervalSeconds)*time.Second,
+		effectiveCheckTargets(cfg.CheckTargets, serverTarget), connectivityChecks)
 	return map[string]any{
 		"system":              jsonObjectOrEmpty(commandOutput("ubus", "call", "system", "info")),
 		"loadavg":             strings.TrimSpace(readFileString("/proc/loadavg")),
@@ -578,7 +606,7 @@ func buildMetrics(cfg config, agentHealth map[string]any) map[string]any {
 		"memory":              memoryInfo(),
 		"disk":                diskInfo(),
 		"interface_counters":  interfaceCounters(),
-		"connectivity_checks": connectivityChecks(effectiveCheckTargets(cfg.CheckTargets, serverTarget)),
+		"connectivity_checks": checks,
 		"server_check_target": serverTarget,
 		"agent_health":        agentHealth,
 	}

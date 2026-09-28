@@ -8,6 +8,8 @@ The Compose stack contains two services:
 The base `compose.yaml` pulls versioned GHCR images and is self-contained for GitOps
 controllers that accept only one Compose file. `compose.release.yaml` remains compatible
 with older deployments but is no longer required. Source builds use `compose.dev.yaml`.
+For PostgreSQL in the same project, add `compose.postgres.yaml` and follow the
+[production migration guide](postgres-production-migration.md).
 
 Published ports:
 
@@ -53,7 +55,7 @@ RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
 RMM_NOTIFICATION_MAX_ATTEMPTS=5
 RMM_NOTIFICATION_RETENTION_DAYS=90
 RMM_BACKUP_RETENTION_DAYS=90
-RMM_STABLE_AGENT_VERSION=0.8.0
+RMM_STABLE_AGENT_VERSION=0.9.0
 RMM_AGENT_RECONNECT_TIMEOUT_SECONDS=300
 RMM_UPDATE_MANIFEST_URL=https://packages.daemonlord.ru/update-manifest.json
 RMM_UPDATE_MANIFEST_SIGNATURE_URL=https://packages.daemonlord.ru/update-manifest.sig
@@ -74,7 +76,7 @@ For a production deployment, pin the server release in `.env`. The base Compose 
 the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.12.3
+RMM_RELEASE_VERSION=0.13.0
 ```
 
 ```powershell
@@ -151,7 +153,7 @@ tar tzf backups/tunnel-data.tgz | head
 Configure Arcane with the existing volume names and the exact image release:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.12.3
+RMM_RELEASE_VERSION=0.13.0
 RMM_DATA_VOLUME=openwrt-rmm_rmm-data
 RMM_TUNNEL_DATA_VOLUME=openwrt-rmm_tunnel-data
 ```

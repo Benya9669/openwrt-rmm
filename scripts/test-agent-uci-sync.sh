@@ -46,6 +46,7 @@ EOF
 		sh "$repository_root/$sync_script"
 
 	grep -Fxq 'CHECK_TARGETS="1.1.1.1 8.8.8.8 9.9.9.9"' "$runtime_config"
+	grep -Fxq 'CONNECTIVITY_CHECK_INTERVAL_SECONDS="300"' "$runtime_config"
 	grep -Fxq 'DEVICE_ID="router-1"' "$runtime_config"
 	grep -Fxq 'DEVICE_TOKEN="device-secret"' "$runtime_config"
 	case "$sync_script" in

@@ -61,10 +61,16 @@ return view.extend({
 		option.rmempty = true;
 		option.description = _('The grant is consumed once and removed from the router after successful enrollment.');
 
-		option = section.option(form.Value, 'interval_seconds', _('Polling interval'));
+		option = section.option(form.Value, 'interval_seconds', _('Heartbeat interval (seconds)'));
 		option.datatype = 'range(10,3600)';
 		option.default = '30';
 		option.rmempty = false;
+
+		option = section.option(form.Value, 'connectivity_check_interval_seconds', _('Connectivity check interval (seconds)'));
+		option.datatype = 'range(30,3600)';
+		option.default = '300';
+		option.rmempty = false;
+		option.description = _('Ping results are reused between checks while heartbeats continue at their own interval.');
 
 		option = section.option(form.Value, 'check_targets', _('Connectivity check targets'));
 		option.placeholder = '1.1.1.1 8.8.8.8';

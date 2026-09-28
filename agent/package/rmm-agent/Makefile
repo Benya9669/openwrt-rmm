@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rmm-agent
 PKG_VERSION:=0.1.1
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 
 PKG_MAINTAINER:=RMM OpenWrt
 PKG_LICENSE:=MIT

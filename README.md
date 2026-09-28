@@ -29,7 +29,7 @@ remote access.
 ## Components
 
 ```text
-Browser ──HTTPS──> RMM server ──SQLite
+Browser ──HTTPS──> RMM server ──SQLite / PostgreSQL
                        │
                        ├── notification workers
                        └── isolated SSH tunnel service
@@ -71,6 +71,8 @@ the required environment values first.
 - [NPMplus configuration](docs/npmplus.md)
 - [KeenDNS-like wildcard router access](docs/keendns.md)
 - [Architecture](docs/architecture.md)
+- [PostgreSQL backend and automatic migration](docs/database-migration.md)
+- [Production migration to PostgreSQL (Russian)](docs/postgres-production-migration.md)
 
 ## Installing the OpenWrt agent
 
@@ -133,7 +135,7 @@ See [Release policy](RELEASES.md).
 ## Security and license
 
 Review [the security model](docs/security.md) before exposing the service publicly.
-Back up the SQLite volume before every server upgrade.
+Back up the data volume and the selected database before every server upgrade.
 
 The cloud application is licensed under `AGPL-3.0-only`; the OpenWrt agent and LuCI
 packages are licensed under MIT. See [LICENSE.md](LICENSE.md) and [NOTICE.md](NOTICE.md).
