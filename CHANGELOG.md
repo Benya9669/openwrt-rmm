@@ -7,6 +7,17 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.13.2
+
+PostgreSQL command signature hotfix.
+
+### Fixed
+
+- New commands use PostgreSQL-compatible microsecond timestamps before signing, so the agent can verify them after a database round trip.
+- Compose release defaults now target `0.13.2`.
+
+Commands rejected by an older server must be cancelled and created again after the upgrade; their existing signatures are not changed.
+
 ## server-v0.13.1
 
 PostgreSQL LAN client listing hotfix.
