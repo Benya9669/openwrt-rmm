@@ -52,12 +52,12 @@ jobs:
           bash -n deploy/tunnel/entrypoint.sh deploy/tunnel/authorized-key.sh deploy/tunnel/session-reaper.sh scripts/test-tunnel-authorized-key.sh scripts/backup-postgres.sh
           bash scripts/test-tunnel-authorized-key.sh
 
-      - name: Validate PostgreSQL Compose overlay
+      - name: Validate standalone PostgreSQL Compose stack
         env:
           RMM_OPERATOR_PASSWORD: release-validation-operator-password
           RMM_POSTGRES_PASSWORD: release-validation-app-password
           RMM_POSTGRES_ADMIN_PASSWORD: release-validation-admin-password
-        run: docker compose -f compose.yaml -f compose.postgres.yaml config --quiet
+        run: docker compose -f compose.postgres.yaml config --quiet
 
       - name: Resolve image version
         id: version
