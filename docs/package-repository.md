@@ -21,6 +21,45 @@ https://packages.daemonlord.ru/update-manifest.sig
 https://packages.daemonlord.ru/update-manifest.sigstore.json
 ```
 
+## LuCI theme and dashboard from a separate release
+
+The source and GitHub Releases for `luci-theme-rmm` and
+`luci-app-rmm-dashboard` live in
+[`Benya9669/luci-theme-rmm`](https://github.com/Benya9669/luci-theme-rmm).
+The agent's release builder can import those two packages into the same signed
+`packages.daemonlord.ru` feed as the agent. The feed index is signed with the
+existing RMM package key; routers need only the existing feed and key.
+
+To include a LuCI release, publish its `luci-v*` tag. The LuCI workflow sends
+the tag and SHA256 of the release's `SHA256SUMS` to the RMM feed workflow.
+The checked-in `deploy/luci-release.lock` is a fallback for first deployment
+and can be pinned manually for a release before the feed sync runs:
+
+```text
+Benya9669/luci-theme-rmm luci-v0.1.0 <64-character-SHA256-of-SHA256SUMS>
+```
+
+The builder verifies the locked manifest and every package hash before adding
+the packages to the OpenWrt 24.10/25.12 feed indexes. A lock containing `none`
+leaves the current agent release behavior unchanged. The LuCI release workflow
+dispatches `sync-luci-feed.yml`, which downloads the deployed Pages site,
+adds the packages to the **stable** target directories, rebuilds and signs
+their indexes, and publishes the shared feed immediately. Existing versioned
+agent feeds stay immutable. It publishes a signed `luci-release.lock` so the
+next agent release includes the active theme packages in its new feed too.
+The separate LuCI GitHub Release keeps the downloadable theme/dashboard `.ipk`
+and `.apk` files; they are not duplicated in the RMM agent GitHub Release.
+Agent and legacy publication runs share the feed deployment lock with LuCI
+sync. Legacy publication retains the signed active LuCI packages and feed
+indexes while extending the older OpenWrt targets.
+
+For a private LuCI repository, configure the RMM Actions secret
+`LUCI_RELEASE_TOKEN` with read access to that repository's Releases.
+The LuCI repository needs `RMM_FEED_DISPATCH_TOKEN` with **Contents: read/write**
+on `Benya9669/openwrt-rmm` to send `repository_dispatch`. If that secret is not yet
+configured, run **Sync LuCI release into signed package feed** manually with
+the LuCI tag and SHA256 of its `SHA256SUMS` asset.
+
 The manifest declares the stable agent version and compatible OpenWrt feed directories.
 Both current and legacy workflows sign it with the existing APK package key for runtime
 server verification and keylessly with Sigstore for workflow identity/provenance. Both
@@ -150,6 +189,8 @@ opkg update
 opkg install rmm-agent-go-production luci-app-rmm-agent
 # Optional Russian LuCI translation:
 opkg install luci-i18n-rmm-agent-ru
+# After the LuCI release is imported into the shared feed:
+opkg install luci-theme-rmm luci-app-rmm-dashboard
 ```
 
 The workflow creates `Packages`, `Packages.gz` and `Packages.sig`. `opkg` verifies the
@@ -170,6 +211,8 @@ apk update
 apk add rmm-agent-go-production luci-app-rmm-agent
 # Optional Russian LuCI translation:
 apk add luci-i18n-rmm-agent-ru
+# After the LuCI release is imported into the shared feed:
+apk add luci-theme-rmm luci-app-rmm-dashboard
 ```
 
 APK verifies the signed `packages.adb` index. Installation should not require

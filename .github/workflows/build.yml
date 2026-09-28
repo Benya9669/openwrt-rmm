@@ -11,7 +11,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.workflow }}-${{ github.ref }}
+  # Hold the Pages publication lock from the first release build step, so a
+  # LuCI sync cannot deploy a site prepared from a different feed snapshot.
+  group: ${{ startsWith(github.ref, 'refs/tags/agent-v') && 'package-feed-pages' || format('build-{0}-{1}', github.workflow, github.ref) }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/agent-v') }}
 
 jobs:
@@ -94,11 +96,14 @@ jobs:
             scripts/test-agent-uci-sync.sh \
             scripts/test-package-repository.sh \
             scripts/test-tunnel-authorized-key.sh \
+            scripts/fetch-luci-release.sh \
+            scripts/test-fetch-luci-release.sh \
             scripts/prepare-package-repository.sh \
             scripts/unpack-release-package-assets.sh
           bash scripts/test-agent-uci-sync.sh
           bash scripts/test-package-repository.sh
           bash scripts/test-tunnel-authorized-key.sh
+          bash scripts/test-fetch-luci-release.sh
 
           current_matrix="$(awk '
             /Tagged releases cover the current OpenWrt lines/ { in_matrix = 1 }
@@ -191,6 +196,33 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: Load signed active LuCI release
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://packages.daemonlord.ru'
+          status="$(curl --silent --show-error --retry 3 \
+            --write-out '%{http_code}' \
+            --output active-luci-release.lock "$base/luci-release.lock")"
+          if [ "$status" = 200 ]; then
+            curl --fail --silent --show-error \
+              --output active-luci-release.lock.sig "$base/luci-release.lock.sig"
+            openssl dgst -sha256 \
+              -verify keys/openwrt/apk/rmm-openwrt.pem \
+              -signature active-luci-release.lock.sig active-luci-release.lock
+            cp active-luci-release.lock deploy/luci-release.lock
+          elif [ "$status" != 404 ]; then
+            echo "unexpected LuCI lock HTTP status: $status" >&2
+            exit 1
+          fi
+
+      - name: Import pinned LuCI release packages
+        env:
+          GH_TOKEN: ${{ secrets.LUCI_RELEASE_TOKEN || github.token }}
+          RELEASE: ${{ matrix.release }}
+        shell: bash
+        run: bash scripts/fetch-luci-release.sh deploy/luci-release.lock "$RELEASE" deploy/luci-external
+
       - name: Build agent and LuCI packages
         uses: docker/build-push-action@v6
         env:
@@ -272,7 +304,8 @@ jobs:
           while IFS= read -r file; do
             artifact="$(basename "$(dirname "$file")")"
             cp "$file" "publish/${artifact}-$(basename "$file")"
-          done < <(find release-assets -type f \( -name '*.ipk' -o -name '*.apk' \) -print | sort)
+          done < <(find release-assets -type f \( -name '*.ipk' -o -name '*.apk' \) \
+            ! -name 'luci-theme-rmm*' ! -name 'luci-app-rmm-dashboard*' -print | sort)
           find publish -type f -print -quit | grep -q .
 
       - name: Prepare release notes

@@ -1,0 +1,160 @@
+name: Sync LuCI release into signed package feed
+
+on:
+  repository_dispatch:
+    types: [luci-release]
+  workflow_dispatch:
+    inputs:
+      luci_tag:
+        description: Published luci-vMAJOR.MINOR.PATCH tag
+        required: true
+        type: string
+      manifest_sha256:
+        description: SHA256 of the LuCI release SHA256SUMS asset
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: package-feed-pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate release reference
+        env:
+          LUCI_TAG: ${{ github.event.client_payload.tag || inputs.luci_tag }}
+          LUCI_SHA256: ${{ github.event.client_payload.manifest_sha256 || inputs.manifest_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$LUCI_TAG" =~ ^luci-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$LUCI_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          printf 'Benya9669/luci-theme-rmm %s %s\n' "$LUCI_TAG" "$LUCI_SHA256" > luci-release.lock
+
+      - name: Download currently deployed Pages site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_url="$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq '.[0].artifact_url // empty')"
+          test -n "$artifact_url"
+          curl --fail --location --retry 3 \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            "$artifact_url" -o site.zip
+          mkdir site
+          unzip -q site.zip -d site
+          test -s site/update-manifest.json
+          test -s site/update-manifest.sig
+          test -d site/feeds/stable/openwrt
+          openssl dgst -sha256 \
+            -verify keys/openwrt/apk/rmm-openwrt.pem \
+            -signature site/update-manifest.sig site/update-manifest.json
+          if [ -e site/luci-release.lock ]; then
+            test -s site/luci-release.lock.sig
+            openssl dgst -sha256 \
+              -verify keys/openwrt/apk/rmm-openwrt.pem \
+              -signature site/luci-release.lock.sig site/luci-release.lock
+            read -r active_repo active_tag active_sha extra < site/luci-release.lock
+            test "$active_repo" = Benya9669/luci-theme-rmm
+            [[ "$active_tag" =~ ^luci-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            [[ "$active_sha" =~ ^[0-9a-f]{64}$ ]]
+            test -z "${extra:-}"
+            read -r requested_repo requested_tag requested_sha < luci-release.lock
+            test "$requested_repo" = "$active_repo"
+            if [ "$requested_tag" = "$active_tag" ]; then
+              test "$requested_sha" = "$active_sha"
+            else
+              newest="$(printf '%s\n%s\n' "$active_tag" "$requested_tag" | sort -V | tail -n 1)"
+              test "$newest" = "$requested_tag" || {
+                echo "refusing to replace active $active_tag with older $requested_tag" >&2
+                exit 1
+              }
+            fi
+          fi
+
+      - name: Verify and stage LuCI packages
+        env:
+          GH_TOKEN: ${{ secrets.LUCI_RELEASE_TOKEN || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for release in 24.10.7 25.12.4; do
+            mkdir "luci-${release}"
+            bash scripts/fetch-luci-release.sh luci-release.lock "$release" "luci-${release}"
+            test "$(find "luci-${release}" -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) | wc -l)" -eq 2
+            target_count=0
+            for feed in site/feeds/stable/openwrt/"$release"/*; do
+              test -d "$feed" || continue
+              (cd "$feed" && sha256sum --check SHA256SUMS)
+              cp "luci-${release}"/* "$feed"/
+              target_count=$((target_count + 1))
+            done
+            test "$target_count" -gt 0
+          done
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Rebuild and sign stable feed indexes
+        env:
+          OPENWRT_USIGN_SECRET_B64: ${{ secrets.OPENWRT_USIGN_SECRET_B64 }}
+          OPENWRT_APK_SECRET_B64: ${{ secrets.OPENWRT_APK_SECRET_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENWRT_USIGN_SECRET_B64"
+          test -n "$OPENWRT_APK_SECRET_B64"
+          for release in 24.10.7 25.12.4; do
+            record="$(awk -F '\t' -v release="$release" '$1 == release && $2 == "ramips" && $3 == "mt7621" { print $4 " " $5; exit }' .github/openwrt-sdk-lock.tsv)"
+            test -n "$record"
+            read -r sdk_sha256 sdk_url <<<"$record"
+            docker buildx build --progress=plain \
+              --target artifacts \
+              --file deploy/luci-feed-indexer/Dockerfile \
+              --build-arg "OPENWRT_RELEASE=$release" \
+              --build-arg "OPENWRT_SDK_URL=$sdk_url" \
+              --build-arg "OPENWRT_SDK_SHA256=$sdk_sha256" \
+              --secret id=openwrt_usign_secret_b64,env=OPENWRT_USIGN_SECRET_B64 \
+              --secret id=openwrt_apk_secret_b64,env=OPENWRT_APK_SECRET_B64 \
+              --output "type=local,dest=reindexed-${release}" .
+            cp -a "reindexed-${release}/." "site/feeds/stable/openwrt/${release}/"
+          done
+
+      - name: Sign active LuCI release reference
+        env:
+          OPENWRT_APK_SECRET_B64: ${{ secrets.OPENWRT_APK_SECRET_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          trap 'rm -f luci-lock-signing.pem' EXIT
+          printf '%s' "$OPENWRT_APK_SECRET_B64" | base64 --decode > luci-lock-signing.pem
+          cp luci-release.lock site/luci-release.lock
+          openssl dgst -sha256 -sign luci-lock-signing.pem \
+            -out site/luci-release.lock.sig site/luci-release.lock
+          openssl dgst -sha256 \
+            -verify keys/openwrt/apk/rmm-openwrt.pem \
+            -signature site/luci-release.lock.sig site/luci-release.lock
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy updated shared feed
+        id: deployment
+        uses: actions/deploy-pages@v4

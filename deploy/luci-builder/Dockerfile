@@ -165,6 +165,7 @@ RUN printf '%s\n' \
 
 RUN make -j1 package/luci-app-rmm-agent/compile V=s
 
+COPY --chown=builder:builder deploy/luci-external/ /home/builder/external-luci/
 COPY --chown=builder:builder keys/openwrt /home/builder/release-keys
 
 RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
@@ -180,6 +181,10 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
            -o -name 'luci-i18n-rmm-agent-ru*.ipk' \
            -o -name 'rmm-agent*.apk' \
            -o -name 'rmm-agent*.ipk' \) \
+        -exec cp '{}' /home/builder/artifacts/ \;; \
+    find /home/builder/external-luci -maxdepth 1 -type f \
+        \( -name 'luci-theme-rmm*.apk' -o -name 'luci-theme-rmm*.ipk' \
+           -o -name 'luci-app-rmm-dashboard*.apk' -o -name 'luci-app-rmm-dashboard*.ipk' \) \
         -exec cp '{}' /home/builder/artifacts/ \;; \
     test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipk' \) -print -quit)"; \
     test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name 'luci-i18n-rmm-agent-ru*.apk' -o -name 'luci-i18n-rmm-agent-ru*.ipk' \) -print -quit)"; \
