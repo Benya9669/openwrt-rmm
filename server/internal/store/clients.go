@@ -172,7 +172,7 @@ func (s *Store) ListLANClients(ctx context.Context, deviceID string, recentFor t
 SELECT device_id, client_key, mac, ip, hostname, interface, connection, confirmation,
        first_seen_at, last_seen_at, last_checked_at
 FROM lan_clients WHERE device_id = ?
-ORDER BY COALESCE(last_seen_at, '') DESC, hostname, ip
+ORDER BY (last_seen_at IS NULL), last_seen_at DESC, hostname, ip
 `, deviceID)
 	if err != nil {
 		return nil, true, err

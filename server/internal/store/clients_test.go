@@ -189,3 +189,46 @@ INSERT INTO lan_clients (
 		t.Fatalf("legacy unconfirmed neighbour row was not removed: %#v", clients)
 	}
 }
+
+func TestLANClientListingSortsMissingLastSeenLast(t *testing.T) {
+	ctx := context.Background()
+	st, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "clients.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	device, err := st.EnrollDevice(ctx, "router", "OpenWrt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	rows := []struct {
+		key      string
+		ip       string
+		lastSeen any
+	}{
+		{"ip:10.0.0.1", "10.0.0.1", nil},
+		{"ip:10.0.0.2", "10.0.0.2", notificationTimeText(now.Add(-time.Hour))},
+		{"ip:10.0.0.3", "10.0.0.3", notificationTimeText(now)},
+	}
+	for _, row := range rows {
+		_, err := st.db.ExecContext(ctx, `
+INSERT INTO lan_clients (
+  device_id, client_key, mac, ip, hostname, interface, connection, confirmation,
+  first_seen_at, last_seen_at, last_checked_at
+) VALUES (?, ?, '', ?, '', 'br-lan', 'wired', 'lease', ?, ?, ?)
+`, device.DeviceID, row.key, row.ip, notificationTimeText(now), row.lastSeen, notificationTimeText(now))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	clients, found, err := st.ListLANClients(ctx, device.DeviceID, 30*time.Minute)
+	if err != nil || !found || len(clients) != 3 {
+		t.Fatalf("list clients: found=%v clients=%#v err=%v", found, clients, err)
+	}
+	for i, want := range []string{"ip:10.0.0.3", "ip:10.0.0.2", "ip:10.0.0.1"} {
+		if clients[i].Key != want {
+			t.Fatalf("client %d = %q, want %q", i, clients[i].Key, want)
+		}
+	}
+}

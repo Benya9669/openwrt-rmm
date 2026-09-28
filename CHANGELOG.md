@@ -7,6 +7,15 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 No unreleased changes.
 
+## server-v0.13.1
+
+PostgreSQL LAN client listing hotfix.
+
+### Fixed
+
+- LAN clients with no last-seen timestamp now sort after recently seen clients without comparing a PostgreSQL timestamp to an empty string.
+- Compose release defaults now target `0.13.1`.
+
 ## server-v0.13.0
 
 PostgreSQL backend and automatic SQLite migration.
