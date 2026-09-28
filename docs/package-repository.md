@@ -39,6 +39,9 @@ and can be pinned manually for a release before the feed sync runs:
 Benya9669/luci-theme-rmm luci-v0.1.0 <64-character-SHA256-of-SHA256SUMS>
 ```
 
+Updating this lock on `main` also retries feed synchronization if the release
+dispatch fails. Use the digest published for the release's `SHA256SUMS` asset.
+
 The builder verifies the locked manifest and every package hash before adding
 the packages to the OpenWrt 24.10/25.12 feed indexes. A lock containing `none`
 leaves the current agent release behavior unchanged. The LuCI release workflow

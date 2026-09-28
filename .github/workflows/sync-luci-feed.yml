@@ -1,6 +1,9 @@
 name: Sync LuCI release into signed package feed
 
 on:
+  push:
+    branches: [main]
+    paths: [deploy/luci-release.lock]
   repository_dispatch:
     types: [luci-release]
   workflow_dispatch:
@@ -42,6 +45,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            mapfile -t records < <(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' deploy/luci-release.lock)
+            test "${#records[@]}" -eq 1
+            read -r repository LUCI_TAG LUCI_SHA256 extra <<<"${records[0]}"
+            test "$repository" = Benya9669/luci-theme-rmm
+            test -z "${extra:-}"
+          fi
           [[ "$LUCI_TAG" =~ ^luci-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$LUCI_SHA256" =~ ^[0-9a-f]{64}$ ]]
           printf 'Benya9669/luci-theme-rmm %s %s\n' "$LUCI_TAG" "$LUCI_SHA256" > luci-release.lock
