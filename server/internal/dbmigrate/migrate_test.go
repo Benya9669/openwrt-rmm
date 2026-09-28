@@ -415,8 +415,29 @@ func TestImportPostgresIntegration(t *testing.T) {
 	if _, found, err := pgStore.GetDevice(ctx, device.DeviceID); err != nil || !found {
 		t.Fatalf("PostgreSQL device lookup: found=%v err=%v", found, err)
 	}
-	if _, found, err := pgStore.ClaimNextCommand(ctx, device.DeviceID); err != nil || !found {
+	importedCommand, found, err := pgStore.ClaimNextCommand(ctx, device.DeviceID)
+	if err != nil || !found {
 		t.Fatalf("PostgreSQL command claim: found=%v err=%v", found, err)
+	}
+	newCommand, created, err := pgStore.CreateCommand(ctx, device.DeviceID, "system.info", []byte(`{}`))
+	if err != nil || !created {
+		t.Fatalf("PostgreSQL command creation: created=%v err=%v", created, err)
+	}
+	claimedCommand, found, err := pgStore.ClaimNextCommand(ctx, device.DeviceID)
+	if err != nil || !found || claimedCommand.ID != newCommand.ID {
+		t.Fatalf("PostgreSQL new command claim: found=%v err=%v", found, err)
+	}
+	for _, signed := range []model.Command{importedCommand, claimedCommand} {
+		if signed.ExpiresAt == nil {
+			t.Fatalf("PostgreSQL command %s has no expiration", signed.ID)
+		}
+		if err := commandsig.Verify(pgStore.CommandSigningPublicKey(), commandsig.Envelope{
+			ID: signed.ID, DeviceID: signed.DeviceID, Type: signed.Type,
+			Args: signed.Args, CreatedAt: signed.CreatedAt,
+			ExpiresAt: *signed.ExpiresAt, Nonce: signed.Nonce,
+		}, signed.Signature); err != nil {
+			t.Fatalf("PostgreSQL command %s signature changed after round trip: %v", signed.ID, err)
+		}
 	}
 	if _, err := pgStore.SaveHeartbeat(ctx, device.DeviceID, []byte(`{"host":"роутер"}`), []byte(`{"cpu":15}`)); err != nil {
 		t.Fatalf("PostgreSQL heartbeat: %v", err)

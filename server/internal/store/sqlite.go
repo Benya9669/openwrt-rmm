@@ -311,7 +311,10 @@ func (s *Store) newCommand(deviceID, commandType string, args json.RawMessage, t
 		return model.Command{}, err
 	}
 	args = NormalizeRawJSON(args)
-	createdAt := time.Now().UTC()
+	// PostgreSQL TIMESTAMPTZ stores microsecond precision. Normalize before
+	// signing so the persisted timestamp is identical to the signed timestamp
+	// when the command is read back for delivery.
+	createdAt := time.Now().UTC().Truncate(time.Microsecond)
 	expiresAt := createdAt.Add(ttl)
 	command := model.Command{
 		ID: id, DeviceID: deviceID, Type: commandType, Args: args, Status: "queued",

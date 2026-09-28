@@ -10,8 +10,35 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+	"rmm-openwrt/internal/commandsig"
 	"rmm-openwrt/server/internal/model"
 )
+
+func TestCommandSignatureSurvivesPostgresTimestampPrecision(t *testing.T) {
+	s, err := OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "command-signature.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	command, err := s.newCommand("dev_test", "ping", json.RawMessage(`{}`), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.ExpiresAt == nil {
+		t.Fatal("signed command has no expiration")
+	}
+	// PostgreSQL TIMESTAMPTZ retains six fractional digits. Verify the exact
+	// envelope that an agent receives after the database round trip.
+	createdAt := command.CreatedAt.Round(time.Microsecond)
+	expiresAt := command.ExpiresAt.Round(time.Microsecond)
+	if err := commandsig.Verify(s.CommandSigningPublicKey(), commandsig.Envelope{
+		ID: command.ID, DeviceID: command.DeviceID, Type: command.Type,
+		Args: command.Args, CreatedAt: createdAt, ExpiresAt: expiresAt,
+		Nonce: command.Nonce,
+	}, command.Signature); err != nil {
+		t.Fatalf("command signature changed at PostgreSQL timestamp precision: %v", err)
+	}
+}
 
 func TestStoreIgnoresCancelledCallerContext(t *testing.T) {
 	store, err := OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "cancelled-context.db"))
