@@ -22,7 +22,7 @@ done
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
-compose=(docker compose -f compose.yaml -f compose.postgres.yaml)
+compose=(docker compose -f compose.postgres.yaml)
 "${compose[@]}" config --quiet
 
 backup_dir="$1"

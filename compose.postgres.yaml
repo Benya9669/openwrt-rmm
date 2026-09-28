@@ -1,5 +1,76 @@
-# Add to compose.yaml for a private PostgreSQL 18 instance in the same project.
 services:
+  rmm-server:
+    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-0.13.0}"
+    pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
+    environment:
+      RMM_ADDR: ":8080"
+      RMM_DB_PATH: /data/rmm.db
+      RMM_DB_DRIVER: postgres
+      RMM_DATABASE_URL: "postgres://rmm@postgres:5432/rmm?sslmode=verify-full&sslrootcert=/run/postgres-tls/ca.crt"
+      PGPASSWORD: "${RMM_POSTGRES_PASSWORD:?set a strong RMM_POSTGRES_PASSWORD}"
+      RMM_DB_MAX_OPEN_CONNS: "${RMM_DB_MAX_OPEN_CONNS:-16}"
+      RMM_DB_MAX_IDLE_CONNS: "${RMM_DB_MAX_IDLE_CONNS:-4}"
+      RMM_WEB_DIR: /app/web
+      RMM_INSECURE_DEV_MODE: "${RMM_INSECURE_DEV_MODE:-false}"
+      RMM_ALLOW_LEGACY_ENROLLMENT: "${RMM_ALLOW_LEGACY_ENROLLMENT:-false}"
+      RMM_ALLOW_LEGACY_LUCI_PROXY: "${RMM_ALLOW_LEGACY_LUCI_PROXY:-false}"
+      RMM_ENROLLMENT_TOKEN: "${RMM_ENROLLMENT_TOKEN:-}"
+      RMM_OPERATOR_TOKEN: "${RMM_OPERATOR_TOKEN:-}"
+      RMM_OPERATOR_USERNAME: "${RMM_OPERATOR_USERNAME:-admin}"
+      RMM_OPERATOR_PASSWORD: "${RMM_OPERATOR_PASSWORD:?set RMM_OPERATOR_PASSWORD in .env}"
+      RMM_COOKIE_SECURE: "${RMM_COOKIE_SECURE:-true}"
+      RMM_TUNNEL_HTTP_HOST: tunnel-ssh
+      RMM_TUNNEL_PUBLIC_HOST: "${RMM_TUNNEL_PUBLIC_HOST:-}"
+      RMM_TUNNEL_PUBLIC_PORT: "${RMM_TUNNEL_PUBLIC_PORT:-2222}"
+      RMM_TUNNEL_AUTH_TOKEN: "${RMM_TUNNEL_AUTH_TOKEN:-}"
+      RMM_TUNNEL_HOST_PUBLIC_KEY: "${RMM_TUNNEL_HOST_PUBLIC_KEY:-}"
+      RMM_DEVICE_DOMAIN: "${RMM_DEVICE_DOMAIN:-}"
+      RMM_PUBLIC_SCHEME: "${RMM_PUBLIC_SCHEME:-https}"
+      RMM_PUBLIC_URL: "${RMM_PUBLIC_URL:-}"
+      RMM_METRIC_RETENTION_DAYS: "${RMM_METRIC_RETENTION_DAYS:-30}"
+      RMM_NOTIFICATION_RETENTION_DAYS: "${RMM_NOTIFICATION_RETENTION_DAYS:-90}"
+      RMM_BACKUP_RETENTION_DAYS: "${RMM_BACKUP_RETENTION_DAYS:-90}"
+      RMM_COMMAND_SIGNING_KEY_PATH: "${RMM_COMMAND_SIGNING_KEY_PATH:-/data/command-signing-ed25519.pem}"
+      RMM_DATA_ENCRYPTION_KEY_PATH: "${RMM_DATA_ENCRYPTION_KEY_PATH:-/data/data-encryption.key}"
+      RMM_NOTIFICATION_MAX_ATTEMPTS: "${RMM_NOTIFICATION_MAX_ATTEMPTS:-5}"
+      RMM_STABLE_AGENT_VERSION: "${RMM_STABLE_AGENT_VERSION:-0.9.0}"
+      RMM_AGENT_RECONNECT_TIMEOUT_SECONDS: "${RMM_AGENT_RECONNECT_TIMEOUT_SECONDS:-300}"
+      RMM_UPDATE_MANIFEST_URL: "${RMM_UPDATE_MANIFEST_URL:-https://packages.daemonlord.ru/update-manifest.json}"
+      RMM_UPDATE_MANIFEST_SIGNATURE_URL: "${RMM_UPDATE_MANIFEST_SIGNATURE_URL:-https://packages.daemonlord.ru/update-manifest.sig}"
+      RMM_UPDATE_MANIFEST_PUBLIC_KEY: "${RMM_UPDATE_MANIFEST_PUBLIC_KEY:-/app/keys/rmm-openwrt.pem}"
+      RMM_SMTP_HOST: "${RMM_SMTP_HOST:-}"
+      RMM_SMTP_PORT: "${RMM_SMTP_PORT:-587}"
+      RMM_SMTP_USERNAME: "${RMM_SMTP_USERNAME:-}"
+      RMM_SMTP_PASSWORD: "${RMM_SMTP_PASSWORD:-}"
+      RMM_SMTP_FROM: "${RMM_SMTP_FROM:-}"
+      RMM_SMTP_TLS_MODE: "${RMM_SMTP_TLS_MODE:-starttls}"
+      RMM_SMTP_SERVER_NAME: "${RMM_SMTP_SERVER_NAME:-}"
+      RMM_TELEGRAM_BOT_TOKEN: "${RMM_TELEGRAM_BOT_TOKEN:-}"
+    ports:
+      - "${RMM_HTTP_BIND_IP:-127.0.0.1}:${RMM_HTTP_PORT:-18080}:8080"
+    volumes:
+      - rmm-data:/data
+      - postgres-tls-client:/run/postgres-tls:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+      - postgres-internal
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    restart: unless-stopped
+
   postgres-tls-init:
     image: "${RMM_POSTGRES_TLS_INIT_IMAGE:-ghcr.io/benya9669/openwrt-rmm-postgres-tls-init}:${RMM_RELEASE_VERSION:-0.13.0}"
     pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
@@ -34,8 +105,11 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
       - postgres-tls-server:/tls:ro
-      - ./deploy/postgres-tls/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
-      - ./deploy/postgres-tls/init-rmm-role.sh:/docker-entrypoint-initdb.d/010-rmm-role.sh:ro
+    configs:
+      - source: postgres-hba
+        target: /etc/postgresql/pg_hba.conf
+      - source: postgres-init-role
+        target: /docker-entrypoint-initdb.d/010-rmm-role.sh
     networks:
       - postgres-internal
     healthcheck:
@@ -46,28 +120,53 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  rmm-server:
+  tunnel-ssh:
+    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-0.13.0}"
+    pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
+    ports:
+      - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:${RMM_TUNNEL_SSH_PORT:-2222}:22"
+      - "${RMM_TUNNEL_OPERATOR_BIND_IP:-127.0.0.1}:22000-22099:22000-22099"
     environment:
-      RMM_DB_DRIVER: postgres
-      RMM_DATABASE_URL: "postgres://rmm@postgres:5432/rmm?sslmode=verify-full&sslrootcert=/run/postgres-tls/ca.crt"
-      PGPASSWORD: "${RMM_POSTGRES_PASSWORD:?set a strong RMM_POSTGRES_PASSWORD}"
-      RMM_DB_MAX_OPEN_CONNS: "${RMM_DB_MAX_OPEN_CONNS:-16}"
-      RMM_DB_MAX_IDLE_CONNS: "${RMM_DB_MAX_IDLE_CONNS:-4}"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      RMM_TUNNEL_AUTH_TOKEN: "${RMM_TUNNEL_AUTH_TOKEN:-}"
+      RMM_TUNNEL_AUTH_URL: "http://rmm-server:8080/internal/tunnel/authorized-key"
+      RMM_TUNNEL_ACTIVE_PORTS_URL: "http://rmm-server:8080/internal/tunnel/active-ports"
     volumes:
-      - postgres-tls-client:/run/postgres-tls:ro
-    networks:
-      - default
-      - postgres-internal
+      - tunnel-data:/data
+      - "${RMM_TUNNEL_KEY_PATH:-./secrets/router_tunnel_key.pub}:/bootstrap/router_tunnel_key.pub:ro"
+    pids_limit: 128
+    mem_limit: 128m
+    restart: unless-stopped
+
+volumes:
+  rmm-data:
+    name: "${RMM_DATA_VOLUME:-openwrt-rmm_rmm-data}"
+  tunnel-data:
+    name: "${RMM_TUNNEL_DATA_VOLUME:-openwrt-rmm_tunnel-data}"
+  postgres-data:
+  postgres-tls-ca:
+  postgres-tls-server:
+  postgres-tls-client:
 
 networks:
   postgres-internal:
     internal: true
 
-volumes:
-  postgres-data:
-  postgres-tls-ca:
-  postgres-tls-server:
-  postgres-tls-client:
+configs:
+  postgres-hba:
+    content: |
+      # Local socket access is needed for the official image's initialization.
+      local all all trust
+      # Only TLS connections are accepted from the Compose network.
+      hostssl all all 0.0.0.0/0 scram-sha-256
+      hostssl all all ::/0 scram-sha-256
+  postgres-init-role:
+    content: |
+      #!/bin/sh
+      set -e
+      printenv RMM_POSTGRES_PASSWORD >/dev/null
+      psql -v ON_ERROR_STOP=1 --username postgres --dbname rmm <<'SQL'
+      \getenv app_password RMM_POSTGRES_PASSWORD
+      CREATE ROLE rmm LOGIN PASSWORD :'app_password';
+      GRANT CONNECT ON DATABASE rmm TO rmm;
+      GRANT USAGE, CREATE ON SCHEMA public TO rmm;
+      SQL

@@ -4,6 +4,11 @@
 `0.12.3` и тем же томом `rmm-data`. Целевые версии: сервер и туннель `0.13.0`,
 агент `0.9.0`. PostgreSQL 18 и инициализатор его TLS входят в тот же
 Compose-проект. Имена проекта и тома RMM при переходе сохраняются.
+Для Arcane используйте один файл `compose.postgres.yaml`: он содержит сервер,
+туннель, PostgreSQL и инициализатор TLS. Сохраните прежнее имя проекта и
+точные имена томов `RMM_DATA_VOLUME` и `RMM_TUNNEL_DATA_VOLUME`.
+Конфигурация PostgreSQL встроена в Compose-файл; существующий публичный ключ
+туннеля должен оставаться доступным по пути `RMM_TUNNEL_KEY_PATH` на хосте Arcane.
 
 ## 0. Проверить релизы и подготовить окно работ
 
@@ -16,6 +21,8 @@ manifest и пакеты для нужных версий OpenWrt. До публ
 
 Запланируйте окно с остановкой записи. Если стек управляется Arcane или другим
 GitOps-контроллером, приостановите его автоматическую сверку на всё окно.
+Подготовьте в Arcane замену содержимого стека на `compose.postgres.yaml`,
+переменные PostgreSQL добавьте в защищённые переменные стека.
 Подготовьте место для полной копии `rmm-data`, снимка SQLite, PostgreSQL и
 дампов. Убедитесь, что есть проверенный способ хранить резервные копии вне
 сервера. Не запускайте второй RMM с production-томом.
@@ -43,8 +50,8 @@ RMM_POSTGRES_ADMIN_PASSWORD=<другой-сильный-пароль-админ
 проверьте и заранее загрузите образы:
 
 ```sh
-docker compose -f compose.yaml -f compose.postgres.yaml config --quiet
-docker compose -f compose.yaml -f compose.postgres.yaml pull rmm-server tunnel-ssh postgres postgres-tls-init
+docker compose -f compose.postgres.yaml config --quiet
+docker compose -f compose.postgres.yaml pull rmm-server tunnel-ssh postgres postgres-tls-init
 docker pull alpine:3.23
 ```
 
@@ -102,7 +109,7 @@ docker run --rm --network none -v "$rehearsal_volume:/data" -v "$backup_dir:/bac
 rehearsal_compose() {
   RMM_DATA_VOLUME="$rehearsal_volume" RMM_HTTP_PORT=18091 \
   RMM_SMTP_HOST='' RMM_TELEGRAM_BOT_TOKEN='' \
-    docker compose -p "$rehearsal" -f compose.yaml -f compose.postgres.yaml "$@"
+    docker compose -p "$rehearsal" -f compose.postgres.yaml "$@"
 }
 rehearsal_compose up -d rmm-server
 rehearsal_compose ps
@@ -131,9 +138,9 @@ rehearsal_compose down
 внешний доступ закрыт. Запустите сервер с PostgreSQL:
 
 ```sh
-docker compose -f compose.yaml -f compose.postgres.yaml up -d rmm-server
-docker compose -f compose.yaml -f compose.postgres.yaml ps
-docker compose -f compose.yaml -f compose.postgres.yaml logs --tail 100 rmm-server
+docker compose -f compose.postgres.yaml up -d rmm-server
+docker compose -f compose.postgres.yaml ps
+docker compose -f compose.postgres.yaml logs --tail 100 rmm-server
 curl --fail --silent --show-error http://127.0.0.1:18080/healthz
 ```
 
@@ -146,7 +153,7 @@ curl --fail --silent --show-error http://127.0.0.1:18080/healthz
 Сверьте пользователей, устройства, критичные очереди и TLS-подключение:
 
 ```sh
-docker compose -f compose.yaml -f compose.postgres.yaml exec -T rmm-server sh -c \
+docker compose -f compose.postgres.yaml exec -T rmm-server sh -c \
   'PGSSLMODE=verify-full PGSSLROOTCERT=/run/postgres-tls/ca.crt psql -h postgres -U rmm -d rmm -Atc "SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM devices), (SELECT count(*) FROM commands), (SELECT count(*) FROM database_imports), (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid())"'
 ```
 
@@ -156,8 +163,8 @@ docker compose -f compose.yaml -f compose.postgres.yaml exec -T rmm-server sh -c
 команду и удалённую LuCI-сессию:
 
 ```sh
-docker compose -f compose.yaml -f compose.postgres.yaml up -d tunnel-ssh
-docker compose -f compose.yaml -f compose.postgres.yaml ps
+docker compose -f compose.postgres.yaml up -d tunnel-ssh
+docker compose -f compose.postgres.yaml ps
 ```
 
 ## 4. Включить резервирование PostgreSQL и обновить агентов
@@ -192,7 +199,7 @@ rehearsal_compose down
 контейнере и включите их в защищённое резервирование:
 
 ```sh
-tls_container="$(docker compose -f compose.yaml -f compose.postgres.yaml ps -a -q postgres-tls-init)"
+tls_container="$(docker compose -f compose.postgres.yaml ps -a -q postgres-tls-init)"
 docker inspect "$tls_container" --format '{{range .Mounts}}{{println .Name .Destination}}{{end}}'
 ```
 
@@ -237,7 +244,7 @@ uci commit rmm-agent
 образов:
 
 ```sh
-docker compose -f compose.yaml -f compose.postgres.yaml stop rmm-server tunnel-ssh
+docker compose -f compose.postgres.yaml stop rmm-server tunnel-ssh
 # Здесь восстановите прежние .env и Compose-конфигурацию.
 docker compose -f compose.yaml pull rmm-server tunnel-ssh
 docker compose -f compose.yaml up -d --force-recreate rmm-server tunnel-ssh

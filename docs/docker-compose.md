@@ -1,6 +1,6 @@
 # Docker Compose Deployment
 
-The Compose stack contains two services:
+The SQLite Compose stack contains two services:
 
 - `rmm-server`: Go API, web UI, and persistent SQLite database.
 - `tunnel-ssh`: SSH endpoint used by routers for reverse SSH tunnels.
@@ -8,7 +8,8 @@ The Compose stack contains two services:
 The base `compose.yaml` pulls versioned GHCR images and is self-contained for GitOps
 controllers that accept only one Compose file. `compose.release.yaml` remains compatible
 with older deployments but is no longer required. Source builds use `compose.dev.yaml`.
-For PostgreSQL in the same project, add `compose.postgres.yaml` and follow the
+For PostgreSQL in the same project, use the standalone `compose.postgres.yaml`
+as the single stack file and follow the
 [production migration guide](postgres-production-migration.md).
 
 Published ports:

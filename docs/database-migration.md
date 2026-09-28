@@ -3,7 +3,7 @@
 For an existing production deployment, follow the
 [step-by-step production cutover guide](postgres-production-migration.md).
 
-The server supports SQLite (default) and PostgreSQL 16-18. The Compose override
+The server supports SQLite (default) and PostgreSQL 16-18. The standalone PostgreSQL Compose file
 starts PostgreSQL 18 on a private network and selects it for RMM. On startup, an empty PostgreSQL
 database receives the current schema. If `/data/rmm.db` exists, the server first
 creates a standalone recovery copy at `/data/rmm.db.pre-postgres-<sha256-prefix>.db`,
@@ -30,19 +30,19 @@ server does not start and the PostgreSQL transaction rolls back.
 
    ```sh
    docker compose -f compose.yaml stop rmm-server
-   docker compose -f compose.yaml -f compose.postgres.yaml pull rmm-server tunnel-ssh postgres postgres-tls-init
-   docker compose -f compose.yaml -f compose.postgres.yaml up -d
+   docker compose -f compose.postgres.yaml pull rmm-server tunnel-ssh postgres postgres-tls-init
+   docker compose -f compose.postgres.yaml up -d
    ```
 
-   The override uses pinned release images for the server and one-shot certificate initializer, starts
+   This file uses pinned release images for the server and one-shot certificate initializer, starts
    PostgreSQL 18 without a published database port, and keeps the existing
    `rmm-data` volume. It creates separate volumes for PostgreSQL data, the CA
    signing key, the server certificate, and the client CA certificate. Only the
    CA certificate is mounted into RMM. PostgreSQL rejects non-TLS network
    connections; RMM uses `sslmode=verify-full` for the internal `postgres` name.
    For a fresh installation without SQLite, the server creates the schema. For a
-   local source build, add both `-f compose.dev.yaml` and
-   `-f compose.postgres.dev.yaml` after the PostgreSQL override.
+   local source build, add `-f compose.dev.yaml` and
+   `-f compose.postgres.dev.yaml` after `-f compose.postgres.yaml`.
    Connection pool limits can be set with `RMM_DB_MAX_OPEN_CONNS` (default 16)
    and `RMM_DB_MAX_IDLE_CONNS` (default 4).
 
