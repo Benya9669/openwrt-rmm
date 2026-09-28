@@ -42,11 +42,14 @@ Benya9669/luci-theme-rmm luci-v0.1.0 <64-character-SHA256-of-SHA256SUMS>
 The builder verifies the locked manifest and every package hash before adding
 the packages to the OpenWrt 24.10/25.12 feed indexes. A lock containing `none`
 leaves the current agent release behavior unchanged. The LuCI release workflow
-dispatches `sync-luci-feed.yml`, which downloads the deployed Pages site,
+dispatches `sync-luci-feed.yml`, which downloads the latest complete feed
+snapshot from the `package-repository-site` Actions artifact,
 adds the packages to the **stable** target directories, rebuilds and signs
 their indexes, and publishes the shared feed immediately. Existing versioned
 agent feeds stay immutable. It publishes a signed `luci-release.lock` so the
 next agent release includes the active theme packages in its new feed too.
+Each successful feed deployment saves a fresh snapshot for 90 days. If no
+snapshot is retained, publication stops before replacing the existing feed.
 The separate LuCI GitHub Release keeps the downloadable theme/dashboard `.ipk`
 and `.apk` files; they are not duplicated in the RMM agent GitHub Release.
 Agent and legacy publication runs share the feed deployment lock with LuCI

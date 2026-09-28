@@ -52,16 +52,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          artifact_url="$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq '.[0].artifact_url // empty')"
-          test -n "$artifact_url"
-          curl --fail --location --retry 3 \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            "$artifact_url" -o site.zip
-          mkdir site
-          unzip -q site.zip -d site
-          test -s site/update-manifest.json
-          test -s site/update-manifest.sig
-          test -d site/feeds/stable/openwrt
+          bash scripts/download-package-repository-site.sh site
           openssl dgst -sha256 \
             -verify keys/openwrt/apk/rmm-openwrt.pem \
             -signature site/update-manifest.sig site/update-manifest.json
@@ -158,3 +149,10 @@ jobs:
       - name: Deploy updated shared feed
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-repository-site
+          path: site
+          if-no-files-found: error
+          retention-days: 90

@@ -231,13 +231,8 @@ jobs:
             combined-artifacts \
             package-repository-new \
             "${AGENT_TAG#agent-v}"
-          artifact_url="$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq '.[0].artifact_url // empty')"
-          test -n "$artifact_url"
-          curl --fail --location --retry 3 \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            "$artifact_url" -o previous-pages.zip
-          mkdir previous-pages package-repository
-          unzip -q previous-pages.zip -d previous-pages
+          bash scripts/download-package-repository-site.sh previous-pages
+          mkdir package-repository
           test -s previous-pages/update-manifest.json
           test -s previous-pages/update-manifest.sig
           openssl dgst -sha256 \
@@ -324,3 +319,10 @@ jobs:
       - name: Deploy complete package repository to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-repository-site
+          path: package-repository
+          if-no-files-found: error
+          retention-days: 90

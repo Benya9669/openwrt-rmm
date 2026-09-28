@@ -324,41 +324,15 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#agent-v}"
-          artifact_url=""
-          deployment_error="$(mktemp)"
-          if ! artifact_url="$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments?per_page=1" --jq '.[0].artifact_url // empty' 2>"$deployment_error")"; then
-            if grep -q 'HTTP 404' "$deployment_error"; then
-              # The legacy repository has no readable Pages deployment artifact.
-              # Bootstrap the retained immutable-feed layout without treating the error as a URL.
-              artifact_url=""
-            else
-              cat "$deployment_error" >&2
-              exit 1
-            fi
-          fi
-          rm -f "$deployment_error"
-          if [ -n "$artifact_url" ]; then
-            mkdir previous-pages
-            curl --fail --location --retry 3 \
-              --header "Authorization: Bearer ${GH_TOKEN}" \
-              "$artifact_url" -o previous-pages.zip
-            unzip -q previous-pages.zip -d previous-pages
-          elif [ -z "$artifact_url" ]; then
-            echo "No readable prior Pages deployment; publishing the first retained immutable feed."
-          else
-            echo "Unable to retrieve the deployed Pages artifact; refusing to discard retained feeds." >&2
-            exit 1
-          fi
+          bash scripts/download-package-repository-site.sh previous-pages
           bash scripts/prepare-package-repository.sh \
             release-assets \
             package-repository \
             "$version"
-          if [ -d previous-pages ]; then
-            cp -a previous-pages/. package-repository/
-            # Reapply the new release after retaining every prior immutable feed.
-            bash scripts/prepare-package-repository.sh release-assets package-repository-new "$version"
-            cp -a package-repository-new/. package-repository/
-          fi
+          cp -a previous-pages/. package-repository/
+          # Reapply the new release after retaining every prior immutable feed.
+          bash scripts/prepare-package-repository.sh release-assets package-repository-new "$version"
+          cp -a package-repository-new/. package-repository/
           mkdir -p "package-repository/manifests/$version"
           cp package-repository/update-manifest.json "package-repository/manifests/$version/update-manifest.json"
 
@@ -405,7 +379,7 @@ jobs:
           name: package-repository-site
           path: package-repository
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
 
       - name: Attest agent release assets
         uses: actions/attest-build-provenance@v2
