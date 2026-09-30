@@ -98,12 +98,15 @@ jobs:
             scripts/test-tunnel-authorized-key.sh \
             scripts/fetch-luci-release.sh \
             scripts/test-fetch-luci-release.sh \
+            scripts/stage-luci-stable-packages.sh \
+            scripts/test-stage-luci-stable-packages.sh \
             scripts/prepare-package-repository.sh \
             scripts/unpack-release-package-assets.sh
           bash scripts/test-agent-uci-sync.sh
           bash scripts/test-package-repository.sh
           bash scripts/test-tunnel-authorized-key.sh
           bash scripts/test-fetch-luci-release.sh
+          bash scripts/test-stage-luci-stable-packages.sh
 
           current_matrix="$(awk '
             /Tagged releases cover the current OpenWrt lines/ { in_matrix = 1 }

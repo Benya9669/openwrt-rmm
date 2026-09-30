@@ -49,7 +49,18 @@ dispatches `sync-luci-feed.yml`, which downloads the latest complete feed
 snapshot from the `package-repository-site` Actions artifact,
 adds the packages to the **stable** target directories, rebuilds and signs
 their indexes, and publishes the shared feed immediately. Existing versioned
-agent feeds stay immutable. It publishes a signed `luci-release.lock` so the
+agent feeds stay immutable. Before indexing stable targets, synchronization
+replaces superseded `luci-theme-rmm` and `luci-app-rmm-dashboard` package files
+with the two verified release packages. Other packages and versioned feeds
+are preserved; older LuCI releases remain available in GitHub Releases.
+The replacement requires both new packages before removing any old versions
+and is safe to repeat. No additional configuration is needed. Check the sync
+log for `Removing superseded stable LuCI package`, and verify that the stable
+index contains only the requested version of these two packages. Run
+`bash scripts/test-stage-luci-stable-packages.sh` to check replacement for both
+IPK and APK, preservation of archives and unrelated packages, and rejection
+of incomplete input.
+It publishes a signed `luci-release.lock` so the
 next agent release includes the active theme packages in its new feed too.
 Each successful feed deployment saves a fresh snapshot for 90 days. If no
 snapshot is retained, publication stops before replacing the existing feed.

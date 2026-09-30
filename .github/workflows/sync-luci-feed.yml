@@ -38,6 +38,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check stable LuCI package replacement
+        shell: bash
+        run: |
+          bash -n scripts/stage-luci-stable-packages.sh scripts/test-stage-luci-stable-packages.sh
+          bash scripts/test-stage-luci-stable-packages.sh
+
       - name: Validate release reference
         env:
           LUCI_TAG: ${{ github.event.client_payload.tag || inputs.luci_tag }}
@@ -103,7 +109,7 @@ jobs:
             for feed in site/feeds/stable/openwrt/"$release"/*; do
               test -d "$feed" || continue
               (cd "$feed" && sha256sum --check SHA256SUMS)
-              cp "luci-${release}"/* "$feed"/
+              bash scripts/stage-luci-stable-packages.sh "luci-${release}" "$feed"
               target_count=$((target_count + 1))
             done
             test "$target_count" -gt 0
