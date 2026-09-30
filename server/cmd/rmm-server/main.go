@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"rmm-openwrt/internal/commandsig"
@@ -241,7 +243,14 @@ func main() {
 	}
 
 	log.Printf("rmm server listening on %s", addr)
-	log.Fatal(srv.ListenAndServe())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := serve(ctx, srv, handler); err != nil {
+		log.Printf("server stopped with error: %v", err)
+		// Explicitly close before exiting; os.Exit does not run deferred cleanup.
+		st.Close()
+		os.Exit(1)
+	}
 }
 
 func openConfiguredStore(ctx context.Context, dbPath, commandKeyPath, dataKeyPath string, insecureDevMode bool) (*store.Store, error) {

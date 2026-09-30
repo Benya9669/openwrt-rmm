@@ -15,6 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
   -ldflags="-s -w -X main.serverVersion=${RMM_SERVER_VERSION} -X main.serverRevision=${RMM_SOURCE_REVISION} -X main.stableAgentVersion=${RMM_STABLE_AGENT_VERSION}" \
   -o /out/rmm-server ./server/cmd/rmm-server
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/rmm-db-migrate ./server/cmd/rmm-db-migrate
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/rmm-db-verify ./server/cmd/rmm-db-verify
 
 FROM alpine:3.23
 
@@ -23,6 +24,7 @@ RUN apk add --no-cache ca-certificates su-exec tzdata postgresql18-client
 WORKDIR /app
 COPY --from=build /out/rmm-server /usr/local/bin/rmm-server
 COPY --from=build /out/rmm-db-migrate /usr/local/bin/rmm-db-migrate
+COPY --from=build /out/rmm-db-verify /usr/local/bin/rmm-db-verify
 COPY web ./web
 COPY keys/openwrt/apk/rmm-openwrt.pem ./keys/rmm-openwrt.pem
 COPY deploy/server/entrypoint.sh /usr/local/bin/rmm-entrypoint

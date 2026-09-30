@@ -28,7 +28,8 @@ while :; do
 					22|''|*[!0-9]*) continue ;;
 				esac
 				if [ "$port" -ge 22000 ] && [ "$port" -le 22199 ] && ! grep -qx "$port" "$allowed_file"; then
-					if [ -r "/proc/$pid/comm" ] && grep -qx 'sshd' "/proc/$pid/comm"; then
+					# OpenSSH 9.8+ separates the listener from sshd-session.
+					if [ -r "/proc/$pid/comm" ] && grep -Eqx 'sshd|sshd-session' "/proc/$pid/comm"; then
 						echo "Closing revoked or expired tunnel listener on port $port (pid $pid)." >&2
 						kill "$pid" 2>/dev/null || true
 					fi

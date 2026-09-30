@@ -72,6 +72,7 @@ docker compose ps
 - [Настройка NPMplus](docs/npmplus.md)
 - [Wildcard-доступ к роутерам в стиле KeenDNS](docs/keendns.md)
 - [Архитектура](docs/architecture.md)
+- [Наблюдаемость и интеграционные проверки](docs/observability-and-ci.md)
 
 ## Установка агента OpenWrt
 

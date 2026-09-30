@@ -5,7 +5,17 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
-No unreleased changes.
+### Added
+
+- PostgreSQL 16/18 CI regression jobs covering migration, signed commands, LAN clients, concurrent command/notification claims, lease recovery and one-time enrollment.
+- Database-backed `/readyz` and administrator-authenticated Prometheus `/metrics` for database pools, command/delivery states, queue age and tunnel sessions.
+- Real-agent reverse SSH/cloud LuCI E2E with verified wildcard TLS, one-time grants, expiry and emergency revoke.
+- Isolated PostgreSQL backup recovery drill, read-only key/archive/signature verification, table hashes and real dump/restore CI on PostgreSQL 16/18.
+
+### Fixed
+
+- SIGINT/SIGTERM shutdown removes readiness, closes SSE streams, drains HTTP requests and stops background workers before closing the database.
+- Tunnel session reaping recognizes OpenSSH `sshd-session`; Compose grants `SYS_PTRACE` only to the isolated tunnel service so the reaper can identify socket owners.
 
 ## server-v0.13.2
 

@@ -72,6 +72,7 @@ the required environment values first.
 - [KeenDNS-like wildcard router access](docs/keendns.md)
 - [Architecture](docs/architecture.md)
 - [PostgreSQL backend and automatic migration](docs/database-migration.md)
+- [Observability and PostgreSQL/remote-access CI (Russian)](docs/observability-and-ci.md)
 - [Production migration to PostgreSQL (Russian)](docs/postgres-production-migration.md)
 
 ## Installing the OpenWrt agent

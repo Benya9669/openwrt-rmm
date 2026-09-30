@@ -66,6 +66,8 @@ func (a *App) handleEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-a.lifecycleContext.Done():
+			return
 		case event := <-updates:
 			if !writeEvent(fmt.Sprintf("event: %s\ndata: {}\n\n", event)) {
 				return

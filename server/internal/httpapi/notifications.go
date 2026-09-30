@@ -579,14 +579,21 @@ func validTelegramChatID(value string) bool {
 	return err == nil
 }
 
-func (a *App) alertNotificationLoop() {
+func (a *App) alertNotificationLoop(ctx context.Context) {
 	ticker := time.NewTicker(a.notificationWorkerInterval)
 	defer ticker.Stop()
 	for {
-		if err := a.runAlertNotificationCycle(context.Background()); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := a.runAlertNotificationCycle(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("alert notification cycle failed: %v", err)
 		}
-		<-ticker.C
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -772,6 +779,11 @@ func (a *App) deliverNotification(ctx context.Context, delivery model.Notificati
 		err = sender.SendNotification(ctx, delivery.Destination, delivery.Title, delivery.Body)
 	}
 	if err != nil {
+		// An interrupted send stays leased for recovery; shutdown must not turn
+		// the last attempt into a dead letter without a delivery result.
+		if ctx.Err() != nil {
+			return delivery
+		}
 		log.Printf("notification delivery %s via %s failed: %v", delivery.ID, delivery.Channel, err)
 		delivery.Status = "retry"
 		delivery.Error = "Канал не подтвердил доставку. Проверьте его настройки и повторите тест."
@@ -783,7 +795,9 @@ func (a *App) deliverNotification(ctx context.Context, delivery model.Notificati
 			nextAttemptAt = &next
 			delivery.NextAttemptAt = &next
 		}
-		if completeErr := a.store.CompleteNotificationDelivery(context.Background(), delivery.ID, delivery.Status, delivery.Error, nextAttemptAt); completeErr != nil {
+		completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if completeErr := a.store.CompleteNotificationDelivery(completionCtx, delivery.ID, delivery.Status, delivery.Error, nextAttemptAt); completeErr != nil {
 			log.Printf("notification delivery %s completion failed: %v", delivery.ID, completeErr)
 		}
 		return delivery
@@ -792,7 +806,9 @@ func (a *App) deliverNotification(ctx context.Context, delivery model.Notificati
 	delivery.Status = "sent"
 	delivery.SentAt = &now
 	delivery.NextAttemptAt = nil
-	if completeErr := a.store.CompleteNotificationDelivery(context.Background(), delivery.ID, "sent", "", nil); completeErr != nil {
+	completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if completeErr := a.store.CompleteNotificationDelivery(completionCtx, delivery.ID, "sent", "", nil); completeErr != nil {
 		log.Printf("notification delivery %s completion failed: %v", delivery.ID, completeErr)
 	}
 	return delivery

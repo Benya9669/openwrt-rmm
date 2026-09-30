@@ -63,6 +63,17 @@ production-проверки находятся в `CHECKLIST.md`, UI-крите�
 
 ## Порядок дальнейшей разработки
 
+### Проверки и эксплуатация — 2026-09-30
+
+- [x] Добавлены отдельные CI workflows для PostgreSQL 16/18 и real-agent reverse SSH/cloud LuCI E2E; локально проверены обе версии БД и полный SSH/TLS сценарий.
+- [x] Конкурентные regression tests для команд, notification leases, enrollment и LuCI access grants, подписи после DB round trip и NULL LAN timestamps.
+- [x] `/readyz`, административный Prometheus `/metrics`, остановка SSE/workers и drain HTTP; Compose даёт серверу 40 секунд на завершение.
+- [x] Исправлен reaper для `sshd-session`; `SYS_PTRACE` ограничен tunnel-контейнером и проверен E2E по expiry/emergency revoke.
+- [x] Добавлен изолированный PostgreSQL recovery drill: реальный dump/restore, сравнение таблиц, ключи, архивы, подписи и восстановленные login/heartbeat.
+- [ ] Проверить новые workflows после отправки изменений в GitHub и выполнить аппаратный OpenWrt/production smoke. Локальные проверки не означают публикацию или deploy.
+
+Настройка, запуск и ограничения: `docs/observability-and-ci.md`.
+
 ### 0. Стабилизация и выпуск текущего `main`
 
 - [x] Выпустить `server-v0.9.1`, `server-v0.9.2` и `agent-v0.6.9`.

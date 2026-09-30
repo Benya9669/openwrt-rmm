@@ -215,11 +215,13 @@ func (a *App) handlePasswordResetRequest(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		resetURL := a.publicURL + "/login#password-reset=" + url.QueryEscape(token)
-		go func(userID, recipient, targetURL string) {
-			if err := a.passwordResetSender.SendPasswordReset(context.Background(), recipient, targetURL); err != nil {
-				log.Printf("password reset email delivery failed for user %s: %v", userID, err)
+		a.startWorker(func(ctx context.Context) {
+			ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			defer cancel()
+			if err := a.passwordResetSender.SendPasswordReset(ctx, user.Email, resetURL); err != nil {
+				log.Printf("password reset email delivery failed for user %s: %v", user.ID, err)
 			}
-		}(user.ID, user.Email, resetURL)
+		})
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"status":  "accepted",

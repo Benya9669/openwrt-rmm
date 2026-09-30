@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -165,6 +166,11 @@ type Config struct {
 }
 
 type App struct {
+	lifecycleContext           context.Context
+	lifecycleCancel            context.CancelFunc
+	workerMu                   sync.Mutex
+	workers                    sync.WaitGroup
+	stopping                   bool
 	store                      Store
 	enrollmentToken            string
 	allowLegacyEnrollment      bool
@@ -487,21 +493,26 @@ func NewHandler(s Store, cfg Config) http.Handler {
 			mux.Handle("POST "+path, a.operatorAuth(http.HandlerFunc(a.handleLuCIFallback)))
 		}
 	}
+	a.lifecycleContext, a.lifecycleCancel = context.WithCancel(context.Background())
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		if err := a.store.Ping(r.Context()); err != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := a.store.Ping(ctx); err != nil {
 			writeError(w, http.StatusServiceUnavailable, "database unavailable")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("GET /readyz", a.handleReadiness)
+	mux.Handle("GET /metrics", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleMetrics))))
 	if cfg.StaticDir != "" {
 		mux.Handle("GET /", staticHandler(cfg.StaticDir))
 	}
 	if cfg.BackgroundTasks {
-		go a.alertNotificationLoop()
+		a.startWorker(a.alertNotificationLoop)
 	}
 
-	return withRequestLogging(a.routeByHost(mux))
+	return &managedHandler{Handler: withRequestLogging(a.routeByHost(mux)), app: a}
 }
 
 func (a *App) handleEnroll(w http.ResponseWriter, r *http.Request) {
@@ -586,11 +597,11 @@ func (a *App) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	} else if deliveries, queueErr := a.queueDeviceNotifications(r.Context(), req.DeviceID); queueErr != nil {
 		log.Printf("queue notifications for %s: %v", req.DeviceID, queueErr)
 	} else if len(deliveries) > 0 {
-		go func() {
-			if err := a.processNotificationQueue(context.Background()); err != nil {
+		a.startWorker(func(ctx context.Context) {
+			if err := a.processNotificationQueue(ctx); err != nil {
 				log.Printf("process notification queue: %v", err)
 			}
-		}()
+		})
 	}
 	a.events.publish("devices")
 	nextDeviceToken, deviceTokenEpoch, err := a.store.PendingDeviceCredential(r.Context(), req.DeviceID)

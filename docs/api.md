@@ -65,6 +65,12 @@ token; a second exchange is rejected.
 
 ## Health
 
+`GET /readyz` returns `{"status":"ready"}` with HTTP 200 after startup migration/key
+validation while the database is reachable, or HTTP 503 during shutdown/database
+failure. `GET /metrics` returns Prometheus text for an authenticated administrator
+only (401 without authentication, 403 for a non-admin). See
+[observability and CI](observability-and-ci.md) for metric names and configuration.
+
 ```http
 GET /healthz
 ```
