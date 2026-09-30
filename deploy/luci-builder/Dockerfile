@@ -184,7 +184,9 @@ RUN --mount=type=secret,id=openwrt_usign_secret_b64,uid=1000,required=false \
         -exec cp '{}' /home/builder/artifacts/ \;; \
     find /home/builder/external-luci -maxdepth 1 -type f \
         \( -name 'luci-theme-rmm*.apk' -o -name 'luci-theme-rmm*.ipk' \
-           -o -name 'luci-app-rmm-dashboard*.apk' -o -name 'luci-app-rmm-dashboard*.ipk' \) \
+           -o -name 'luci-app-rmm-dashboard*.apk' -o -name 'luci-app-rmm-dashboard*.ipk' \
+           -o -name 'luci-i18n-rmm-dashboard-zh-cn*.apk' -o -name 'luci-i18n-rmm-dashboard-zh-cn*.ipk' \
+           -o -name 'luci-i18n-rmm-dashboard-ru*.apk' -o -name 'luci-i18n-rmm-dashboard-ru*.ipk' \) \
         -exec cp '{}' /home/builder/artifacts/ \;; \
     test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipk' \) -print -quit)"; \
     test -n "$(find /home/builder/artifacts -maxdepth 1 -type f \( -name 'luci-i18n-rmm-agent-ru*.apk' -o -name 'luci-i18n-rmm-agent-ru*.ipk' \) -print -quit)"; \

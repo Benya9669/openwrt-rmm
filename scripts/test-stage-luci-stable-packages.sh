@@ -45,5 +45,31 @@ for format in ipk apk; do
     echo 'accepted a path resolving to an archive destination' >&2; exit 1
   fi
   (cd "$archive" && sha256sum --check "$fixture/archive-$format.sha")
+
+  # New releases replace only the dashboard's own translation.
+  translation=luci-i18n-rmm-dashboard-zh-cn
+  printf 'translated\n' > "$source_dir/${translation}_0.5.0-r1_all.$format"
+  printf 'old translation\n' > "$feed/${translation}_0.4.0-r1_all.$format"
+  bash scripts/stage-luci-stable-packages.sh "$source_dir" "$feed"
+  bash scripts/stage-luci-stable-packages.sh "$source_dir" "$feed"
+  test ! -e "$feed/${translation}_0.4.0-r1_all.$format"
+  cmp "$source_dir/${translation}_0.5.0-r1_all.$format" "$feed/${translation}_0.5.0-r1_all.$format"
+  test "$(find "$feed" -type f | wc -l)" -eq 7
+  (cd "$feed" && sha256sum --check "$fixture/unrelated-$format.sha")
+  # A legacy two-package import preserves the installed translation.
+  mv "$source_dir/${translation}_0.5.0-r1_all.$format" "$fixture/translation-$format"
+  bash scripts/stage-luci-stable-packages.sh "$source_dir" "$feed"
+  cmp "$fixture/translation-$format" "$feed/${translation}_0.5.0-r1_all.$format"
+
+  mv "$fixture/translation-$format" "$source_dir/${translation}_0.5.0-r1_all.$format"
+  russian=luci-i18n-rmm-dashboard-ru
+  printf 'russian\n' > "$source_dir/${russian}_0.5.0-r1_all.$format"
+  printf 'old russian\n' > "$feed/${russian}_0.4.0-r1_all.$format"
+  bash scripts/stage-luci-stable-packages.sh "$source_dir" "$feed"
+  bash scripts/stage-luci-stable-packages.sh "$source_dir" "$feed"
+  test ! -e "$feed/${russian}_0.4.0-r1_all.$format"
+  cmp "$source_dir/${russian}_0.5.0-r1_all.$format" "$feed/${russian}_0.5.0-r1_all.$format"
+  test "$(find "$feed" -type f | wc -l)" -eq 8
+  (cd "$feed" && sha256sum --check "$fixture/unrelated-$format.sha")
 done
 echo 'Stable LuCI replacement checks passed'

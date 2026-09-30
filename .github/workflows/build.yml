@@ -308,7 +308,7 @@ jobs:
             artifact="$(basename "$(dirname "$file")")"
             cp "$file" "publish/${artifact}-$(basename "$file")"
           done < <(find release-assets -type f \( -name '*.ipk' -o -name '*.apk' \) \
-            ! -name 'luci-theme-rmm*' ! -name 'luci-app-rmm-dashboard*' -print | sort)
+            ! -name 'luci-theme-rmm*' ! -name 'luci-app-rmm-dashboard*' ! -name 'luci-i18n-rmm-dashboard-zh-cn*' ! -name 'luci-i18n-rmm-dashboard-ru*' -print | sort)
           find publish -type f -print -quit | grep -q .
 
       - name: Prepare release notes

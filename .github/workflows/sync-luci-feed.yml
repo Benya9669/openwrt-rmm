@@ -104,7 +104,8 @@ jobs:
           for release in 24.10.7 25.12.4; do
             mkdir "luci-${release}"
             bash scripts/fetch-luci-release.sh luci-release.lock "$release" "luci-${release}"
-            test "$(find "luci-${release}" -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) | wc -l)" -eq 2
+            package_count="$(find "luci-${release}" -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) | wc -l)"
+            test "$package_count" -ge 2 && test "$package_count" -le 4
             target_count=0
             for feed in site/feeds/stable/openwrt/"$release"/*; do
               test -d "$feed" || continue

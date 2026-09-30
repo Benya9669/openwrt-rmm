@@ -38,8 +38,9 @@ download_dir="$(mktemp -d)"
 trap 'rm -rf "$download_dir"' EXIT
 gh release download "$tag" --repo "$repository" --dir "$download_dir"
 printf '%s  %s\n' "$manifest_sha" "$download_dir/SHA256SUMS" | sha256sum --check --strict
-if [ "$(wc -l < "$download_dir/SHA256SUMS")" -ne 4 ] ||
-   ! awk '$2 !~ /^\.\/openwrt-(24\.10\.7|25\.12\.4)-luci-(theme-rmm|app-rmm-dashboard).*\.(ipk|apk)$/ { bad = 1 } END { exit bad }' "$download_dir/SHA256SUMS"; then
+manifest_count="$(wc -l < "$download_dir/SHA256SUMS")"
+if { [ "$manifest_count" -ne 4 ] && [ "$manifest_count" -ne 6 ] && [ "$manifest_count" -ne 8 ]; } ||
+   ! awk '$2 !~ /^\.\/openwrt-(24\.10\.7|25\.12\.4)-luci-(theme-rmm|app-rmm-dashboard|i18n-rmm-dashboard-(zh-cn|ru))[_-][0-9][A-Za-z0-9._+~-]*\.(ipk|apk)$/ { bad = 1 } END { exit bad }' "$download_dir/SHA256SUMS"; then
   echo "LuCI release manifest contains unexpected assets" >&2
   exit 1
 fi
@@ -51,7 +52,14 @@ if [[ "$openwrt_release" == 25.* ]]; then
 fi
 
 mkdir -p "$output_dir"
-for package_name in luci-theme-rmm luci-app-rmm-dashboard; do
+package_names=(luci-theme-rmm luci-app-rmm-dashboard)
+for language in zh-cn ru; do
+  if awk -v package="-luci-i18n-rmm-dashboard-$language" 'index($2, package) { found = 1 } END { exit !found }' "$download_dir/SHA256SUMS"; then
+    package_names+=("luci-i18n-rmm-dashboard-$language")
+  fi
+done
+test "$manifest_count" -eq "$((${#package_names[@]} * 2))"
+for package_name in "${package_names[@]}"; do
   matches=("$download_dir/openwrt-$openwrt_release-$package_name"*."$package_format")
   if [ "${#matches[@]}" -ne 1 ] || [ ! -f "${matches[0]}" ]; then
     echo "expected one $package_name $package_format for OpenWrt $openwrt_release" >&2

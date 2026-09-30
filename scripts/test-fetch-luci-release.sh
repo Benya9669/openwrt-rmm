@@ -11,7 +11,7 @@ for release in 24.10.7 25.12.4; do
     printf '%s\n' "$release/$name" > "$fixture/release/openwrt-$release-$name-0.1.0-r1.$format"
   done
 done
-(cd "$fixture/release" && sha256sum ./openwrt-* > SHA256SUMS)
+(cd "$fixture/release" && sha256sum --text ./openwrt-* > SHA256SUMS)
 manifest_sha="$(sha256sum "$fixture/release/SHA256SUMS" | cut -d ' ' -f 1)"
 printf 'Benya9669/luci-theme-rmm luci-v0.1.0 %s\n' "$manifest_sha" > "$fixture/lock"
 
@@ -45,6 +45,34 @@ if bash scripts/fetch-luci-release.sh "$fixture/bad-lock" 25.12.4 "$fixture/bad-
   exit 1
 fi
 test ! -e "$fixture/bad-output"
+
+# Six assets include the translation for both SDKs; old four-asset releases
+# above remain supported.
+for release in 24.10.7 25.12.4; do
+  format=ipk
+  if [[ "$release" == 25.* ]]; then format=apk; fi
+  printf 'translation\n' > "$fixture/release/openwrt-$release-luci-i18n-rmm-dashboard-zh-cn-0.5.0-r1.$format"
+done
+(cd "$fixture/release" && sha256sum --text ./openwrt-* > SHA256SUMS)
+manifest_sha="$(sha256sum "$fixture/release/SHA256SUMS" | cut -d ' ' -f 1)"
+printf 'Benya9669/luci-theme-rmm luci-v0.5.0 %s\n' "$manifest_sha" > "$fixture/translation-lock"
+for release in 24.10.7 25.12.4; do
+  bash scripts/fetch-luci-release.sh "$fixture/translation-lock" "$release" "$fixture/output-$release"
+  test "$(find "$fixture/output-$release" -type f | wc -l)" -eq 3
+done
+
+for release in 24.10.7 25.12.4; do
+  format=ipk
+  if [[ "$release" == 25.* ]]; then format=apk; fi
+  printf 'russian translation\n' > "$fixture/release/openwrt-$release-luci-i18n-rmm-dashboard-ru-0.5.0-r1.$format"
+done
+(cd "$fixture/release" && sha256sum --text ./openwrt-* > SHA256SUMS)
+manifest_sha="$(sha256sum "$fixture/release/SHA256SUMS" | cut -d ' ' -f 1)"
+printf 'Benya9669/luci-theme-rmm luci-v0.5.0 %s\n' "$manifest_sha" > "$fixture/russian-lock"
+for release in 24.10.7 25.12.4; do
+  bash scripts/fetch-luci-release.sh "$fixture/russian-lock" "$release" "$fixture/russian-$release"
+  test "$(find "$fixture/russian-$release" -type f | wc -l)" -eq 4
+done
 
 printf 'none\n' > "$fixture/none-lock"
 bash scripts/fetch-luci-release.sh "$fixture/none-lock" 25.12.4 "$fixture/none-output"
