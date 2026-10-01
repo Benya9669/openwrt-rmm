@@ -1,3 +1,3 @@
 # Repository, tag and SHA256 of the release SHA256SUMS file.
 # A push to main updating this file also retries the shared feed sync.
-Benya9669/luci-theme-rmm luci-v0.6.0 db2761f437dceb2ac69a357afdc9962772edf84313dc90e3d132336523ee754a
+Benya9669/luci-theme-rmm luci-v0.7.0 59191091546510572c28dddf4ca41556bf9caa4974621e611f015b8b46ef78c4
