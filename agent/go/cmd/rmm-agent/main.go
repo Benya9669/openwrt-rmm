@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	agentVersion          = "0.9.0"
+	agentVersion          = "0.10.0"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -177,6 +177,10 @@ func main() {
 		cancel()
 	}()
 
+	if err := recoverFleetProfiles(cfg, "/etc/config", execCommand); err != nil {
+		logf("profile recovery failed: %v", err)
+		os.Exit(1)
+	}
 	client := &http.Client{Timeout: 20 * time.Second}
 	if cfg.DeviceID == "" || cfg.DeviceToken == "" {
 		if err := rotateTunnelIdentity(cfg.TunnelIdentity); err != nil {
@@ -498,6 +502,7 @@ func buildInventory(cfg config) map[string]any {
 		"openwrt_version": openwrtVersion(),
 		"agent_version":   agentVersion,
 		"agent_runtime":   "go",
+		"rmm_features":    []string{"network_topology", "diagnostic_report", "remote_access_modes", "uci_profile_preview", "uci_profile_apply", "uci_profile_rollback"},
 		"agent_package":   "rmm-agent-go-production",
 		"package_manager": packageManager(),
 		"openwrt_release": openwrtRelease(),
@@ -758,7 +763,31 @@ func processCommand(ctx context.Context, client *http.Client, cfg config, cmd co
 	_ = marker.Close()
 
 	output, exitCode := runCommand(ctx, cfg, cmd)
+	if strings.HasPrefix(cmd.Type, "uci_profile_") {
+		output, exitCode = runFleetProfile(ctx, cfg, cmd, "/etc/config", execCommand, serverReachable, func(ctx context.Context) error {
+			timer := time.NewTimer(15 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+				return nil
+			}
+		})
+	}
 	resultDetails := commandMetadata()
+	if cmd.Type == "uci_profile_preview" && exitCode == 0 {
+		var report map[string]any
+		if json.Unmarshal([]byte(output), &report) == nil {
+			resultDetails["profile"] = report
+		}
+	}
+	if cmd.Type == "diagnostic_report" {
+		var diagnostics diagnosticReport
+		if json.Unmarshal([]byte(output), &diagnostics) == nil {
+			resultDetails["diagnostics"] = diagnostics
+		}
+	}
 	if cmd.Type == "agent_update" || cmd.Type == "agent_rollback" {
 		output, exitCode, resultDetails = agentPackageOperation(ctx, client, cfg, cmd.Type, cmd.Args)
 	}
@@ -840,6 +869,8 @@ func runCommand(ctx context.Context, cfg config, cmd command) (string, int) {
 		_ = json.Unmarshal(cmd.Args, &args)
 	}
 	switch cmd.Type {
+	case "diagnostic_report":
+		return runDiagnostics(ctx, args, execCommand)
 	case "ping":
 		target := commandTarget(args, "1.1.1.1")
 		if !safeHostName(target) {
@@ -1541,11 +1572,14 @@ func parseRemoteSSHArgs(args map[string]string) (remoteSSHArgs, string, bool) {
 	if parsed.ServerPort, ok = parsePort(args["server_port"], 22); !ok {
 		return parsed, "remote tunnel port or duration is invalid\n", false
 	}
-	if parsed.RemotePort, ok = parsePort(args["remote_port"], 0); !ok {
+	if parsed.RemotePort, ok = parsePort(args["remote_port"], 0); !ok && args["remote_port"] != "0" {
 		return parsed, "remote tunnel port or duration is invalid\n", false
 	}
-	if parsed.LuCIPort, ok = parsePort(args["luci_port"], 0); !ok {
+	if parsed.LuCIPort, ok = parsePort(args["luci_port"], 0); !ok && args["luci_port"] != "0" {
 		return parsed, "remote tunnel port or duration is invalid\n", false
+	}
+	if parsed.RemotePort == 0 && parsed.LuCIPort == 0 {
+		return parsed, "no remote forwarding target\n", false
 	}
 	if parsed.LuCILocalPort, ok = parsePort(args["luci_local_port"], 80); !ok {
 		return parsed, "remote tunnel port or duration is invalid\n", false
@@ -1811,9 +1845,13 @@ func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) 
 		if fileExists(cfg.TunnelIdentity) {
 			cmdArgs = append(cmdArgs, "-i", cfg.TunnelIdentity)
 		}
+		if args.RemotePort > 0 {
+			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort))
+		}
+		if args.LuCIPort > 0 {
+			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort))
+		}
 		cmdArgs = append(cmdArgs,
-			"-R", fmt.Sprintf("0.0.0.0:%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort),
-			"-R", fmt.Sprintf("0.0.0.0:%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort),
 			"-p", strconv.Itoa(args.ServerPort),
 			args.ServerUser+"@"+args.ServerHost,
 		)
@@ -1827,9 +1865,13 @@ func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) 
 		if fileExists(cfg.TunnelIdentity) {
 			cmdArgs = append(cmdArgs, "-i", cfg.TunnelIdentity)
 		}
+		if args.RemotePort > 0 {
+			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort))
+		}
+		if args.LuCIPort > 0 {
+			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort))
+		}
 		cmdArgs = append(cmdArgs,
-			"-R", fmt.Sprintf("0.0.0.0:%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort),
-			"-R", fmt.Sprintf("0.0.0.0:%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort),
 			"-p", strconv.Itoa(args.ServerPort),
 			args.ServerUser+"@"+args.ServerHost,
 		)
@@ -2231,13 +2273,27 @@ func openwrtVersion() string {
 
 func interfaces() []map[string]string {
 	output := commandOutput("ip", "-o", "addr", "show")
+	links := map[string]net.Interface{}
+	if observed, err := net.Interfaces(); err == nil {
+		for _, link := range observed {
+			links[link.Name] = link
+		}
+	}
+
 	var result []map[string]string
 	for _, line := range strings.Split(output, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
 		}
-		result = append(result, map[string]string{"name": strings.TrimSuffix(fields[1], ":"), "family": fields[2], "address": fields[3]})
+		name := strings.TrimSuffix(fields[1], ":")
+		entry := map[string]string{"name": name, "family": fields[2], "address": fields[3]}
+		lookup := strings.SplitN(name, "@", 2)[0]
+		if link, ok := links[lookup]; ok {
+			entry["mac"] = link.HardwareAddr.String()
+			entry["administrative_up"] = strconv.FormatBool(link.Flags&net.FlagUp != 0)
+		}
+		result = append(result, entry)
 	}
 	if result == nil {
 		return []map[string]string{}

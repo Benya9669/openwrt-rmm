@@ -81,6 +81,7 @@ type DeviceBackup struct {
 }
 
 type AgentRollout struct {
+	Guard            *RolloutGuard   `json:"guard,omitempty"`
 	ID               string          `json:"id"`
 	Channel          string          `json:"channel"`
 	TargetVersion    string          `json:"target_version"`
@@ -91,6 +92,15 @@ type AgentRollout struct {
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
 	Devices          []RolloutDevice `json:"devices"`
+}
+
+type RolloutGuard struct {
+	RequestKey         string   `json:"request_key,omitempty"`
+	CanaryIDs          []string `json:"canary_ids"`
+	WaveSizes          []int    `json:"wave_sizes"`
+	ObservationSeconds int      `json:"observation_seconds"`
+	HealthySince       string   `json:"healthy_since,omitempty"`
+	PauseReason        string   `json:"pause_reason,omitempty"`
 }
 
 type AgentFeed struct {
@@ -254,21 +264,22 @@ type NotificationDeliveryMetrics struct {
 }
 
 type RemoteSession struct {
-	ID          string     `json:"id"`
-	DeviceID    string     `json:"device_id"`
-	Target      string     `json:"target"`
-	Status      string     `json:"status"`
-	ServerHost  string     `json:"server_host,omitempty"`
-	ServerPort  int        `json:"server_port,omitempty"`
-	RemotePort  int        `json:"remote_port,omitempty"`
-	LuCIPort    int        `json:"luci_port,omitempty"`
-	LuCIScheme  string     `json:"luci_scheme,omitempty"`
-	LocalHost   string     `json:"local_host,omitempty"`
-	LocalPort   int        `json:"local_port,omitempty"`
-	CommandID   string     `json:"command_id,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	StartedAt   *time.Time `json:"started_at,omitempty"`
-	ClosedAt    *time.Time `json:"closed_at,omitempty"`
-	AccessState string     `json:"access_state,omitempty"`
+	RequesterUserID string     `json:"-"`
+	ID              string     `json:"id"`
+	DeviceID        string     `json:"device_id"`
+	Target          string     `json:"target"`
+	Status          string     `json:"status"`
+	ServerHost      string     `json:"server_host,omitempty"`
+	ServerPort      int        `json:"server_port,omitempty"`
+	RemotePort      int        `json:"remote_port,omitempty"`
+	LuCIPort        int        `json:"luci_port,omitempty"`
+	LuCIScheme      string     `json:"luci_scheme,omitempty"`
+	LocalHost       string     `json:"local_host,omitempty"`
+	LocalPort       int        `json:"local_port,omitempty"`
+	CommandID       string     `json:"command_id,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	ExpiresAt       time.Time  `json:"expires_at"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	ClosedAt        *time.Time `json:"closed_at,omitempty"`
+	AccessState     string     `json:"access_state,omitempty"`
 }

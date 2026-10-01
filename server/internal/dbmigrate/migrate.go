@@ -25,6 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 	"rmm-openwrt/internal/commandsig"
 	"rmm-openwrt/internal/fieldcrypto"
+	"rmm-openwrt/internal/fleetschema"
 )
 
 //go:embed postgres.sql
@@ -103,6 +104,7 @@ func Run(ctx context.Context, options Options) (Report, error) {
 	}
 	schemaHash := sha256.Sum256(schema)
 	report.SchemaSHA256 = hex.EncodeToString(schemaHash[:])
+	schema = append(schema, []byte("\n"+fleetschema.SQL+"\n"+fleetschema.ManagementSQL)...)
 	tables, err := parseSchema(schema)
 	if err != nil {
 		return report, err
@@ -136,6 +138,35 @@ func Run(ctx context.Context, options Options) (Report, error) {
 		return report, fmt.Errorf("begin source read transaction: %w", err)
 	}
 	defer sourceTx.Rollback()
+	// Baseline snapshots predate fleet tables. A partial fleet schema remains
+	// invalid, but an older snapshot can still be imported without alteration.
+	var fleetTables int
+	if err := sourceTx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name GLOB 'fleet_*'").Scan(&fleetTables); err != nil {
+		return report, err
+	}
+	if fleetTables == 0 {
+		baseline, err := schemaFS.ReadFile("postgres.sql")
+		if err != nil {
+			return report, err
+		}
+		tables, err = parseSchema(baseline)
+		if err != nil {
+			return report, err
+		}
+	}
+	var managementTables int
+	if err := sourceTx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name GLOB 'management_*'").Scan(&managementTables); err != nil {
+		return report, err
+	}
+	if managementTables == 0 {
+		filtered := tables[:0]
+		for _, table := range tables {
+			if !strings.HasPrefix(table.name, "management_") {
+				filtered = append(filtered, table)
+			}
+		}
+		tables = filtered
+	}
 	if err := validateSource(ctx, sourceTx, tables); err != nil {
 		return report, err
 	}
@@ -660,7 +691,17 @@ func prepareTarget(ctx context.Context, tx *sql.Tx, schema []byte) error {
 var postgresMigrations = []struct {
 	version int
 	file    string
-}{{1, "postgres.sql"}}
+}{{1, "postgres.sql"}, {2, "fleet.sql"}, {3, "management.sql"}}
+
+func readMigration(file string) ([]byte, error) {
+	if file == "management.sql" {
+		return []byte(fleetschema.ManagementSQL), nil
+	}
+	if file == "fleet.sql" {
+		return []byte(fleetschema.SQL), nil
+	}
+	return schemaFS.ReadFile(file)
+}
 
 func checkPostgresVersion(ctx context.Context, tx *sql.Tx) error {
 	var version int
@@ -720,7 +761,7 @@ func EnsurePostgres(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	for _, migration := range postgresMigrations {
-		sqlText, err := schemaFS.ReadFile(migration.file)
+		sqlText, err := readMigration(migration.file)
 		if err != nil {
 			return err
 		}
@@ -957,6 +998,16 @@ func validateTarget(ctx context.Context, source, target *sql.Tx, report Report) 
 	}
 	if _, err := target.ExecContext(ctx, "INSERT INTO schema_migrations (version, checksum) VALUES (1, $1)", report.SchemaSHA256); err != nil {
 		return errors.New("record PostgreSQL schema version failed")
+	}
+	for _, migration := range postgresMigrations[1:] {
+		data, err := readMigration(migration.file)
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(data)
+		if _, err := target.ExecContext(ctx, "INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)", migration.version, hex.EncodeToString(digest[:])); err != nil {
+			return errors.New("record PostgreSQL fleet schema version failed")
+		}
 	}
 	if _, err := target.ExecContext(ctx, "CREATE TABLE database_imports (source_sha256 TEXT PRIMARY KEY, imported_at TIMESTAMPTZ NOT NULL DEFAULT now(), table_counts JSONB NOT NULL)"); err != nil {
 		return errors.New("create PostgreSQL import record failed")

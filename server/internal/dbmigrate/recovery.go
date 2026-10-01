@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -22,9 +23,10 @@ type RecoveryTable struct {
 }
 
 type RecoveryReport struct {
-	Tables           map[string]RecoveryTable `json:"tables"`
-	SignedCommands   int                      `json:"signed_commands"`
-	EncryptedBackups int                      `json:"encrypted_backups"`
+	Tables            map[string]RecoveryTable `json:"tables"`
+	SignedCommands    int                      `json:"signed_commands"`
+	EncryptedBackups  int                      `json:"encrypted_backups"`
+	EncryptedProfiles int                      `json:"encrypted_profiles"`
 }
 
 // VerifyRecovery uses a consistent read-only snapshot. It never creates keys,
@@ -64,7 +66,7 @@ func VerifyRecovery(ctx context.Context, db *sql.DB, encryptionPath, signingPath
 		return report, errors.New("migration set differs from this verifier")
 	}
 	for _, migration := range postgresMigrations {
-		data, err := schemaFS.ReadFile(migration.file)
+		data, err := readMigration(migration.file)
 		if err != nil {
 			return report, err
 		}
@@ -82,6 +84,30 @@ func VerifyRecovery(ctx context.Context, db *sql.DB, encryptionPath, signingPath
 	}
 	if err := validateEncryptedSample(ctx, tx, cipher); err != nil {
 		return report, err
+	}
+	profiles, err := tx.QueryContext(ctx, "SELECT id,definition_encrypted FROM fleet_profiles")
+	if err != nil {
+		return report, errors.New("read fleet profiles failed")
+	}
+	for profiles.Next() {
+		var id, value string
+		if err = profiles.Scan(&id, &value); err != nil {
+			profiles.Close()
+			return report, errors.New("read fleet profile failed")
+		}
+		definition, err := cipher.DecryptWithContext("fleet_profile\x00"+id+"\x00definition", value)
+		if err != nil || !json.Valid([]byte(definition)) {
+			profiles.Close()
+			return report, errors.New("fleet profile authentication failed")
+		}
+		if strings.HasPrefix(value, "enc:v1:") {
+			report.EncryptedProfiles++
+		}
+	}
+	err = profiles.Err()
+	profiles.Close()
+	if err != nil {
+		return report, errors.New("read fleet profiles failed")
 	}
 	var missingArchives int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM device_backups WHERE status='ready' AND archive_ciphertext IS NULL").Scan(&missingArchives); err != nil || missingArchives != 0 {

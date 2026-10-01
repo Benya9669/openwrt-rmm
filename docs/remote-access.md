@@ -4,6 +4,11 @@ Remote access is now implemented as an MVP reverse SSH session flow. The server 
 
 ## Current Capabilities
 
+Administrative SSH/LuCI permissions, user restrictions and maximum session TTL
+are configured under Fleet management. See [the policy and migration guide](fleet-development.md#политики-доступа).
+The generic command API no longer accepts `remote_ssh_reverse`; use managed
+remote-session creation so policy and audit checks apply.
+
 - Temporary SSH access through an outbound reverse tunnel.
 - LuCI access through an authenticated RMM HTTP proxy over the same tunnel.
 - Session list and close action in the web UI.

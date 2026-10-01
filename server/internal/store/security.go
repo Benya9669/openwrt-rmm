@@ -491,7 +491,23 @@ func (s *Store) ListDevicesForUser(ctx context.Context, userID string, admin boo
 		}
 		devices = append(devices, device)
 	}
-	return devices, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if !admin {
+		visible := devices[:0]
+		for _, device := range devices {
+			if err := s.CheckPermission(ctx, userID, device.ID, "view"); errors.Is(err, ErrFleetAccess) {
+				continue
+			} else if err != nil {
+				return nil, err
+			}
+			visible = append(visible, device)
+		}
+		devices = visible
+	}
+	return devices, nil
 }
 
 func (s *Store) DeviceAccessible(ctx context.Context, deviceID, userID string, admin bool) (bool, error) {
@@ -503,6 +519,15 @@ func (s *Store) DeviceAccessible(ctx context.Context, deviceID, userID string, a
 	}
 	var exists bool
 	err := s.db.QueryRowContext(ctx, query, args...).Scan(&exists)
+	if err == nil && exists && !admin {
+		permissionErr := s.CheckPermission(ctx, userID, deviceID, "view")
+		if errors.Is(permissionErr, ErrFleetAccess) {
+			return false, nil
+		}
+		if permissionErr != nil {
+			return false, permissionErr
+		}
+	}
 	return exists, err
 }
 
@@ -584,18 +609,32 @@ WHERE device_id = ?
 }
 
 func (s *Store) CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, deviceID, remoteSessionID string, expiresAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = tunnelPolicyLock(ctx, tx); err != nil {
+		return err
+	}
+	if err = enforceFleetAccess(ctx, tx, userID, deviceID, false, true, expiresAt); err != nil {
+		return err
+	}
 	var activeGrants int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM device_access_grants WHERE user_id = ? AND julianday(expires_at) > julianday(?)`, userID, nowText()).Scan(&activeGrants); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM device_access_grants WHERE user_id = ? AND julianday(expires_at) > julianday(?)`, userID, nowText()).Scan(&activeGrants); err != nil {
 		return err
 	}
 	if activeGrants >= 20 {
 		return errors.New("active device access grant limit reached")
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO device_access_grants (token_hash, user_id, device_id, remote_session_id, expires_at, created_at)
 VALUES (?, ?, ?, ?, ?, ?)
 `, tokenHash, userID, deviceID, remoteSessionID, expiresAt.UTC().Format(time.RFC3339Nano), nowText())
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ConsumeDeviceAccessGrant(ctx context.Context, grantHash, sessionHash, dnsLabel string, sessionExpiresAt time.Time) (AccessRoute, bool, error) {
@@ -619,6 +658,15 @@ WHERE g.token_hash = ? AND d.dns_label = ? AND julianday(g.expires_at) > juliand
 		return AccessRoute{}, false, nil
 	}
 	if err != nil {
+		return AccessRoute{}, false, err
+	}
+	admin, err := fleetPrincipal(ctx, tx, route.UserID)
+	if err != nil {
+		return AccessRoute{}, false, err
+	}
+	if err = permissionAllowed(ctx, tx, route.UserID, route.DeviceID, "remote", admin); errors.Is(err, ErrFleetAccess) {
+		return AccessRoute{}, false, nil
+	} else if err != nil {
 		return AccessRoute{}, false, err
 	}
 	if remoteExpiry := parseTime(remoteExpires); sessionExpiresAt.After(remoteExpiry) {
@@ -658,6 +706,11 @@ WHERE s.token_hash = ? AND d.dns_label = ? AND julianday(s.expires_at) > juliand
 	var route AccessRoute
 	var expiresAt string
 	if err := row.Scan(&route.UserID, &route.DeviceID, &route.DNSLabel, &route.RemoteSessionID, &expiresAt); errors.Is(err, sql.ErrNoRows) {
+		return AccessRoute{}, false, nil
+	} else if err != nil {
+		return AccessRoute{}, false, err
+	}
+	if err := s.CheckPermission(ctx, route.UserID, route.DeviceID, "remote"); errors.Is(err, ErrFleetAccess) {
 		return AccessRoute{}, false, nil
 	} else if err != nil {
 		return AccessRoute{}, false, err

@@ -104,6 +104,10 @@ verification keys, and architecture-specific instructions.
 
 ## Development
 
+Fleet operations, UCI profiles, remote-access policies, schedules, history,
+diagnostics, reactions and equipment records are described in
+[Fleet management](docs/fleet-development.md), including rollout and rollback.
+
 ```sh
 go test ./...
 go vet ./...
@@ -140,3 +144,5 @@ Back up the data volume and the selected database before every server upgrade.
 
 The cloud application is licensed under `AGPL-3.0-only`; the OpenWrt agent and LuCI
 packages are licensed under MIT. See [LICENSE.md](LICENSE.md) and [NOTICE.md](NOTICE.md).
+
+Расширение: [роли, инциденты, волны обновлений и карта сети](docs/management-development.md).

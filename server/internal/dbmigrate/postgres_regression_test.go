@@ -183,4 +183,5 @@ func TestPostgresCriticalFlowsIntegration(t *testing.T) {
 			return found, err
 		})
 	})
+	t.Run("fleet-features-across-pools", func(t *testing.T) { testFleetPostgres(t, ctx, a, b, db, user.ID) })
 }

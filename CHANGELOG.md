@@ -5,7 +5,21 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+## server-v0.14.0
+
+Fleet management, scoped permissions, incidents and guarded agent rollout waves.
+
 ### Added
+
+- Durable bulk operations with group/tag targeting, bounded concurrency, cancellation and per-device results.
+- Encrypted UCI profiles with read-only previews, drift detection, canary application, backups and guarded rollback.
+- Per-user/device SSH and cloud LuCI policies, session expiry, revocation and audit history.
+- Bounded backup comparison, timezone-aware maintenance schedules and signed, version-pinned agent updates.
+- Device history, one-click diagnostics, alert rules with cooldowns and daily limits, and searchable asset records.
+- Permission presets and individual rights scoped to existing device ownership, groups and sites; queued work and remote sessions are rechecked after permission changes.
+- Correlated incidents with assignees, comments, acknowledgement, recovery and manual resolution history.
+- Explicit update canaries, growing waves, continuous health observation and automatic pause on failure.
+- Passive network topology inferred from observed interfaces and ARP/NDP neighbors, with stale and ambiguous observations marked.
 
 - PostgreSQL 16/18 CI regression jobs covering migration, signed commands, LAN clients, concurrent command/notification claims, lease recovery and one-time enrollment.
 - Database-backed `/readyz` and administrator-authenticated Prometheus `/metrics` for database pools, command/delivery states, queue age and tunnel sessions.
@@ -16,6 +30,30 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 - SIGINT/SIGTERM shutdown removes readiness, closes SSE streams, drains HTTP requests and stops background workers before closing the database.
 - Tunnel session reaping recognizes OpenSSH `sshd-session`; Compose grants `SYS_PTRACE` only to the isolated tunnel service so the reaper can identify socket owners.
+
+### Upgrade notes
+
+- Back up the database and preserve encryption/signing keys before upgrading. PostgreSQL migrations 2 and 3 are additive; SQLite remains supported. Use the matching new recovery tools for the expanded schema.
+- Users without an explicitly saved permission policy retain their previous access. Review existing queued commands whose author cannot be established before restricting permissions.
+- Install agent 0.10.0 for the new diagnostics, UCI profile and interface inventory capabilities. Existing protocol-v1 agents remain supported.
+- UCI application and router updates require a test-router canary before broad production use. Automated tests cover simulated router behavior; this release has not been verified on physical OpenWrt hardware.
+- Topology links are inferred observations. Installed packages are not automatically rolled back when a rollout pauses.
+
+## agent-v0.10.0
+
+Diagnostics, guarded UCI profiles and passive interface inventory.
+
+### Added
+
+- Structured DNS, ICMP, route, interface, clock and service diagnostics with bounded output.
+- Read-only UCI profile previews, validated staged application, recovery journals, connectivity checks and guarded rollback.
+- Interface MAC addresses and administrative state in inventory for passive topology views.
+- Remote-access mode support and allowlisted service restart diagnostics.
+
+### Upgrade notes
+
+- Use server 0.14.0 for the new management features. Existing outbound protocol-v1 communication and heartbeat settings are preserved.
+- Validate updates and UCI changes on a test OpenWrt router before deploying across a fleet. Recovery backups and journals are retained; operators must monitor storage usage.
 
 ## server-v0.13.2
 

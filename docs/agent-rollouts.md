@@ -39,3 +39,5 @@ operation to `healthy` only after a subsequent heartbeat reports the requested v
 The compatibility upgrade from `0.6.9` does not include manifest coordinates because that agent
 predates their allowlist. Package-manager feed signature verification still applies. Every command
 issued to `0.6.10` or later requires independent manifest verification.
+
+For explicit canaries, growing waves, observation periods and delivery guards, see [management development](management-development.md#обновления-волнами). The guarded mode requires agents that independently verify signed manifests; the existing fixed-batch workflow remains available.

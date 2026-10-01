@@ -2255,6 +2255,9 @@ function showLuCIState(error = {}, mode = "retry") {
 }
 
 function setMobileRoute(route) {
+	const managerOpen = route === "management";
+	document.body.classList.toggle("fleet-management-active", managerOpen);
+	document.querySelector("#fleetManagementView").classList.toggle("is-hidden", !managerOpen);
   state.mobileRoute = route;
   for (const button of document.querySelectorAll(".mobile-nav-item")) {
     button.classList.toggle("is-active", button.dataset.mobileRoute === route);
@@ -3226,7 +3229,7 @@ function renderBackups() {
     return;
   }
   for (const backup of state.backups) {
-    const files = Array.isArray(backup.manifest) ? backup.manifest : [];
+    const files = Array.isArray(backup.manifest) ? backup.manifest.map((file) => typeof file === "string" ? file : file.path) : [];
     const row = document.createElement("article");
     row.className = "backup-row";
     row.setAttribute("role", "listitem");
@@ -3380,11 +3383,11 @@ function renderRemoteSessions(sessions) {
   }
   for (const session of sessions) {
     const canClose = ["requested", "queued", "active"].includes(session.status);
-    const endpoint = `${session.server_host || "-"}:${session.remote_port || "-"}`;
+    const endpoint = session.remote_port ? `${session.server_host || "-"}:${session.remote_port}` : session.luci_port ? `LuCI ${session.server_host || "-"}:${session.luci_port}` : "-";
     const connectCommand = session.remote_port ? `ssh -p ${session.remote_port} root@${session.server_host || "server"}` : "-";
     const canOpenLuCI = session.status === "active" && session.luci_port;
     const presentationState = remotePresentationState(session);
-    const sessionType = session.luci_port ? "SSH + LuCI" : "SSH tunnel";
+    const sessionType = session.remote_port && session.luci_port ? "SSH + LuCI" : session.remote_port ? "SSH tunnel" : "LuCI tunnel";
     const row = document.createElement("div");
     row.className = "remote-session-row";
     row.setAttribute("role", "listitem");
@@ -4658,6 +4661,13 @@ setInterval(() => {
 }, 30000);
 
 setInterval(updateLiveStateLabel, 10000);
+
+const fleetManager = window.RMMFleet.mount({
+	chart: metricChart,
+  api, notify, confirm: confirmAction, getDevices: () => state.devices,
+  onOpen: () => { setMobileRoute("management"); els.pageTitle.textContent = "Управление парком"; },
+  onClose: () => showFleet(),
+});
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !els.appShell.classList.contains("is-hidden")) {

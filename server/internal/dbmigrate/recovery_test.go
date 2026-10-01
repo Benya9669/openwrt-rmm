@@ -20,7 +20,9 @@ import (
 
 	"rmm-openwrt/internal/commandsig"
 	"rmm-openwrt/internal/fieldcrypto"
+	"rmm-openwrt/internal/fleetprofile"
 	"rmm-openwrt/server/internal/httpapi"
+	"rmm-openwrt/server/internal/model"
 	"rmm-openwrt/server/internal/store"
 )
 
@@ -78,6 +80,13 @@ func TestPostgresRecoveryIntegration(t *testing.T) {
 	// Bootstrap through the actual HTTP handler so password hashing is realistic.
 	config := httpapi.Config{OperatorUsername: "recovery-admin", OperatorPassword: "isolated-recovery-test-password"}
 	httpapi.NewHandler(st, config)
+	admin, _, found, err := st.GetUserByUsername(ctx, "recovery-admin")
+	if err != nil || !found {
+		t.Fatal("recovery administrator unavailable")
+	}
+	if _, err = st.SaveFleetProfile(ctx, admin.ID, store.FleetProfile{Title: "Recovery profile", Definition: fleetprofile.Profile{Config: "system", Options: []fleetprofile.Option{{Section: "core", Option: "hostname", Value: "recovery-router"}}}}); err != nil {
+		t.Fatal(err)
+	}
 	device, err := st.EnrollDevice(ctx, "recovery-router", "24.10")
 	if err != nil {
 		t.Fatal(err)
@@ -89,11 +98,21 @@ func TestPostgresRecoveryIntegration(t *testing.T) {
 	if _, found, err := st.SaveDeviceBackup(ctx, device.DeviceID, command.ID, []byte("isolated archive fixture"), store.DeviceBackupMetadata{}); err != nil || !found {
 		t.Fatalf("save archive: %v", err)
 	}
+	operator, err := st.CreateUser(ctx, "recovery-operator", "Recovery operator", "", "test-hash", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = st.SavePermissionPolicy(ctx, admin.ID, operator.ID, store.PermissionPolicy{Permissions: []string{"view", "diagnostics"}, Groups: []string{"Recovery lab"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = st.SyncDeviceAlerts(ctx, device.DeviceID, []model.Alert{{ID: "recovery-incident-alert", Type: "offline", Message: "Synthetic recovery incident"}}); err != nil {
+		t.Fatal(err)
+	}
 	want, err := VerifyRecovery(ctx, source, encryptionPath, signingPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want.EncryptedBackups != 1 || want.SignedCommands != 1 {
+	if want.EncryptedBackups != 1 || want.SignedCommands != 1 || want.EncryptedProfiles != 1 {
 		t.Fatalf("incomplete recovery fixture: %+v", want)
 	}
 	// The server-version-matched client runs inside the disposable test service.

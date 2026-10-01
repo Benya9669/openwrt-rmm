@@ -12,6 +12,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
     <link rel="stylesheet" href="/styles.css?v=33">
+    <link rel="stylesheet" href="/fleet.css?v=2">
   </head>
   <body class="account-page">
     <main id="loginView" class="auth-view">
@@ -56,6 +57,7 @@
         </div>
 
         <nav class="main-nav" aria-label="Основная навигация">
+          <button class="nav-item" data-fleet-management-open type="button"><svg class="icon icon-sm" aria-hidden="true"><use href="/assets/icons/tabler-sprite.svg#icon-arrows-exchange"></use></svg><span>Управление парком</span></button>
           <button id="fleetNavBtn" class="nav-item is-active" type="button">
             <span class="nav-icon" aria-hidden="true"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-layout-grid"></use></svg></span>
             Объекты
@@ -116,6 +118,7 @@
           </div>
         </header>
 
+        <section id="fleetManagementView" class="fleet-management-view is-hidden" aria-labelledby="fleetManagementTitle"></section>
         <section id="fleetView" class="fleet-view">
           <div class="fleet-summary">
             <div>
@@ -137,6 +140,7 @@
           </div>
 
           <div class="fleet-toolbar">
+            <button data-fleet-management-open type="button">Управление парком</button>
             <input id="fleetSearch" type="search" placeholder="Поиск по имени, модели, ID или тегу">
             <button id="fleetFilterToggle" class="filter-toggle" type="button" aria-expanded="false">Фильтры</button>
             <div class="filters">
@@ -1047,6 +1051,8 @@
 
     <script src="/landing-motion.js?v=2" defer></script>
     <script src="/version.js?v=1" defer></script>
-    <script src="/app.js?v=36" defer></script>
+    <script src="/management.js?v=1" defer></script>
+    <script src="/fleet.js?v=2" defer></script>
+    <script src="/app.js?v=37" defer></script>
   </body>
 </html>

@@ -11,11 +11,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"rmm-openwrt/internal/commandsig"
 	"rmm-openwrt/internal/fieldcrypto"
+	"rmm-openwrt/internal/fleetschema"
 	"rmm-openwrt/server/internal/model"
 
 	_ "modernc.org/sqlite"
@@ -788,6 +790,16 @@ WHERE status IN ('queued', 'claimed') AND signature = ''
 `, nowText()); err != nil {
 		return err
 	}
+	for _, statement := range strings.Split(fleetschema.SQL+"\n"+fleetschema.ManagementSQL, ";") {
+		statement = strings.ReplaceAll(statement, "CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+		statement = strings.ReplaceAll(statement, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
+		statement = strings.ReplaceAll(statement, "CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
+		if strings.TrimSpace(statement) != "" {
+			if _, err := s.db.ExecContext(ctx, statement); err != nil {
+				return err
+			}
+		}
+	}
 	return s.migrateDeviceTokens(ctx)
 }
 
@@ -991,6 +1003,11 @@ func (s *Store) ClaimNextCommand(ctx context.Context, deviceID string) (model.Co
 		return model.Command{}, false, err
 	}
 	defer tx.Rollback()
+	// Use the same lock order as reaction creation/editing before taking a command
+	// row lock. A recovered condition must not start a queued automatic restart.
+	if err := fleetLock(ctx, tx); err != nil {
+		return model.Command{}, false, err
+	}
 
 	claimQuery := `
 SELECT id, device_id, type, args_json, status, result_json, output, exit_code, attempt_count, max_attempts, created_at, expires_at, claimed_at, completed_at, cancelled_at, expired_at, nonce, signature_key_id, signature
@@ -1009,6 +1026,89 @@ LIMIT 1
 		return model.Command{}, false, nil
 	} else if err != nil {
 		return model.Command{}, false, err
+	}
+	if c.Type == "agent_update" {
+		var rolloutID, state string
+		var wave int
+		err = tx.QueryRowContext(ctx, "SELECT r.id,r.status,rd.batch FROM agent_rollout_devices rd JOIN agent_rollouts r ON r.id=rd.rollout_id JOIN management_rollout_guards g ON g.rollout_id=r.id WHERE rd.command_id=?", c.ID).Scan(&rolloutID, &state, &wave)
+		if err == nil {
+			if state != "running" {
+				return model.Command{}, false, nil
+			}
+			var failures int
+			if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM agent_rollout_devices WHERE rollout_id=? AND batch=? AND status IN ('failed','cancelled','expired')", rolloutID, wave).Scan(&failures); err != nil {
+				return model.Command{}, false, err
+			}
+			if failures > 0 {
+				if err = pauseGuardedRollout(ctx, tx, rolloutID, "current wave has a failed target"); err != nil {
+					return model.Command{}, false, err
+				}
+				return model.Command{}, false, tx.Commit()
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return model.Command{}, false, err
+		}
+	}
+	var commandUser, commandPermission string
+	permissionErr := tx.QueryRowContext(ctx, "SELECT user_id,permission FROM management_command_permissions WHERE command_id=?", c.ID).Scan(&commandUser, &commandPermission)
+	if errors.Is(permissionErr, sql.ErrNoRows) {
+		permissionErr = tx.QueryRowContext(ctx, "SELECT u.id FROM audit_events a JOIN users u ON u.username=a.actor WHERE a.command_id=? AND a.action IN ('command.create','command.bulk_create','agent.update_queue','agent.rollback_queue','backup.restore','backup.create','remote_session.create') ORDER BY a.created_at LIMIT 1", c.ID).Scan(&commandUser)
+		if permissionErr == nil {
+			commandPermission = CommandPermission(c.Type)
+		}
+	}
+	if permissionErr == nil {
+		admin, err := fleetPrincipal(ctx, tx, commandUser)
+		if err == nil {
+			err = permissionAllowed(ctx, tx, commandUser, deviceID, commandPermission, admin)
+		}
+		if errors.Is(err, ErrFleetAccess) {
+			if _, err = tx.ExecContext(ctx, "UPDATE commands SET status='cancelled',cancelled_at=?,output='permission revoked before delivery' WHERE id=?", nowText(), c.ID); err != nil {
+				return model.Command{}, false, err
+			}
+			return model.Command{}, false, tx.Commit()
+		} else if err != nil {
+			return model.Command{}, false, err
+		}
+	} else if !errors.Is(permissionErr, sql.ErrNoRows) {
+		return model.Command{}, false, permissionErr
+	}
+	var fleetUser string
+	fleetErr := tx.QueryRowContext(ctx, "SELECT o.user_id FROM fleet_operation_items i JOIN fleet_operations o ON o.id=i.operation_id WHERE i.command_id=?", c.ID).Scan(&fleetUser)
+	if fleetErr == nil {
+		admin, accessErr := fleetPrincipal(ctx, tx, fleetUser)
+		if accessErr == nil {
+			accessErr = fleetDeviceAccess(ctx, tx, fleetUser, deviceID, admin)
+			if accessErr == nil {
+				accessErr = permissionAllowed(ctx, tx, fleetUser, deviceID, CommandPermission(c.Type), admin)
+			}
+		}
+		if accessErr != nil && !errors.Is(accessErr, ErrFleetAccess) {
+			return model.Command{}, false, accessErr
+		}
+		if accessErr != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE commands SET status='cancelled',cancelled_at=?,output='fleet access revoked before delivery' WHERE id=? AND status='queued'", nowText(), c.ID); err != nil {
+				return model.Command{}, false, err
+			}
+			return model.Command{}, false, tx.Commit()
+		}
+	} else if !errors.Is(fleetErr, sql.ErrNoRows) {
+		return model.Command{}, false, fleetErr
+	}
+	if c.Type == "service_restart" {
+		var args map[string]string
+		if json.Unmarshal(c.Args, &args) == nil && args["rule_id"] != "" {
+			allowed, err := reactionCommandStillAllowed(ctx, tx, deviceID, args["rule_id"], args["service"])
+			if err != nil {
+				return model.Command{}, false, err
+			}
+			if !allowed {
+				if _, err = tx.ExecContext(ctx, "UPDATE commands SET status='cancelled',cancelled_at=?,output='automatic condition recovered or rule disabled' WHERE id=? AND status='queued'", nowText(), c.ID); err != nil {
+					return model.Command{}, false, err
+				}
+				return model.Command{}, false, tx.Commit()
+			}
+		}
 	}
 
 	res, err := tx.ExecContext(ctx, `
@@ -1054,9 +1154,30 @@ AND status != 'expired'
 }
 
 func (s *Store) CreateAgentRollout(ctx context.Context, channel, targetVersion string, batchSize, failureThreshold int, devices []model.RolloutDevice) (model.AgentRollout, error) {
+	return s.createAgentRollout(ctx, channel, targetVersion, batchSize, failureThreshold, devices, nil)
+}
+func (s *Store) createAgentRollout(ctx context.Context, channel, targetVersion string, batchSize, failureThreshold int, devices []model.RolloutDevice, guard *model.RolloutGuard) (model.AgentRollout, error) {
 	id, err := randomID("rollout")
 	if err != nil {
 		return model.AgentRollout{}, err
+	}
+	requestHash := ""
+	if guard != nil && guard.RequestKey != "" {
+		id, err = fleetObjectID("rollout", "administrators", guard.RequestKey)
+		if err != nil {
+			return model.AgentRollout{}, err
+		}
+		raw, err := json.Marshal(struct {
+			Channel, Version string
+			Batch            int
+			Devices          []model.RolloutDevice
+			Guard            *model.RolloutGuard
+		}{channel, targetVersion, batchSize, devices, guard})
+		if err != nil {
+			return model.AgentRollout{}, err
+		}
+		digest := sha256.Sum256(raw)
+		requestHash = hex.EncodeToString(digest[:])
 	}
 	now := nowText()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1064,11 +1185,37 @@ func (s *Store) CreateAgentRollout(ctx context.Context, channel, targetVersion s
 		return model.AgentRollout{}, err
 	}
 	defer tx.Rollback()
+	if err = fleetLock(ctx, tx); err != nil {
+		return model.AgentRollout{}, err
+	}
+	if requestHash != "" {
+		var previous string
+		err = tx.QueryRowContext(ctx, "SELECT request_hash FROM management_rollout_guards WHERE rollout_id=?", id).Scan(&previous)
+		if err == nil {
+			if previous != requestHash {
+				return model.AgentRollout{}, ErrFleetConflict
+			}
+			tx.Rollback()
+			return s.GetAgentRollout(ctx, id)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return model.AgentRollout{}, err
+		}
+	}
+
 	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_rollouts (id, channel, target_version, batch_size, failure_threshold, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`, id, channel, targetVersion, batchSize, failureThreshold, now, now); err != nil {
 		return model.AgentRollout{}, err
 	}
 	for i := range devices {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_rollout_devices (rollout_id, device_id, feed_url, package_manager, package_version, manifest_url, signature_url, batch, status) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending')`, id, devices[i].DeviceID, devices[i].FeedURL, devices[i].PackageManager, devices[i].PackageVersion, devices[i].ManifestURL, devices[i].SignatureURL); err != nil {
+			return model.AgentRollout{}, err
+		}
+	}
+	if guard != nil {
+		raw, err := json.Marshal(guard)
+		if err != nil {
+			return model.AgentRollout{}, err
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO management_rollout_guards (rollout_id,definition_json,request_hash) VALUES (?,?,?)", id, string(raw), requestHash); err != nil {
 			return model.AgentRollout{}, err
 		}
 	}
@@ -1102,7 +1249,17 @@ func (s *Store) GetAgentRollout(ctx context.Context, id string) (model.AgentRoll
 		}
 		out.Devices = append(out.Devices, d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	rows.Close()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback()
+	out.Guard, err = loadRolloutGuard(ctx, tx, id)
+	return out, err
 }
 
 func (s *Store) ListAgentRollouts(ctx context.Context) ([]model.AgentRollout, error) {
@@ -1127,19 +1284,45 @@ func (s *Store) ListAgentRollouts(ctx context.Context) ([]model.AgentRollout, er
 }
 
 func (s *Store) SetAgentRolloutStatus(ctx context.Context, id, status string) (model.AgentRollout, error) {
-	if status == "cancelled" {
-		_, _ = s.db.ExecContext(ctx, `UPDATE commands SET status = 'cancelled', cancelled_at = ? WHERE id IN (SELECT command_id FROM agent_rollout_devices WHERE rollout_id = ?) AND status = 'queued'`, nowText(), id)
+	if status != "running" && status != "paused" && status != "cancelled" {
+		return model.AgentRollout{}, errors.New("invalid rollout status")
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE agent_rollouts SET status = ?, updated_at = ? WHERE id = ? AND status NOT IN ('cancelled', 'completed')`, status, nowText(), id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return model.AgentRollout{}, err
 	}
-	n, _ := res.RowsAffected()
+	defer tx.Rollback()
+	if err = fleetLock(ctx, tx); err != nil {
+		return model.AgentRollout{}, err
+	}
+	if status == "cancelled" {
+		if _, err = tx.ExecContext(ctx, "UPDATE commands SET status='cancelled',cancelled_at=? WHERE id IN (SELECT command_id FROM agent_rollout_devices WHERE rollout_id=?) AND status='queued'", nowText(), id); err != nil {
+			return model.AgentRollout{}, err
+		}
+	}
+	res, err := tx.ExecContext(ctx, "UPDATE agent_rollouts SET status=?,updated_at=? WHERE id=? AND status NOT IN ('cancelled','completed')", status, nowText(), id)
+	if err != nil {
+		return model.AgentRollout{}, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return model.AgentRollout{}, err
+	}
 	if n == 0 {
 		return model.AgentRollout{}, sql.ErrNoRows
 	}
+	reason := ""
+	if status == "paused" {
+		reason = "paused by operator"
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE management_rollout_guards SET healthy_since='',last_checked_at='',pause_reason=? WHERE rollout_id=?", reason, id); err != nil {
+		return model.AgentRollout{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return model.AgentRollout{}, err
+	}
 	if status == "running" {
-		if err := s.queueRolloutBatch(ctx, id); err != nil {
+		if err = s.queueRolloutBatch(ctx, id); err != nil {
 			return model.AgentRollout{}, err
 		}
 	}
@@ -1173,6 +1356,9 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err := fleetLock(ctx, tx); err != nil {
+		return err
+	}
 	var channel, version, state string
 	var batchSize int
 	if err = tx.QueryRowContext(ctx, `SELECT channel, target_version, batch_size, status FROM agent_rollouts WHERE id = ?`, id).Scan(&channel, &version, &batchSize, &state); err != nil {
@@ -1181,11 +1367,28 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 	if state != "running" {
 		return nil
 	}
+	guard, err := loadRolloutGuard(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if guard != nil {
+		ready, err := guardReady(ctx, tx, id, version, guard)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			return tx.Commit()
+		}
+	}
 	var active int
 	if err = tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM agent_rollout_devices d JOIN commands c ON c.id = d.command_id WHERE d.rollout_id = ? AND d.status = 'queued' AND c.status IN ('queued', 'claimed')`, id).Scan(&active); err != nil || active > 0 {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT device_id, feed_url, package_manager, package_version, manifest_url, signature_url FROM agent_rollout_devices WHERE rollout_id = ? AND status = 'pending' ORDER BY device_id LIMIT ?`, id, batchSize)
+	limit := batchSize
+	if guard != nil {
+		limit = 500
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT device_id, feed_url, package_manager, package_version, manifest_url, signature_url FROM agent_rollout_devices WHERE rollout_id = ? AND status = 'pending' ORDER BY device_id LIMIT ?`, id, limit)
 	if err != nil {
 		return err
 	}
@@ -1211,6 +1414,25 @@ func (s *Store) queueRolloutBatch(ctx context.Context, id string) error {
 	batch := 1
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(batch), 0) + 1 FROM agent_rollout_devices WHERE rollout_id = ?`, id).Scan(&batch); err != nil {
 		return err
+	}
+	if guard != nil {
+		if batch == 1 {
+			canaries := pending[:0]
+			for _, item := range pending {
+				if slices.Contains(guard.CanaryIDs, item.deviceID) {
+					canaries = append(canaries, item)
+				}
+			}
+			pending = canaries
+		} else {
+			size := guard.WaveSizes[min(batch-2, len(guard.WaveSizes)-1)]
+			if len(pending) > size {
+				pending = pending[:size]
+			}
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE management_rollout_guards SET healthy_since='',pause_reason='' WHERE rollout_id=?", id); err != nil {
+			return err
+		}
 	}
 	count := 0
 	for _, item := range pending {
@@ -1703,6 +1925,9 @@ WHERE device_id = ? AND status IN ('active', 'acknowledged') AND id NOT IN (`+pl
 		}
 	}
 
+	if err := s.SyncAlertIncidents(ctx, deviceID); err != nil {
+		return nil, true, err
+	}
 	alerts, err := s.ListAlerts(ctx, AlertListOptions{DeviceID: deviceID, Status: "open", Limit: 100})
 	return alerts, true, err
 }
@@ -1941,6 +2166,9 @@ func (s *Store) CreateRemoteSession(ctx context.Context, session model.RemoteSes
 			return model.RemoteSession{}, false, err
 		}
 	}
+	if err := enforceFleetAccess(ctx, tx, session.RequesterUserID, session.DeviceID, session.RemotePort > 0, session.LuCIPort > 0, session.ExpiresAt); err != nil {
+		return model.RemoteSession{}, false, err
+	}
 	now := nowText()
 	if _, err := tx.ExecContext(ctx, `
 UPDATE remote_sessions SET status = 'expired', closed_at = ?, updated_at = ?
@@ -1980,7 +2208,7 @@ WHERE device_id = ? AND julianday(created_at) >= julianday(?, '-10 minutes')
 SELECT EXISTS(
   SELECT 1 FROM remote_sessions
   WHERE status IN ('requested', 'queued', 'active')
-    AND (remote_port IN (?, ?) OR luci_port IN (?, ?))
+    AND ((remote_port>0 AND remote_port IN (?, ?)) OR (luci_port>0 AND luci_port IN (?, ?)))
 )
 `, session.RemotePort, session.LuCIPort, session.RemotePort, session.LuCIPort).Scan(&portReserved); err != nil {
 		return model.RemoteSession{}, false, err

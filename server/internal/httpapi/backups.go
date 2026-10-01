@@ -110,7 +110,7 @@ func (a *App) handleRestoreDeviceBackup(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	args, _ := json.Marshal(map[string]string{"backup_id": backup.ID, "sha256": backup.SHA256, "target": backup.Target})
-	command, found, err := a.store.CreateCommand(r.Context(), deviceID, "system_backup_restore", args)
+	command, found, err := a.createOperatorCommand(r, deviceID, "system_backup_restore", args)
 	if err != nil || !found {
 		writeError(w, http.StatusInternalServerError, "failed to create restore command")
 		return
@@ -137,7 +137,7 @@ func (a *App) handleAgentBackupUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "backup archive is empty or too large")
 		return
 	}
-	manifest, err := backupManifest(archive)
+	manifest, err := detailedBackupManifest(archive)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "backup archive is invalid")
 		return

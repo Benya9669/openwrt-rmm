@@ -1,6 +1,6 @@
 # OpenWrt RMM Agent
 
-Current Go agent source version: `0.9.0`, superseding `0.8.0`. The signed `agent-v0.6.10`
+Current Go agent source version: `0.10.0`, superseding `0.9.0`. The signed `agent-v0.6.10`
 tag did not publish packages because its release workflow used an obsolete version parser. The agent reports runtime health, pending command results,
 and the last heartbeat transport error after connectivity is restored. Its OpenWrt
 dependency uses the virtual `ip` provider, so either `ip-tiny` or `ip-full` can satisfy it.

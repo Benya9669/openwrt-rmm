@@ -31,6 +31,37 @@ import (
 )
 
 type Store interface {
+	CreateAuthorizedCommandBatch(context.Context, string, []string, string, json.RawMessage) ([]model.Command, error)
+	CreateAuthorizedCommand(context.Context, string, string, string, json.RawMessage) (model.Command, bool, error)
+	AdvanceGuardedRollouts(context.Context) error
+	CreateGuardedAgentRollout(context.Context, string, string, int, []model.RolloutDevice, model.RolloutGuard) (model.AgentRollout, error)
+	CheckPermission(context.Context, string, string, string) error
+	GetPermissionPolicy(context.Context, string) (store.PermissionPolicy, error)
+	SavePermissionPolicy(context.Context, string, string, store.PermissionPolicy) error
+	ListIncidents(context.Context, string) ([]store.Incident, error)
+	UpdateIncident(context.Context, string, string, string, string) error
+	SyncAlertIncidents(context.Context, string) error
+
+	ListFleetAssets(context.Context, string, string, string) ([]store.FleetAsset, error)
+	SaveFleetAsset(context.Context, string, store.FleetAsset) error
+	ListFleetOperations(context.Context, string) ([]store.FleetOperation, error)
+	CreateFleetOperation(context.Context, string, store.FleetOperationInput) (store.FleetOperation, error)
+	SetFleetOperationAction(context.Context, string, string, string) error
+	AdvanceFleetOperations(context.Context) error
+	AdvanceFleetSchedules(context.Context) error
+	SaveFleetSchedule(context.Context, string, store.FleetSchedule) (store.FleetSchedule, error)
+	ListFleetSchedules(context.Context, string) ([]store.FleetSchedule, error)
+	ListFleetScheduleRuns(context.Context, string) ([]map[string]string, error)
+	GetFleetAccessPolicy(context.Context, string, string) (store.FleetAccessPolicy, error)
+	SaveFleetAccessPolicy(context.Context, string, store.FleetAccessPolicy) error
+	SaveFleetProfile(context.Context, string, store.FleetProfile) (store.FleetProfile, error)
+	ListFleetProfiles(context.Context, string) ([]store.FleetProfile, error)
+	CreateFleetProfileOperation(context.Context, string, store.FleetProfileOperation) (store.FleetOperation, error)
+	SaveFleetRule(context.Context, string, store.FleetRule) (store.FleetRule, error)
+	ListFleetRules(context.Context, string) ([]store.FleetRule, error)
+	ListFleetRuleEvents(context.Context, string) ([]map[string]string, error)
+	AdvanceFleetRules(context.Context) error
+	CreateManagedRemoteCommand(context.Context, string, string, string, json.RawMessage) (model.Command, bool, error)
 	EnrollDevice(ctx context.Context, hostname, openwrtVersion string) (store.EnrolledDevice, error)
 	EnrollDeviceWithGrant(ctx context.Context, tokenHash, hostname, openwrtVersion string) (store.EnrolledDevice, bool, error)
 	AuthorizeDevice(ctx context.Context, deviceID, token string) (bool, error)
@@ -293,10 +324,12 @@ type commandResultRequest struct {
 }
 
 type rolloutRequest struct {
-	DeviceIDs        []string `json:"device_ids"`
-	Channel          string   `json:"channel"`
-	BatchSize        int      `json:"batch_size"`
-	FailureThreshold int      `json:"failure_threshold"`
+	RequestKey       string              `json:"request_key"`
+	Guard            *model.RolloutGuard `json:"guard,omitempty"`
+	DeviceIDs        []string            `json:"device_ids"`
+	Channel          string              `json:"channel"`
+	BatchSize        int                 `json:"batch_size"`
+	FailureThreshold int                 `json:"failure_threshold"`
 }
 
 type loginRequest struct {
@@ -475,6 +508,30 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("GET /api/devices", a.operatorAuth(http.HandlerFunc(a.handleListDevices)))
 	mux.Handle("GET /api/events", a.operatorAuth(http.HandlerFunc(a.handleEvents)))
 	mux.Handle("POST /api/devices/bulk-commands", a.operatorAuth(http.HandlerFunc(a.handleCreateBulkCommand)))
+	mux.Handle("GET /api/fleet/incidents", a.operatorAuth(http.HandlerFunc(a.handleIncidents)))
+	mux.Handle("POST /api/fleet/incidents/{id}", a.operatorAuth(http.HandlerFunc(a.handleIncidents)))
+	mux.Handle("GET /api/fleet/topology", a.operatorAuth(http.HandlerFunc(a.handleTopology)))
+	mux.Handle("GET /api/fleet/permissions", a.operatorAuth(http.HandlerFunc(a.handlePermissions)))
+	mux.Handle("GET /api/fleet/permissions/{id}", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handlePermissions))))
+	mux.Handle("PUT /api/fleet/permissions/{id}", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handlePermissions))))
+	mux.Handle("GET /api/fleet/operations", a.operatorAuth(http.HandlerFunc(a.handleFleetOperations)))
+	mux.Handle("GET /api/fleet/schedules", a.operatorAuth(http.HandlerFunc(a.handleFleetSchedules)))
+	mux.Handle("GET /api/fleet/profiles", a.operatorAuth(http.HandlerFunc(a.handleFleetProfiles)))
+	mux.Handle("GET /api/fleet/history/{id}", a.operatorAuth(http.HandlerFunc(a.handleFleetHistory)))
+	mux.Handle("GET /api/fleet/rules", a.operatorAuth(http.HandlerFunc(a.handleFleetRules)))
+	mux.Handle("POST /api/fleet/rules", a.operatorAuth(http.HandlerFunc(a.handleFleetRules)))
+	mux.Handle("PUT /api/fleet/rules/{id}", a.operatorAuth(http.HandlerFunc(a.handleFleetRules)))
+	mux.Handle("POST /api/fleet/profiles", a.operatorAuth(http.HandlerFunc(a.handleFleetProfiles)))
+	mux.Handle("PUT /api/fleet/profiles/{id}", a.operatorAuth(http.HandlerFunc(a.handleFleetProfiles)))
+	mux.Handle("POST /api/fleet/profile-operations", a.operatorAuth(http.HandlerFunc(a.handleFleetProfileOperation)))
+	mux.Handle("GET /api/fleet/access-policies/{id}", a.operatorAuth(http.HandlerFunc(a.handleFleetAccessPolicy)))
+	mux.Handle("PUT /api/fleet/access-policies/{id}", a.operatorAuth(a.adminOnly(http.HandlerFunc(a.handleFleetAccessPolicy))))
+	mux.Handle("POST /api/fleet/schedules", a.operatorAuth(http.HandlerFunc(a.handleFleetSchedules)))
+	mux.Handle("PUT /api/fleet/schedules/{id}", a.operatorAuth(http.HandlerFunc(a.handleFleetSchedules)))
+	mux.Handle("GET /api/fleet/assets", a.operatorAuth(http.HandlerFunc(a.handleFleetAssets)))
+	mux.Handle("PUT /api/fleet/assets/{id}", a.operatorAuth(http.HandlerFunc(a.handleFleetAssets)))
+	mux.Handle("POST /api/fleet/operations", a.operatorAuth(http.HandlerFunc(a.handleFleetOperations)))
+	mux.Handle("POST /api/fleet/operations/{id}/{action}", a.operatorAuth(http.HandlerFunc(a.handleFleetOperationAction)))
 	mux.Handle("GET /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("POST /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
 	mux.Handle("PATCH /api/devices/", a.operatorAuth(http.HandlerFunc(a.handleDeviceSubtree)))
@@ -510,6 +567,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	}
 	if cfg.BackgroundTasks {
 		a.startWorker(a.alertNotificationLoop)
+		a.startWorker(a.fleetOperationsLoop)
 	}
 
 	return &managedHandler{Handler: withRequestLogging(a.routeByHost(mux)), app: a}
@@ -834,6 +892,9 @@ func (a *App) handleAgentRollouts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "device IDs and a valid channel are required")
 		return
 	}
+	if req.Guard != nil && req.BatchSize > len(req.DeviceIDs) {
+		req.BatchSize = len(req.DeviceIDs)
+	}
 	if req.BatchSize < 1 || req.BatchSize > len(req.DeviceIDs) {
 		writeError(w, http.StatusBadRequest, "invalid batch size")
 		return
@@ -903,7 +964,22 @@ func (a *App) handleAgentRollouts(w http.ResponseWriter, r *http.Request) {
 	if req.BatchSize > len(eligible) {
 		req.BatchSize = len(eligible)
 	}
-	rollout, err := a.store.CreateAgentRollout(r.Context(), req.Channel, version, req.BatchSize, req.FailureThreshold, eligible)
+	var rollout model.AgentRollout
+	var err error
+	if req.Guard != nil {
+		req.Guard.RequestKey = req.RequestKey
+		rollout, err = a.store.CreateGuardedAgentRollout(r.Context(), req.Channel, version, req.BatchSize, eligible, *req.Guard)
+	} else {
+		rollout, err = a.store.CreateAgentRollout(r.Context(), req.Channel, version, req.BatchSize, req.FailureThreshold, eligible)
+	}
+	if errors.Is(err, store.ErrRolloutGuardInvalid) {
+		writeError(w, 400, "invalid canary, waves, observation window or signed update support")
+		return
+	}
+	if errors.Is(err, store.ErrFleetConflict) {
+		writeError(w, 409, "request key belongs to a different rollout")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create agent rollout")
 		return
@@ -1125,6 +1201,10 @@ func (a *App) handleDeviceSubtree(w http.ResponseWriter, r *http.Request) {
 		a.handleListDeviceBackups(w, r)
 		return
 	}
+	if len(parts) == 6 && parts[3] == "backups" && parts[5] == "compare" && r.Method == http.MethodGet {
+		a.handleCompareBackups(w, r)
+		return
+	}
 	if len(parts) == 4 && parts[3] == "backups" && r.Method == http.MethodPost {
 		a.handleCreateDeviceBackup(w, r)
 		return
@@ -1205,7 +1285,7 @@ func (a *App) handleCreateAgentUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := agentPackageCommandArgs(feed, inventory.PackageManager, inventory.AgentVersion)
-	c, _, err := a.store.CreateCommand(r.Context(), device.ID, "agent_update", mustJSON(args))
+	c, _, err := a.createOperatorCommand(r, device.ID, "agent_update", mustJSON(args))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to queue agent update")
 		return
@@ -1260,7 +1340,7 @@ func (a *App) handleCreateAgentRollback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	args := agentPackageCommandArgs(feed, inventory.PackageManager, inventory.AgentVersion)
-	c, _, err := a.store.CreateCommand(r.Context(), device.ID, "agent_rollback", mustJSON(args))
+	c, _, err := a.createOperatorCommand(r, device.ID, "agent_rollback", mustJSON(args))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to queue agent rollback")
 		return
@@ -1806,12 +1886,12 @@ func (a *App) handleCreateCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "command type is required")
 		return
 	}
-	if !AllowedCommandType(req.Type) {
+	if !AllowedCommandType(req.Type) || req.Type == "remote_ssh_reverse" {
 		writeError(w, http.StatusBadRequest, "command type is not allowed")
 		return
 	}
 
-	c, found, err := a.store.CreateCommand(r.Context(), deviceID, req.Type, req.Args)
+	c, found, err := a.createOperatorCommand(r, deviceID, req.Type, req.Args)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create command")
 		return
@@ -1839,7 +1919,7 @@ func (a *App) handleCreateBulkCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "command type is required")
 		return
 	}
-	if !AllowedCommandType(req.Type) {
+	if !AllowedCommandType(req.Type) || req.Type == "remote_ssh_reverse" {
 		writeError(w, http.StatusBadRequest, "command type is not allowed")
 		return
 	}
@@ -1852,32 +1932,18 @@ func (a *App) handleCreateBulkCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	commands := make([]model.Command, 0, len(req.DeviceIDs))
 	principal, _ := principalFromContext(r.Context())
-	for _, deviceID := range uniqueStrings(req.DeviceIDs) {
-		accessible, err := a.store.DeviceAccessible(r.Context(), deviceID, principal.User.ID, principal.IsAdmin())
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to authorize device")
-			return
-		}
-		if !accessible {
-			writeError(w, http.StatusNotFound, "device not found: "+deviceID)
-			return
-		}
-		c, found, err := a.store.CreateCommand(r.Context(), deviceID, req.Type, req.Args)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create command")
-			return
-		}
-		if !found {
-			writeError(w, http.StatusNotFound, "device not found: "+deviceID)
-			return
-		}
-		commands = append(commands, c)
-		_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "command.bulk_create", deviceID, c.ID, mustJSON(map[string]string{
-			"type":       req.Type,
-			"request_id": requestID(r.Context()),
-		}))
+	commands, err := a.store.CreateAuthorizedCommandBatch(r.Context(), principal.User.ID, uniqueStrings(req.DeviceIDs), req.Type, req.Args)
+	if errors.Is(err, store.ErrFleetAccess) {
+		writeError(w, 404, "a target or permission is unavailable")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "failed to create command batch")
+		return
+	}
+	for _, c := range commands {
+		_, _ = a.store.AddAuditEvent(r.Context(), actorName(r), "command.bulk_create", c.DeviceID, c.ID, mustJSON(map[string]string{"type": req.Type, "request_id": requestID(r.Context())}))
 	}
 	a.events.publish("devices")
 	writeJSON(w, http.StatusCreated, map[string]any{"commands": commands})
@@ -1902,6 +1968,25 @@ func (a *App) handleListCommands(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	principal, _ := principalFromContext(r.Context())
+	if !principal.IsAdmin() {
+		policy, err := a.store.GetPermissionPolicy(r.Context(), principal.User.ID)
+		if err != nil {
+			writeError(w, 500, "failed to check result permissions")
+			return
+		}
+		allowed := map[string]bool{}
+		for _, p := range policy.Permissions {
+			allowed[p] = true
+		}
+		visible := commands[:0]
+		for _, c := range commands {
+			if allowed[store.CommandPermission(c.Type)] {
+				visible = append(visible, c)
+			}
+		}
+		commands = visible
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"commands": commands})
 }
 
@@ -1922,6 +2007,15 @@ func (a *App) handleGetCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	principal, _ := principalFromContext(r.Context())
+	if err := a.store.CheckPermission(r.Context(), principal.User.ID, deviceID, store.CommandPermission(c.Type)); err != nil {
+		if errors.Is(err, store.ErrFleetAccess) {
+			writeError(w, 403, "command result denied by permissions")
+		} else {
+			writeError(w, 500, "failed to check result permissions")
+		}
+		return
+	}
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -2039,6 +2133,9 @@ func (a *App) writeCloudAccessState(w http.ResponseWriter, r *http.Request, crea
 	}
 	now := time.Now().UTC()
 	for _, session := range sessions {
+		if session.LuCIPort <= 0 {
+			continue
+		}
 		if !session.ExpiresAt.After(now) || !containsString([]string{"requested", "queued", "active"}, session.Status) {
 			continue
 		}
@@ -2080,8 +2177,8 @@ func (a *App) writeCloudAccessState(w http.ResponseWriter, r *http.Request, crea
 		return
 	}
 	session, err := a.createRemoteSession(r.Context(), actorName(r), deviceID, remoteSessionRequest{
-		Target:          "ssh",
-		DurationSeconds: 15 * 60,
+		Target:          "luci",
+		DurationSeconds: 0,
 		ServerHost:      a.tunnelPublicHost,
 		ServerPort:      a.tunnelPublicPort,
 		LocalPort:       22,
@@ -2198,15 +2295,42 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 	if target == "" {
 		target = "ssh"
 	}
-	if target != "ssh" {
-		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "only ssh remote sessions are supported"}
+	if target != "ssh" && target != "luci" {
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "target must be ssh or luci"}
+	}
+	principal, _ := principalFromContext(ctx)
+	policy := store.FleetAccessPolicy{SSHAllowed: true, LuCIAllowed: true, MaxTTLSeconds: 7200}
+	if principal.User.ID != "" {
+		var err error
+		policy, err = a.store.GetFleetAccessPolicy(ctx, principal.User.ID, deviceID)
+		if err != nil {
+			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusForbidden, "remote access policy denies this request"}
+		}
+		if (target == "ssh" && !policy.SSHAllowed) || (target == "luci" && !policy.LuCIAllowed) || (policy.RestrictUsers && !containsString(policy.UserIDs, principal.User.ID)) {
+			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusForbidden, "remote access policy denies this request"}
+		}
+	}
+	if !policy.SSHAllowed || !policy.LuCIAllowed {
+		device, found, err := a.store.GetDevice(ctx, deviceID)
+		if err != nil {
+			return model.RemoteSession{}, err
+		}
+		var inventory struct {
+			Features []string `json:"rmm_features"`
+		}
+		if !found || json.Unmarshal(device.Inventory, &inventory) != nil || !containsString(inventory.Features, "remote_access_modes") {
+			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusConflict, "update agent for restricted access modes"}
+		}
 	}
 	duration := req.DurationSeconds
 	if duration <= 0 {
-		duration = 15 * 60
+		duration = min(15*60, policy.MaxTTLSeconds)
 	}
 	if duration < 60 || duration > 2*60*60 {
 		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "duration_seconds must be between 60 and 7200"}
+	}
+	if duration > policy.MaxTTLSeconds {
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusForbidden, "duration exceeds remote access policy"}
 	}
 	serverHost := strings.TrimSpace(req.ServerHost)
 	if serverHost == "" {
@@ -2246,18 +2370,25 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 			remotePort = randomRemotePort()
 		}
 		luciPort = randomLuCIPort()
+		if !policy.SSHAllowed {
+			remotePort = 0
+		}
+		if !policy.LuCIAllowed {
+			luciPort = 0
+		}
 		session, found, err = a.store.CreateRemoteSession(ctx, model.RemoteSession{
-			DeviceID:   deviceID,
-			Target:     target,
-			Status:     "requested",
-			ServerHost: serverHost,
-			ServerPort: serverPort,
-			RemotePort: remotePort,
-			LuCIPort:   luciPort,
-			LuCIScheme: luciScheme,
-			LocalHost:  "127.0.0.1",
-			LocalPort:  localPort,
-			ExpiresAt:  expiresAt,
+			RequesterUserID: principal.User.ID,
+			DeviceID:        deviceID,
+			Target:          target,
+			Status:          "requested",
+			ServerHost:      serverHost,
+			ServerPort:      serverPort,
+			RemotePort:      remotePort,
+			LuCIPort:        luciPort,
+			LuCIScheme:      luciScheme,
+			LocalHost:       "127.0.0.1",
+			LocalPort:       localPort,
+			ExpiresAt:       expiresAt,
 		})
 		if !errors.Is(err, store.ErrTunnelPortUnavailable) {
 			break
@@ -2265,6 +2396,9 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 		if !autoRemotePort {
 			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusConflict, "requested remote port is already reserved"}
 		}
+	}
+	if errors.Is(err, store.ErrFleetAccess) {
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusForbidden, "remote access policy changed or denies this request"}
 	}
 	if errors.Is(err, store.ErrTunnelPortUnavailable) {
 		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusServiceUnavailable, "no tunnel port is currently available"}
@@ -2302,14 +2436,14 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 		"server_host_key":  a.tunnelHostPublicKey,
 		"credential_mode":  credentialMode,
 	})
-	command, commandFound, err := a.store.CreateCommand(ctx, deviceID, "remote_ssh_reverse", args)
+	command, commandFound, err := a.store.CreateManagedRemoteCommand(ctx, principal.User.ID, deviceID, session.ID, args)
 	if err != nil {
 		return model.RemoteSession{}, err
 	}
 	if !commandFound {
 		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusNotFound, "device not found"}
 	}
-	session, _, err = a.store.AttachRemoteSessionCommand(ctx, deviceID, session.ID, command.ID)
+	session, _, err = a.store.GetRemoteSession(ctx, deviceID, session.ID)
 	if err != nil {
 		return model.RemoteSession{}, err
 	}
@@ -2405,6 +2539,13 @@ func (a *App) proxyLuCIWithPrefix(w http.ResponseWriter, r *http.Request, device
 	if !found || session.Status != "active" || session.LuCIPort <= 0 {
 		a.writeLuCIError(w, r, http.StatusNotFound, "LuCI session is not active")
 		return
+	}
+	if principal, ok := principalFromContext(r.Context()); ok && principal.User.ID != "" {
+		policy, err := a.store.GetFleetAccessPolicy(r.Context(), principal.User.ID, deviceID)
+		if err != nil || !policy.LuCIAllowed || (policy.RestrictUsers && !containsString(policy.UserIDs, principal.User.ID)) {
+			a.writeLuCIError(w, r, http.StatusForbidden, "LuCI access denied by policy")
+			return
+		}
 	}
 
 	scheme := session.LuCIScheme
@@ -2683,6 +2824,9 @@ func (a *App) operatorAuth(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "cross-origin request rejected")
 			return
 		}
+		if !a.authorizePermissionRequest(w, r, principal) {
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalContextKey, principal)))
 	})
 }
@@ -2705,6 +2849,9 @@ func bearerToken(r *http.Request) (string, bool) {
 }
 
 func AllowedCommandType(t string) bool {
+	if t == "diagnostic_report" {
+		return true
+	}
 	switch t {
 	case "ping", "traceroute", "route_show", "interfaces_show", "reboot", "service_restart", "pkg_list_installed", "pkg_update", "pkg_list_upgradable", "pkg_install", "pkg_remove", "opkg_list_installed", "opkg_update", "opkg_list_upgradable", "opkg_install", "opkg_remove", "agent_update", "agent_rollback", "uci_show", "uci_backup", "uci_preview", "uci_set", "uci_commit", "uci_commit_confirmed", "uci_revert", "uci_restore", "remote_ssh_reverse", "remote_ssh_close", "system_backup_create", "system_backup_restore":
 		return true
