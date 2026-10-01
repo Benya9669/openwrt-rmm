@@ -5,6 +5,35 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+## server-v0.14.1
+
+OpenWrt 25.12 APK release-line compatibility.
+
+### Fixed
+
+- Stable OpenWrt 25.12 APK patch releases share compatible signed agent feeds, so a 25.12.5 Filogic router can use the 25.12.4 SDK feed. Exact release entries retain priority.
+- Target, package format, immutable feed/package identity and signature checks remain required. Other OpenWrt lines retain exact release matching; snapshots and release candidates receive no fallback.
+- Queued updates, rollback requests, schedules and rollout waves check that the installed agent advertises release-line support before using a different SDK patch.
+
+### Upgrade notes
+
+- Older agents on a different SDK patch need a one-time native APK upgrade to agent 0.10.1. Wait for its heartbeat before using managed updates.
+- Back up the database before upgrading the server. SDK locks, theme sources and theme version settings are unchanged.
+
+## agent-v0.10.1
+
+OpenWrt 25.12 APK release-line compatibility.
+
+### Fixed
+
+- Independently accept signed APK manifest entries across stable 25.12 patch releases while retaining exact target, format, feed URL, package version and ECDSA signature validation.
+- Advertise the release-line capability to the server. Other OpenWrt lines retain exact matching.
+
+### Upgrade notes
+
+- For an older agent on OpenWrt 25.12.5 using the existing 25.12.4 APK feed, first run `apk update` and `apk upgrade rmm-agent-go-production`. This upgrades only the agent package; wait for a fresh heartbeat after the service restarts.
+- Use server 0.14.1 for managed updates across differing 25.12 SDK patches. Validate on one router before a broader rollout.
+
 ## server-v0.14.0
 
 Fleet management, scoped permissions, incidents and guarded agent rollout waves.

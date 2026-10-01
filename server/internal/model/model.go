@@ -104,6 +104,7 @@ type RolloutGuard struct {
 }
 
 type AgentFeed struct {
+	OpenWrtRelease string `json:"openwrt_release,omitempty"`
 	TargetVersion  string `json:"target_version"`
 	FeedURL        string `json:"feed_url"`
 	PackageVersion string `json:"package_version"`

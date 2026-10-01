@@ -27,7 +27,7 @@ import (
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.10.0" {
+	if agentVersion != "0.10.1" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
 }
@@ -137,6 +137,21 @@ func TestValidateAgentUpdateManifestRequiresExactSignedFeed(t *testing.T) {
 	if err := validateAgentUpdateManifest(manifest, signature, publicPEM, args, "25.12.4", "ramips-mt7621"); err != nil {
 		t.Fatalf("valid signed manifest rejected: %v", err)
 	}
+	if err := validateAgentUpdateManifest(manifest, signature, publicPEM, args, "25.12.5", "ramips-mt7621"); err != nil {
+		t.Fatalf("same-line signed APK manifest rejected: %v", err)
+	}
+	for _, device := range []struct{ release, target string }{
+		{"25.13.0", "ramips-mt7621"}, {"25.12.5-rc1", "ramips-mt7621"}, {"25.12.5", "mediatek-filogic"},
+	} {
+		if err := validateAgentUpdateManifest(manifest, signature, publicPEM, args, device.release, device.target); err == nil {
+			t.Fatalf("incompatible device accepted: %+v", device)
+		}
+	}
+	args["package_manager"] = "opkg"
+	if err := validateAgentUpdateManifest(manifest, signature, publicPEM, args, "25.12.5", "ramips-mt7621"); err == nil {
+		t.Fatal("IPK manager accepted for APK release-line feed")
+	}
+	args["package_manager"] = "apk"
 	args["feed_url"] = "https://packages.example.test/other"
 	if err := validateAgentUpdateManifest(manifest, signature, publicPEM, args, "25.12.4", "ramips-mt7621"); err == nil {
 		t.Fatal("feed not present in the signed manifest was accepted")

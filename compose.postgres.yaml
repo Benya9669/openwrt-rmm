@@ -1,7 +1,7 @@
 services:
   rmm-server:
     stop_grace_period: 40s
-    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-0.14.0}"
+    image: "${RMM_SERVER_IMAGE:-ghcr.io/benya9669/openwrt-rmm-server}:${RMM_RELEASE_VERSION:-0.14.1}"
     pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     environment:
       RMM_ADDR: ":8080"
@@ -34,7 +34,7 @@ services:
       RMM_COMMAND_SIGNING_KEY_PATH: "${RMM_COMMAND_SIGNING_KEY_PATH:-/data/command-signing-ed25519.pem}"
       RMM_DATA_ENCRYPTION_KEY_PATH: "${RMM_DATA_ENCRYPTION_KEY_PATH:-/data/data-encryption.key}"
       RMM_NOTIFICATION_MAX_ATTEMPTS: "${RMM_NOTIFICATION_MAX_ATTEMPTS:-5}"
-      RMM_STABLE_AGENT_VERSION: "${RMM_STABLE_AGENT_VERSION:-0.10.0}"
+      RMM_STABLE_AGENT_VERSION: "${RMM_STABLE_AGENT_VERSION:-0.10.1}"
       RMM_AGENT_RECONNECT_TIMEOUT_SECONDS: "${RMM_AGENT_RECONNECT_TIMEOUT_SECONDS:-300}"
       RMM_UPDATE_MANIFEST_URL: "${RMM_UPDATE_MANIFEST_URL:-https://packages.daemonlord.ru/update-manifest.json}"
       RMM_UPDATE_MANIFEST_SIGNATURE_URL: "${RMM_UPDATE_MANIFEST_SIGNATURE_URL:-https://packages.daemonlord.ru/update-manifest.sig}"
@@ -73,7 +73,7 @@ services:
     restart: unless-stopped
 
   postgres-tls-init:
-    image: "${RMM_POSTGRES_TLS_INIT_IMAGE:-ghcr.io/benya9669/openwrt-rmm-postgres-tls-init}:${RMM_RELEASE_VERSION:-0.14.0}"
+    image: "${RMM_POSTGRES_TLS_INIT_IMAGE:-ghcr.io/benya9669/openwrt-rmm-postgres-tls-init}:${RMM_RELEASE_VERSION:-0.14.1}"
     pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     network_mode: none
     volumes:
@@ -126,7 +126,7 @@ services:
     cap_add:
       - SYS_PTRACE
 
-    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-0.14.0}"
+    image: "${RMM_TUNNEL_IMAGE:-ghcr.io/benya9669/openwrt-rmm-tunnel}:${RMM_RELEASE_VERSION:-0.14.1}"
     pull_policy: "${RMM_IMAGE_PULL_POLICY:-always}"
     ports:
       - "${RMM_TUNNEL_BIND_IP:-0.0.0.0}:${RMM_TUNNEL_SSH_PORT:-2222}:22"

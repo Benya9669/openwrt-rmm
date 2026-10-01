@@ -829,6 +829,7 @@ function friendlyAPIError(status, code, rawMessage) {
     "agent update is unavailable": "Управляемое обновление агента сейчас недоступно",
     "device does not support managed agent updates": "Этот роутер не поддерживает управляемое обновление агента",
     "no compatible immutable agent feed is available": "Для этого роутера нет совместимой версии агента",
+    "agent requires a native package update for OpenWrt 25.12 release-line support": "Для поддержки ветки OpenWrt 25.12 сначала обновите агент через APK",
     "failed to queue agent update": "Не удалось добавить обновление агента в очередь",
   };
   if (known[rawMessage]) return known[rawMessage];

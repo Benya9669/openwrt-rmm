@@ -31,7 +31,17 @@ and rejects targets that are not lower than the device's reported `agent_version
 
 The queued command is version-pinned (`feed_url`, package name, and package version). Agent `0.6.10`
 and later independently verify the ECDSA signature and require the signed manifest to contain the
-exact local OpenWrt release, target, package format, feed, and package version. The Go agent then
+local OpenWrt release, target, package format, feed, and package version. With agent
+`0.10.1` and a matching server update, stable APK patch releases within `25.12`
+share compatibility (for example a `25.12.4` SDK package on `25.12.5`). Other
+OpenWrt lines still require an exact release. The agent advertises this capability
+as `agent_update_release_line_25_12`; older agents on a differing patch need a
+one-time native APK upgrade before managed updates, schedules or rollout waves
+can use that feed. Targets, immutable package coordinates, ECDSA manifest and native
+APK signatures remain required. Snapshot and release-candidate builds do not
+receive the stable release-line fallback. SDK-pinned feed directory names remain
+unchanged; the theme is unaffected. Verify a heartbeat advertises the capability
+and queue an update on a test router before expanding the rollout. The Go agent then
 uses `apk add --allow-downgrade` or a version-pinned `opkg install`, verifies the installed package
 version and executable, persists `waiting_reconnect`, and restarts itself. The server changes the
 operation to `healthy` only after a subsequent heartbeat reports the requested version.

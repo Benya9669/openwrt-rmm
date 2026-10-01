@@ -66,3 +66,31 @@ func TestResolverAcceptsOnlyVerifiedStableManifest(t *testing.T) {
 		t.Fatalf("last verified version was lost: %q", resolver.Version())
 	}
 }
+
+func TestCompatibleFeedUses2512LineAndPrefersExact(t *testing.T) {
+	resolver := &Resolver{manifest: Manifest{Packages: []Package{
+		{OpenWrtRelease: "25.12.4", Target: "mediatek-filogic", Format: "apk", FeedURL: "https://packages.example.test/25.12.4"},
+		{OpenWrtRelease: "25.12.5", Target: "mediatek-filogic", Format: "apk", FeedURL: "https://packages.example.test/25.12.5"},
+	}}}
+	for _, release := range []string{"25.12", "25.12.6"} {
+		pkg, ok := resolver.CompatibleFeed(release, "mediatek-filogic", "apk")
+		if !ok || pkg.OpenWrtRelease != "25.12.4" {
+			t.Fatalf("release %q missing compatible APK: %+v, %v", release, pkg, ok)
+		}
+	}
+	pkg, ok := resolver.CompatibleFeed("25.12.5", "mediatek-filogic", "apk")
+	if !ok || pkg.OpenWrtRelease != "25.12.5" {
+		t.Fatalf("exact feed was not preferred: %+v", pkg)
+	}
+	for _, release := range []string{"25.13.0", "25.12.5-rc1", "SNAPSHOT"} {
+		if _, ok := resolver.CompatibleFeed(release, "mediatek-filogic", "apk"); ok {
+			t.Fatalf("incompatible release %q accepted", release)
+		}
+	}
+	if _, ok := resolver.CompatibleFeed("25.12.6", "ramips-mt7621", "apk"); ok {
+		t.Fatal("wrong target accepted")
+	}
+	if _, ok := resolver.CompatibleFeed("25.12.6", "mediatek-filogic", "opkg"); ok {
+		t.Fatal("wrong package manager accepted")
+	}
+}

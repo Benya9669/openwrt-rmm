@@ -60,6 +60,10 @@ func (a *App) handleFleetSchedules(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusConflict, "compatible immutable update unavailable")
 				return
 			}
+			if !agentSupportsFeed(device.Inventory, feed) {
+				writeError(w, http.StatusConflict, "agent requires a native package update for OpenWrt 25.12 release-line support")
+				return
+			}
 			args := agentPackageCommandArgs(feed, inventory.Manager, inventory.Version)
 			args["expected_release"] = inventory.Release
 			args["expected_target"] = inventory.Target

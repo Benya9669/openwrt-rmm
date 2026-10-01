@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"rmm-openwrt/internal/openwrtcompat"
 	"strings"
 	"sync"
 	"time"
@@ -134,7 +135,8 @@ func (r *Resolver) Available() bool {
 	return r.loaded
 }
 
-// CompatibleFeed returns the exact signed feed entry for a reported OpenWrt release and target.
+// CompatibleFeed prefers an exact signed entry, then permits stable APK patches
+// within OpenWrt 25.12. The target and package format must always match.
 func (r *Resolver) CompatibleFeed(openWrtRelease, target, packageManager string) (Package, bool) {
 	wantFormat := map[string]string{"opkg": "ipk", "apk": "apk"}[strings.TrimSpace(packageManager)]
 	if wantFormat == "" {
@@ -144,6 +146,11 @@ func (r *Resolver) CompatibleFeed(openWrtRelease, target, packageManager string)
 	defer r.mu.RUnlock()
 	for _, pkg := range r.manifest.Packages {
 		if pkg.OpenWrtRelease == openWrtRelease && pkg.Target == target && pkg.Format == wantFormat {
+			return pkg, true
+		}
+	}
+	for _, pkg := range r.manifest.Packages {
+		if pkg.Target == target && pkg.Format == wantFormat && openwrtcompat.ReleaseMatches(pkg.OpenWrtRelease, openWrtRelease, wantFormat) {
 			return pkg, true
 		}
 	}

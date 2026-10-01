@@ -942,7 +942,7 @@ func (a *App) handleAgentRollouts(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		feed, ok := resolver(strings.TrimSpace(inv.OpenWrtRelease), strings.TrimSpace(inv.Target), strings.TrimSpace(inv.PackageManager))
-		if !ok {
+		if !ok || !agentSupportsFeed(d.Inventory, feed) {
 			continue
 		}
 		if version == "" {
@@ -1284,6 +1284,10 @@ func (a *App) handleCreateAgentUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "no compatible immutable agent feed is available")
 		return
 	}
+	if !agentSupportsFeed(device.Inventory, feed) {
+		writeError(w, http.StatusConflict, "agent requires a native package update for OpenWrt 25.12 release-line support")
+		return
+	}
 	args := agentPackageCommandArgs(feed, inventory.PackageManager, inventory.AgentVersion)
 	c, _, err := a.createOperatorCommand(r, device.ID, "agent_update", mustJSON(args))
 	if err != nil {
@@ -1337,6 +1341,10 @@ func (a *App) handleCreateAgentRollback(w http.ResponseWriter, r *http.Request) 
 	}
 	if compareSemver(feed.TargetVersion, strings.TrimSpace(inventory.AgentVersion)) >= 0 {
 		writeError(w, http.StatusConflict, "rollback target must be lower than the reported agent version")
+		return
+	}
+	if !agentSupportsFeed(device.Inventory, feed) {
+		writeError(w, http.StatusConflict, "agent requires a native package update for OpenWrt 25.12 release-line support")
 		return
 	}
 	args := agentPackageCommandArgs(feed, inventory.PackageManager, inventory.AgentVersion)

@@ -34,10 +34,11 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"rmm-openwrt/internal/commandsig"
+	"rmm-openwrt/internal/openwrtcompat"
 )
 
 const (
-	agentVersion          = "0.10.0"
+	agentVersion          = "0.10.1"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -502,7 +503,7 @@ func buildInventory(cfg config) map[string]any {
 		"openwrt_version": openwrtVersion(),
 		"agent_version":   agentVersion,
 		"agent_runtime":   "go",
-		"rmm_features":    []string{"network_topology", "diagnostic_report", "remote_access_modes", "uci_profile_preview", "uci_profile_apply", "uci_profile_rollback"},
+		"rmm_features":    []string{openwrtcompat.ReleaseLineFeature, "network_topology", "diagnostic_report", "remote_access_modes", "uci_profile_preview", "uci_profile_apply", "uci_profile_rollback"},
 		"agent_package":   "rmm-agent-go-production",
 		"package_manager": packageManager(),
 		"openwrt_release": openwrtRelease(),
@@ -1156,7 +1157,7 @@ func validateAgentUpdateManifest(manifestData, signature, publicKeyData []byte, 
 	}
 	wantFormat := map[string]string{"opkg": "ipk", "apk": "apk"}[args["package_manager"]]
 	for _, pkg := range manifest.Packages {
-		if pkg.OpenWrtRelease == release && pkg.Target == target && pkg.Format == wantFormat && pkg.FeedURL == args["feed_url"] && pkg.PackageVersion == args["package_version"] {
+		if openwrtcompat.ReleaseMatches(pkg.OpenWrtRelease, release, wantFormat) && pkg.Target == target && pkg.Format == wantFormat && pkg.FeedURL == args["feed_url"] && pkg.PackageVersion == args["package_version"] {
 			return nil
 		}
 	}

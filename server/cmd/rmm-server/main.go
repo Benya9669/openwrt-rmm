@@ -25,7 +25,7 @@ import (
 var (
 	serverVersion      = "dev"
 	serverRevision     = "unknown"
-	stableAgentVersion = "0.10.0"
+	stableAgentVersion = "0.10.1"
 )
 
 func main() {
@@ -128,7 +128,7 @@ func main() {
 		stableAgentVersionProvider = resolver.Version
 		compatibleAgentFeed = func(openWrtRelease, target, packageManager string) (model.AgentFeed, bool) {
 			pkg, ok := resolver.CompatibleFeed(openWrtRelease, target, packageManager)
-			return model.AgentFeed{TargetVersion: resolver.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: manifestURL, SignatureURL: manifestSignatureURL}, ok
+			return model.AgentFeed{OpenWrtRelease: pkg.OpenWrtRelease, TargetVersion: resolver.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: manifestURL, SignatureURL: manifestSignatureURL}, ok
 		}
 		historicalAgentFeed = func(ctx context.Context, historicalManifestURL, historicalSignatureURL, openWrtRelease, target, packageManager string) (model.AgentFeed, bool) {
 			historical, err := updateinfo.NewChannelResolver(historicalManifestURL, historicalSignatureURL, manifestPublicKey, "", "stable")
@@ -136,7 +136,7 @@ func main() {
 				return model.AgentFeed{}, false
 			}
 			pkg, ok := historical.CompatibleFeed(openWrtRelease, target, packageManager)
-			return model.AgentFeed{TargetVersion: historical.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: historicalManifestURL, SignatureURL: historicalSignatureURL}, ok
+			return model.AgentFeed{OpenWrtRelease: pkg.OpenWrtRelease, TargetVersion: historical.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: historicalManifestURL, SignatureURL: historicalSignatureURL}, ok
 		}
 	}
 	if candidateManifestURL := strings.TrimSpace(os.Getenv("RMM_CANDIDATE_UPDATE_MANIFEST_URL")); candidateManifestURL != "" {
@@ -159,7 +159,7 @@ func main() {
 							return model.AgentFeed{}, false
 						}
 						pkg, ok := candidate.CompatibleFeed(openWrtRelease, target, packageManager)
-						return model.AgentFeed{TargetVersion: candidate.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: candidateManifestURL, SignatureURL: candidateSignatureURL}, ok
+						return model.AgentFeed{OpenWrtRelease: pkg.OpenWrtRelease, TargetVersion: candidate.TargetVersion(), FeedURL: pkg.FeedURL, PackageVersion: pkg.PackageVersion, ManifestURL: candidateManifestURL, SignatureURL: candidateSignatureURL}, ok
 					}
 					go candidate.Run(context.Background(), 15*time.Minute, func(refreshErr error) { log.Printf("candidate update manifest refresh failed: %v", refreshErr) })
 				}
