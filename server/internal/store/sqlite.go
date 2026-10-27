@@ -316,8 +316,9 @@ func (s *Store) newCommand(deviceID, commandType string, args json.RawMessage, t
 	// PostgreSQL TIMESTAMPTZ stores microsecond precision. Normalize before
 	// signing so the persisted timestamp is identical to the signed timestamp
 	// when the command is read back for delivery.
+	// ttl may come from time.Until(deadline) and carry nanoseconds.
 	createdAt := time.Now().UTC().Truncate(time.Microsecond)
-	expiresAt := createdAt.Add(ttl)
+	expiresAt := createdAt.Add(ttl).Truncate(time.Microsecond)
 	command := model.Command{
 		ID: id, DeviceID: deviceID, Type: commandType, Args: args, Status: "queued",
 		Result: json.RawMessage(`{}`), MaxAttempts: 3, CreatedAt: createdAt,
