@@ -5,6 +5,20 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+## server-v0.14.2
+
+Signed remote access commands on PostgreSQL.
+
+### Fixed
+
+- Command expiry is normalized to PostgreSQL microsecond precision before signing. Reverse SSH/cloud LuCI sessions and fleet operation commands derive their lifetime from a deadline, so the stored expiry previously differed from the signed one and agents rejected them with `command signature is invalid`, leaving the session in the creating state.
+- SQLite deployments were not affected.
+
+### Upgrade notes
+
+- No agent update is required. Commands queued before the upgrade keep their old signature and expire on their own; close a stuck remote session and open it again after the server restarts.
+- Back up the database before upgrading the server.
+
 ## server-v0.14.1
 
 OpenWrt 25.12 APK release-line compatibility.
