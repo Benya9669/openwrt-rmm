@@ -5,6 +5,35 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
+## server-v0.15.0
+
+HTTPS connectivity monitoring.
+
+### Added
+
+- Display HTTPS probe results and response times separately from ICMP latency and packet loss. Use heartbeat for RMM reachability.
+- Raise a WAN alert only after all HTTPS targets fail in two consecutive probe cycles. A successful target clears the failure streak. Existing ICMP telemetry and alert thresholds still work for older agents.
+
+### Upgrade notes
+
+- Back up the database and upgrade the server before rolling out agent 0.11.0. This release does not change the database schema.
+- Check the connectivity summary on one router after the agent upgrade before rolling out across the fleet. The separate LuCI theme and OpenWrt SDK matrix are unchanged.
+
+## agent-v0.11.0
+
+Configurable HTTPS probes replace periodic ICMP checks.
+
+### Changed
+
+- Probe Mozilla and Apple HTTPS endpoints by default, with certificate validation, response checks, no redirects and a four-second timeout. The independent heartbeat and probe intervals are unchanged.
+- Periodic probes no longer ping public IPs or the RMM server. Manual ping and the existing diagnostic commands remain available.
+- LuCI agent settings and their Russian translation advance to 0.2.4 to expose the HTTPS URLs.
+
+### Upgrade notes
+
+- Upgrade to server 0.15.0 first for HTTPS telemetry and alert handling. Set `rmm-agent.main.https_check_urls` or standalone `HTTPS_CHECK_URLS` to use your own endpoints.
+- Saved ICMP targets remain available for downgrade. The legacy shell agent still uses ICMP.
+
 ## server-v0.14.2
 
 Signed remote access commands on PostgreSQL.

@@ -25,7 +25,7 @@ import (
 var (
 	serverVersion      = "dev"
 	serverRevision     = "unknown"
-	stableAgentVersion = "0.10.1"
+	stableAgentVersion = "0.11.0"
 )
 
 func main() {
