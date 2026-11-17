@@ -847,7 +847,7 @@ func notificationCopy(device model.Device, alert model.Alert, event, publicURL s
 func notificationAlertLabel(alertType string) string {
 	labels := map[string]string{
 		"offline": "роутер не на связи", "memory_high": "высокое использование памяти", "disk_high": "заканчивается место",
-		"wan_down": "нет доступа в интернет", "packet_loss_high": "высокая потеря пакетов", "latency_high": "высокая задержка",
+		"wan_down": "не проходят внешние проверки связи", "packet_loss_high": "высокая потеря пакетов", "latency_high": "высокая задержка",
 		"wan_ip_changed": "изменился WAN IP", "command_attention": "операция требует внимания",
 	}
 	if label := labels[alertType]; label != "" {

@@ -218,8 +218,10 @@ func (s *Store) ListFleetRules(ctx context.Context, userID string) ([]FleetRule,
 
 func reactionViolation(rule FleetRule, raw json.RawMessage) (bool, bool) {
 	var metrics struct {
-		Load   string `json:"loadavg"`
-		Memory struct {
+		ConnectivityMethod       string `json:"connectivity_method"`
+		ConnectivityFailedCycles int    `json:"connectivity_failed_cycles"`
+		Load                     string `json:"loadavg"`
+		Memory                   struct {
 			Total float64 `json:"total_kb"`
 			Used  float64 `json:"used_kb"`
 		} `json:"memory"`
@@ -257,6 +259,9 @@ func reactionViolation(rule FleetRule, raw json.RawMessage) (bool, bool) {
 			if *check.Reachable {
 				return false, true
 			}
+		}
+		if metrics.ConnectivityMethod == "https" && metrics.ConnectivityFailedCycles < 2 {
+			return false, false
 		}
 		return true, true
 	}

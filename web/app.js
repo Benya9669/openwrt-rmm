@@ -1206,7 +1206,11 @@ function deviceWanSummary(device) {
   const wanIP = device.inventory && device.inventory.wan_ip;
   const checks = Array.isArray(device.metrics && device.metrics.connectivity_checks) ? device.metrics.connectivity_checks : [];
   if (!device.online) return { label: "Нет данных", className: "offline" };
-  if (checks.some((check) => !check.reachable)) return { label: wanIP || "Есть потери связи", className: "warning" };
+  const https = device.metrics && device.metrics.connectivity_method === "https";
+  if (https && !checks.length) return { label: wanIP || "Нет данных", className: "offline" };
+  if (https ? checks.every((check) => !check.reachable) : checks.some((check) => !check.reachable)) {
+    return { label: wanIP || "Проверки связи не прошли", className: "warning" };
+  }
   return { label: wanIP || "Подключено", className: "online" };
 }
 
@@ -1613,6 +1617,12 @@ function formatDisk(disk) {
 
 function formatConnectivity(checks) {
   if (!Array.isArray(checks) || checks.length === 0) return "-";
+  if (checks.some((check) => check.method === "https")) {
+    return checks.map((check) => {
+      const result = check.reachable ? (Number.isFinite(check.response_time_ms) ? `${check.response_time_ms.toFixed(0)} мс` : "доступно") : (check.http_status ? `HTTP ${check.http_status}, проверка не прошла` : "нет ответа");
+      return `${check.target}: ${result}`;
+    }).join(" · ");
+  }
   const reachable = checks.filter((check) => check.reachable).length;
   const reachableChecks = checks.filter((check) => check.reachable);
   const worstReachableLatency = Math.max(0, ...reachableChecks.map((check) => Number(check.latency_ms || 0)));
@@ -1660,15 +1670,17 @@ function humanizeAgentError(value) {
 function renderDeviceStatus(device) {
   const checks = Array.isArray(device.metrics && device.metrics.connectivity_checks) ? device.metrics.connectivity_checks : [];
   const serverHost = (device.metrics && device.metrics.server_check_target) || window.location.hostname;
-  const serverCheck = checks.find((check) => check.target === serverHost);
-  const wanChecks = checks.filter((check) => check.target !== serverHost);
+  const https = device.metrics && device.metrics.connectivity_method === "https";
+  const serverCheck = https ? null : checks.find((check) => check.target === serverHost);
+  const wanChecks = https ? checks : checks.filter((check) => check.target !== serverHost);
   const version = deviceAgentVersion(device);
   const agentHealth = device.metrics && device.metrics.agent_health ? device.metrics.agent_health : null;
   const pending = Number(agentHealth && agentHealth.pending_results || 0);
   const failures = Number(agentHealth && agentHealth.consecutive_failures || 0);
   let tone = "good";
   let title = "Роутер работает нормально";
-  let description = `Heartbeat получен ${formatRelativeTime(device.last_seen_at)}. Интернет и связь с сервером доступны.`;
+  let description = `Heartbeat получен ${formatRelativeTime(device.last_seen_at)}.`;
+  if (wanChecks.some((check) => check.reachable)) description += " Внешняя проверка связи прошла.";
   let iconName = "check";
 
   if (!device.online) {
@@ -1682,9 +1694,9 @@ function renderDeviceStatus(device) {
     description = "Heartbeat дошёл, но проверка адреса сервера с роутера завершается ошибкой.";
     iconName = "alert-triangle";
   } else if (wanChecks.length && !wanChecks.some((check) => check.reachable)) {
-    tone = "bad";
-    title = "Интернет с роутера недоступен";
-    description = "Агент подключён к серверу, но внешние контрольные адреса не отвечают.";
+    tone = https && Number(device.metrics.connectivity_failed_cycles || 0) < 2 ? "warn" : "bad";
+    title = https ? "Внешние HTTPS-проверки не прошли" : "Интернет с роутера недоступен";
+    description = "Heartbeat дошёл, но внешние проверки не получили ожидаемый результат.";
     iconName = "alert-triangle";
   } else if (failures > 0) {
     tone = "warn";
@@ -1743,15 +1755,16 @@ function resultWord(value) {
 function renderHealthSummary(device) {
   const checks = Array.isArray(device.metrics && device.metrics.connectivity_checks) ? device.metrics.connectivity_checks : [];
   const serverHost = (device.metrics && device.metrics.server_check_target) || window.location.hostname;
-  const serverCheck = checks.find((check) => check.target === serverHost);
-  const wanChecks = checks.filter((check) => check.target !== serverHost);
+  const https = device.metrics && device.metrics.connectivity_method === "https";
+  const serverCheck = https ? null : checks.find((check) => check.target === serverHost);
+  const wanChecks = https ? checks : checks.filter((check) => check.target !== serverHost);
   const wanReachable = wanChecks.some((check) => check.reachable);
-  const serverStatus = serverCheck ? (serverCheck.reachable ? `Есть, ${serverCheck.latency_ms} ms` : "Нет") : (device.online ? "Есть" : "Нет данных");
+  const serverStatus = serverCheck ? (serverCheck.reachable ? `Есть, ${serverCheck.latency_ms} ms` : "Нет") : (device.online ? "Heartbeat получен" : "Нет данных");
   const serverState = serverCheck ? (serverCheck.reachable ? "ok" : "bad") : (device.online ? "ok" : "warn");
   const rows = [
     ["Статус", device.online ? "На связи" : "Нет связи", device.online ? "ok" : "bad"],
     ["Связь с сервером", serverStatus, serverState],
-    ["Интернет/WAN", wanChecks.length ? (wanReachable ? "Есть" : "Нет") : "Нет данных", wanChecks.length && !wanReachable ? "bad" : "ok"],
+    ["Интернет/WAN", wanChecks.length ? (wanReachable ? "Проверка прошла" : "Проверка не прошла") : "Нет данных", wanChecks.length && !wanReachable ? "bad" : (wanChecks.length ? "ok" : "neutral")],
     ["Активные проблемы", String(device.active_alerts || 0), device.active_alerts ? "warn" : "ok"],
     ["WAN IP", device.inventory && device.inventory.wan_ip ? device.inventory.wan_ip : "-", "neutral"],
   ];
@@ -1989,14 +2002,18 @@ function renderMetricsHistory(samples) {
     const disk = sample.metrics && sample.metrics.disk;
     return point(sample, disk && disk.used_percent ? Number(String(disk.used_percent).replace("%", "")) : 0);
   });
-  const latencyPoints = ordered.map((sample) => {
+  const connectivityPoints = (field) => ordered.flatMap((sample) => {
     const checks = Array.isArray(sample.metrics && sample.metrics.connectivity_checks) ? sample.metrics.connectivity_checks : [];
-    return point(sample, Math.max(0, ...checks.filter((check) => check.reachable).map((check) => Number(check.latency_ms || 0))));
+    const times = checks.filter((check) => check.reachable && Number.isFinite(check[field])).map((check) => check[field]);
+    return times.length ? [point(sample, Math.max(...times))] : [];
   });
+  const latencyPoints = connectivityPoints("latency_ms");
+  const httpsPoints = connectivityPoints("response_time_ms");
   const loadPoints = ordered.map((sample) => point(sample, Number.parseFloat(String(sample.metrics && sample.metrics.loadavg || "0")) || 0));
   els.metricsHistory.appendChild(metricChart("Память", "%", memoryPoints, "warn", 100));
   els.metricsHistory.appendChild(metricChart("Хранилище", "%", diskPoints, "good", 100));
-  els.metricsHistory.appendChild(metricChart("Задержка", "ms", latencyPoints, "accent"));
+  if (latencyPoints.length) els.metricsHistory.appendChild(metricChart("Задержка ICMP", "ms", latencyPoints, "accent"));
+  if (httpsPoints.length) els.metricsHistory.appendChild(metricChart("Время ответа HTTPS", "ms", httpsPoints, "accent"));
   els.metricsHistory.appendChild(metricChart("Нагрузка", "", loadPoints, "violet"));
 }
 
@@ -4209,7 +4226,9 @@ async function runFullDiagnostic() {
 
 async function runAlertDiagnostics(alert) {
   const target = alert.details && alert.details.target ? alert.details.target : "1.1.1.1";
-  if (alert.type === "latency_high" || alert.type === "packet_loss_high" || alert.type === "wan_down") {
+  if (alert.type === "wan_down" && alert.details && alert.details.method === "https") {
+    await createDeviceCommand("diagnostic_report", {});
+  } else if (alert.type === "latency_high" || alert.type === "packet_loss_high" || alert.type === "wan_down") {
     await createDeviceCommand("ping", { target });
   } else if (alert.type === "offline") {
     await createDeviceCommand("ping", { target: window.location.hostname || "10.10.10.2" });

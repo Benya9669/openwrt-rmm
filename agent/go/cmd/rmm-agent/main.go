@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	agentVersion          = "0.10.1"
+	agentVersion          = "0.11.0"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -53,14 +53,23 @@ type agentRuntimeHealth struct {
 }
 
 type connectivitySampler struct {
-	checks      []map[string]any
-	targets     []string
-	nextCheckAt time.Time
+	checks       []map[string]any
+	targets      []string
+	nextCheckAt  time.Time
+	failedCycles int
 }
 
 func (s *connectivitySampler) current(now time.Time, interval time.Duration, targets []string, probe func([]string) []map[string]any) []map[string]any {
 	if s.checks == nil || !now.Before(s.nextCheckAt) || !slices.Equal(s.targets, targets) {
+		if !slices.Equal(s.targets, targets) {
+			s.failedCycles = 0
+		}
 		s.checks = probe(targets)
+		if len(s.checks) == 0 || slices.ContainsFunc(s.checks, func(check map[string]any) bool { return check["reachable"] == true }) {
+			s.failedCycles = 0
+		} else if s.failedCycles < 2 {
+			s.failedCycles++
+		}
 		s.targets = slices.Clone(targets)
 		s.nextCheckAt = now.Add(interval)
 	}
@@ -116,7 +125,8 @@ type config struct {
 	CommandSigningKeyID     string
 	CommandStateDir         string
 	RecoveryDir             string
-	CheckTargets            []string
+	CheckTargets            []string // retained for downgrade; not used by periodic probes
+	HTTPSCheckURLs          []string
 	HostnameOverride        string
 	HostnameSuffix          string
 	ConfigFile              string
@@ -266,7 +276,8 @@ func loadConfig(path string) (config, error) {
 		CommandSigningKeyID:     os.Getenv("COMMAND_SIGNING_KEY_ID"),
 		CommandStateDir:         envDefault("COMMAND_STATE_DIR", "/etc/rmm-agent/command-state"),
 		RecoveryDir:             envDefault("RECOVERY_DIR", "/etc/rmm-agent/recovery"),
-		CheckTargets:            splitWords(envDefault("CHECK_TARGETS", "1.1.1.1 8.8.8.8")),
+		CheckTargets:            splitWords(os.Getenv("CHECK_TARGETS")),
+		HTTPSCheckURLs:          httpsProbeURLs(os.Getenv("HTTPS_CHECK_URLS")),
 		HostnameOverride:        os.Getenv("HOSTNAME_OVERRIDE"),
 		HostnameSuffix:          os.Getenv("HOSTNAME_SUFFIX"),
 		ConfigFile:              path,
@@ -336,6 +347,9 @@ func loadConfig(path string) (config, error) {
 	if value := values["CHECK_TARGETS"]; value != "" {
 		cfg.CheckTargets = splitWords(value)
 	}
+	if value := values["HTTPS_CHECK_URLS"]; value != "" {
+		cfg.HTTPSCheckURLs = httpsProbeURLs(value)
+	}
 	if value := values["HOSTNAME_OVERRIDE"]; value != "" {
 		cfg.HostnameOverride = value
 	}
@@ -377,6 +391,7 @@ func saveConfig(cfg config) error {
 	writeConfigLine(&b, "INTERVAL_SECONDS", strconv.Itoa(cfg.IntervalSeconds))
 	writeConfigLine(&b, "CONNECTIVITY_CHECK_INTERVAL_SECONDS", strconv.Itoa(cfg.CheckIntervalSeconds))
 	writeConfigLine(&b, "CHECK_TARGETS", strings.Join(cfg.CheckTargets, " "))
+	writeConfigLine(&b, "HTTPS_CHECK_URLS", strings.Join(cfg.HTTPSCheckURLs, " "))
 	writeConfigLine(&b, "BACKUP_DIR", cfg.BackupDir)
 	writeConfigLine(&b, "TUNNEL_DEVICE_IDENTITY_FILE", cfg.TunnelIdentity)
 	writeConfigLine(&b, "TUNNEL_KEY_EPOCH", strconv.Itoa(cfg.TunnelKeyEpoch))
@@ -454,7 +469,7 @@ func heartbeatOnce(ctx context.Context, client *http.Client, cfg *config, agentH
 	body := map[string]any{
 		"device_id": cfg.DeviceID,
 		"inventory": buildInventory(*cfg),
-		"metrics":   buildMetrics(*cfg, agentHealth, connectivity),
+		"metrics":   buildMetrics(ctx, *cfg, agentHealth, connectivity),
 	}
 	var resp heartbeatResponse
 	if err := postJSON(ctx, client, cfg.ServerURL+"/api/agent/heartbeat", cfg.DeviceToken, body, &resp); err != nil {
@@ -601,20 +616,22 @@ func (cfg config) displayHostname() string {
 	return hostnameValue() + strings.TrimSpace(cfg.HostnameSuffix)
 }
 
-func buildMetrics(cfg config, agentHealth map[string]any, connectivity *connectivitySampler) map[string]any {
-	serverTarget := serverCheckTarget(cfg.ServerURL)
-	checks := connectivity.current(time.Now(), time.Duration(cfg.CheckIntervalSeconds)*time.Second,
-		effectiveCheckTargets(cfg.CheckTargets, serverTarget), connectivityChecks)
+func buildMetrics(ctx context.Context, cfg config, agentHealth map[string]any, connectivity *connectivitySampler) map[string]any {
+	checks := connectivity.current(time.Now(), time.Duration(cfg.CheckIntervalSeconds)*time.Second, cfg.HTTPSCheckURLs,
+		func(targets []string) []map[string]any {
+			return probeHTTPSConnectivity(ctx, connectivityHTTPClient, targets)
+		})
 	return map[string]any{
-		"system":              jsonObjectOrEmpty(commandOutput("ubus", "call", "system", "info")),
-		"loadavg":             strings.TrimSpace(readFileString("/proc/loadavg")),
-		"uptime":              strings.TrimSpace(readFileString("/proc/uptime")),
-		"memory":              memoryInfo(),
-		"disk":                diskInfo(),
-		"interface_counters":  interfaceCounters(),
-		"connectivity_checks": checks,
-		"server_check_target": serverTarget,
-		"agent_health":        agentHealth,
+		"system":                     jsonObjectOrEmpty(commandOutput("ubus", "call", "system", "info")),
+		"loadavg":                    strings.TrimSpace(readFileString("/proc/loadavg")),
+		"uptime":                     strings.TrimSpace(readFileString("/proc/uptime")),
+		"memory":                     memoryInfo(),
+		"disk":                       diskInfo(),
+		"interface_counters":         interfaceCounters(),
+		"connectivity_checks":        checks,
+		"connectivity_method":        "https",
+		"connectivity_failed_cycles": connectivity.failedCycles,
+		"agent_health":               agentHealth,
 	}
 }
 
@@ -630,41 +647,6 @@ func pendingResultCount(spoolDir string) int {
 		}
 	}
 	return count
-}
-
-func effectiveCheckTargets(targets []string, serverTarget string) []string {
-	result := make([]string, 0, len(targets)+1)
-	seen := map[string]bool{}
-	for _, target := range targets {
-		target = strings.TrimSpace(target)
-		if target == "" || seen[target] {
-			continue
-		}
-		result = append(result, target)
-		seen[target] = true
-	}
-	if serverTarget != "" && !seen[serverTarget] {
-		result = append(result, serverTarget)
-	}
-	return result
-}
-
-func serverCheckTarget(serverURL string) string {
-	parsed, err := url.Parse(strings.TrimSpace(serverURL))
-	if err != nil {
-		return ""
-	}
-	host := parsed.Hostname()
-	if host == "" {
-		host = parsed.Host
-	}
-	if host == "" {
-		return ""
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.String()
-	}
-	return strings.TrimSpace(host)
 }
 
 func pinCommandSigningKey(cfg *config, encodedPublicKey, keyID string) (bool, error) {
@@ -2572,76 +2554,6 @@ func interfaceCounters() []map[string]any {
 		return []map[string]any{}
 	}
 	return counters
-}
-
-func connectivityChecks(targets []string) []map[string]any {
-	var checks []map[string]any
-	for _, target := range targets {
-		target = strings.TrimSpace(target)
-		if target == "" {
-			continue
-		}
-		output := commandOutput("ping", "-c", "3", "-W", "2", target)
-		loss := parsePacketLoss(output)
-		latency := parseLatency(output)
-		checks = append(checks, map[string]any{"target": target, "reachable": loss < 100, "packet_loss_percent": loss, "latency_ms": latency})
-	}
-	if checks == nil {
-		return []map[string]any{}
-	}
-	return checks
-}
-
-func parsePacketLoss(output string) float64 {
-	for _, part := range strings.Split(output, ",") {
-		if strings.Contains(part, "packet loss") {
-			clean := packetLossNumber(part)
-			value, err := strconv.ParseFloat(clean, 64)
-			if err == nil {
-				return value
-			}
-		}
-	}
-	return 100
-}
-
-func packetLossNumber(value string) string {
-	percent := strings.IndexByte(value, '%')
-	if percent < 0 {
-		return ""
-	}
-	value = strings.TrimSpace(value[:percent])
-	start := len(value)
-	for start > 0 {
-		r := rune(value[start-1])
-		if (r >= '0' && r <= '9') || r == '.' {
-			start--
-			continue
-		}
-		break
-	}
-	return value[start:]
-}
-
-func parseLatency(output string) float64 {
-	for _, line := range strings.Split(output, "\n") {
-		if !strings.Contains(line, "min/avg/max") && !strings.Contains(line, "round-trip") {
-			continue
-		}
-		parts := strings.Split(line, "=")
-		if len(parts) < 2 {
-			continue
-		}
-		values := strings.Split(strings.TrimSpace(parts[1]), "/")
-		if len(values) < 2 {
-			continue
-		}
-		value, err := strconv.ParseFloat(strings.TrimSpace(values[1]), 64)
-		if err == nil {
-			return value
-		}
-	}
-	return 0
 }
 
 func jsonObjectOrEmpty(output string) map[string]any {

@@ -108,7 +108,33 @@ The MVP agent also uses:
 - a result spool at `/tmp/rmm-agent-results`;
 - heartbeat backoff up to 300 seconds on repeated failures.
 
-`CHECK_TARGETS` selects the connectivity targets. Heartbeats normally run every 30 seconds, while ping checks use the independent `CONNECTIVITY_CHECK_INTERVAL_SECONDS` setting (default 300 seconds). Each heartbeat sends the latest cached `reachable`, `packet_loss_percent`, and `latency_ms` values in `metrics.connectivity_checks`.
+The production Go agent checks WAN connectivity with HTTPS every 300 seconds by
+default (`CONNECTIVITY_CHECK_INTERVAL_SECONDS`). Heartbeats keep their independent
+30-second default. The default probes are Mozilla's
+`https://detectportal.firefox.com/success.txt` and Apple's
+`https://www.apple.com/library/test/success.html`. Each passes only when it
+returns the expected success body. Probes use certificate validation, no
+redirects, and a four-second timeout. A successful heartbeat measures RMM
+reachability separately; periodic probes no longer ping the server or public IPs.
+
+Set `HTTPS_CHECK_URLS` for standalone Go agents or `rmm-agent.main.https_check_urls`
+for the package (up to four space-separated HTTPS URLs). Custom endpoints must
+return a 2xx response. URLs must have no credentials, query, or fragment. An empty
+setting or a list with no valid URLs uses the defaults. For example:
+
+```sh
+uci set rmm-agent.main.https_check_urls='https://probe1.example.net/health https://probe2.example.org/health'
+uci commit rmm-agent
+/etc/init.d/rmm-agent restart
+```
+
+Upgrade the server first so it understands the new telemetry. After upgrading
+the Go agent, inspect the device's connectivity summary after a fresh heartbeat.
+It shows each HTTPS result and response time. The server raises a WAN alert
+after two consecutive probe cycles in which all targets failed.
+HTTPS reports `response_time_ms`, not ICMP latency or packet loss. Existing
+`check_targets` settings are retained for downgrade; old Go and legacy shell
+agents still use their existing ICMP behavior. Manual ping remains available.
 
 For a router and server in the same LAN, verify the server from the router with the server LAN IP:
 

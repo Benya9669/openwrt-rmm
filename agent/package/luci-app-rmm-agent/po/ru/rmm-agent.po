@@ -47,11 +47,11 @@ msgstr "Интервал heartbeat (сек.)"
 msgid "Connectivity check interval (seconds)"
 msgstr "Интервал проверки связи (сек.)"
 
-msgid "Ping results are reused between checks while heartbeats continue at their own interval."
-msgstr "Между проверками используются последние результаты ping; heartbeat отправляется со своим интервалом."
+msgid "HTTPS results are reused between checks while heartbeats continue at their own interval."
+msgstr "Между проверками используются последние результаты HTTPS; heartbeat отправляется со своим интервалом."
 
-msgid "Connectivity check targets"
-msgstr "Адреса для проверки соединения"
+msgid "HTTPS check URLs"
+msgstr "HTTPS-адреса для проверки связи"
 
 msgid "Advanced settings"
 msgstr "Дополнительные настройки"
@@ -85,3 +85,6 @@ msgstr "Перезапустить агент"
 
 msgid "Start agent"
 msgstr "Запустить агент"
+
+msgid "Up to four HTTPS URLs separated by spaces. Leave empty to use the defaults. Older agents use their saved ping targets."
+msgstr "До четырёх HTTPS-адресов через пробел. Пустое поле оставляет адреса по умолчанию. Старые агенты используют сохранённые цели пинга."

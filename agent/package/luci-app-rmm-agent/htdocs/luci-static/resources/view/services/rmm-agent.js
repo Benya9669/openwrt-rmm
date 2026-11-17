@@ -70,11 +70,12 @@ return view.extend({
 		option.datatype = 'range(30,3600)';
 		option.default = '300';
 		option.rmempty = false;
-		option.description = _('Ping results are reused between checks while heartbeats continue at their own interval.');
+		option.description = _('HTTPS results are reused between checks while heartbeats continue at their own interval.');
 
-		option = section.option(form.Value, 'check_targets', _('Connectivity check targets'));
-		option.placeholder = '1.1.1.1 8.8.8.8';
-		option.rmempty = false;
+		option = section.option(form.Value, 'https_check_urls', _('HTTPS check URLs'));
+		option.placeholder = 'https://detectportal.firefox.com/success.txt https://www.apple.com/library/test/success.html';
+		option.description = _('Up to four HTTPS URLs separated by spaces. Leave empty to use the defaults. Older agents use their saved ping targets.');
+		option.rmempty = true;
 
 		section = map.section(form.NamedSection, 'main', 'agent', _('Advanced settings'));
 		section.anonymous = true;

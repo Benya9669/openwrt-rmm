@@ -1,13 +1,13 @@
 # OpenWrt RMM Agent
 
-Current Go agent source version: `0.10.1`, superseding `0.10.0`. The signed `agent-v0.6.10`
+Current Go agent source version: `0.11.0`, superseding `0.10.1`. The signed `agent-v0.6.10`
 tag did not publish packages because its release workflow used an obsolete version parser. The agent reports runtime health, pending command results,
 and the last heartbeat transport error after connectivity is restored. Its OpenWrt
 dependency uses the virtual `ip` provider, so either `ip-tiny` or `ip-full` can satisfy it.
 Production package upgrades restart an already running agent so the new binary takes effect.
 Managed upgrades defer that restart until the command result has been persisted and sent.
-The LuCI application and Russian translation use package version `0.2.3` for
-the new connectivity-check setting.
+The LuCI application and Russian translation use package version `0.2.4` for
+configurable HTTPS connectivity probes.
 
 Production Go agent for OpenWrt, with the shell implementation retained as a fallback runtime.
 

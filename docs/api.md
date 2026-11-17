@@ -157,17 +157,27 @@ Request:
     "memory": {"total_kb": 262144, "used_kb": 131072},
     "disk": {"total_kb": 65536, "used_kb": 20000, "used_percent": "31%"},
     "interface_counters": [],
+    "connectivity_method": "https",
+    "connectivity_failed_cycles": 0,
     "connectivity_checks": [
       {
-        "target": "1.1.1.1",
+        "target": "probe.example.net",
+        "method": "https",
         "reachable": true,
-        "packet_loss_percent": 0,
-        "latency_ms": 12.4
+        "http_status": 204,
+        "response_time_ms": 52.4
       }
     ]
   }
 }
 ```
+
+HTTPS checks report the latest probe cycle. Failed checks omit
+`response_time_ms` and report an HTTP status only if a response was received.
+`connectivity_failed_cycles` counts consecutive cycles where every target
+failed, capped at two; repeated heartbeats do not increment it. Legacy agents
+can still report ICMP `latency_ms` and `packet_loss_percent` without
+`connectivity_method`. Heartbeat delivery is independent of WAN probe results.
 
 Response:
 

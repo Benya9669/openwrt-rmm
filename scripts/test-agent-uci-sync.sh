@@ -15,6 +15,7 @@ case "$*" in
 	"-q get rmm-agent.main.reset_identity") printf '%s\n' "${RMM_TEST_RESET:-0}" ;;
 	"-q get rmm-agent.main.enrollment_token") [ "${RMM_TEST_RESET:-0}" = "1" ] && printf '%s\n' new-grant || exit 1 ;;
 	"-q get rmm-agent.main.interval_seconds") printf '%s\n' 60 ;;
+	"-q get rmm-agent.main.https_check_urls") printf '%s\n' 'https://probe.example.test/ready' ;;
 	"-q get rmm-agent.main.check_targets") printf '%s\n' '1.1.1.1 8.8.8.8 9.9.9.9' ;;
 	"-q get rmm-agent.main.tunnel_identity_file") printf '%s\n' /etc/rmm-agent/tunnel_key ;;
 	"-q set rmm-agent.main.tunnel_identity_file=/etc/rmm-agent/tunnel_device_key") exit 0 ;;
@@ -51,6 +52,7 @@ EOF
 	grep -Fxq 'DEVICE_TOKEN="device-secret"' "$runtime_config"
 	case "$sync_script" in
 		*go-production*)
+			grep -Fxq 'HTTPS_CHECK_URLS="https://probe.example.test/ready"' "$runtime_config"
 			grep -Fxq 'TUNNEL_DEVICE_IDENTITY_FILE="/etc/rmm-agent/tunnel_device_key"' "$runtime_config"
 			grep -Fxq 'TUNNEL_KEY_EPOCH="1"' "$runtime_config"
 			;;

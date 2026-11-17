@@ -27,7 +27,7 @@ import (
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.10.1" {
+	if agentVersion != "0.11.0" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
 }
@@ -358,64 +358,6 @@ fe80::1234 dev br-lan lladdr aa:bb:cc:dd:ee:ff router STALE`
 	}
 	if neighbors[2]["interface"] != "br-lan" || neighbors[2]["state"] != "STALE" {
 		t.Fatalf("unexpected stale neighbor: %#v", neighbors[2])
-	}
-}
-
-func TestParsePacketLossBusyBox(t *testing.T) {
-	output := `PING 10.10.10.10 (10.10.10.10): 56 data bytes
-64 bytes from 10.10.10.10: seq=0 ttl=64 time=1.157 ms
-64 bytes from 10.10.10.10: seq=1 ttl=64 time=0.883 ms
-64 bytes from 10.10.10.10: seq=2 ttl=64 time=0.952 ms
-
---- 10.10.10.10 ping statistics ---
-3 packets transmitted, 3 packets received, 0% packet loss
-round-trip min/avg/max = 0.883/0.997/1.157 ms`
-
-	if loss := parsePacketLoss(output); loss != 0 {
-		t.Fatalf("expected 0%% packet loss, got %v", loss)
-	}
-	if latency := parseLatency(output); latency != 0.997 {
-		t.Fatalf("expected avg latency 0.997, got %v", latency)
-	}
-}
-
-func TestParsePacketLossGNU(t *testing.T) {
-	output := `--- 1.1.1.1 ping statistics ---
-3 packets transmitted, 2 received, 33.3333% packet loss, time 2002ms
-rtt min/avg/max/mdev = 10.100/11.200/12.300/0.100 ms`
-
-	if loss := parsePacketLoss(output); loss != 33.3333 {
-		t.Fatalf("expected 33.3333%% packet loss, got %v", loss)
-	}
-	if latency := parseLatency(output); latency != 11.2 {
-		t.Fatalf("expected avg latency 11.2, got %v", latency)
-	}
-}
-
-func TestServerCheckTarget(t *testing.T) {
-	tests := map[string]string{
-		"http://10.10.10.10:18082":   "10.10.10.10",
-		"https://rmm.daemonlord.ru":  "rmm.daemonlord.ru",
-		"http://[2001:db8::1]:18082": "2001:db8::1",
-		"http://127.0.0.1:8080/path": "127.0.0.1",
-		"not a valid url":            "",
-	}
-	for input, want := range tests {
-		if got := serverCheckTarget(input); got != want {
-			t.Fatalf("serverCheckTarget(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
-
-func TestEffectiveCheckTargetsAddsServerTarget(t *testing.T) {
-	got := effectiveCheckTargets([]string{"1.1.1.1", "10.10.10.10", "1.1.1.1"}, "10.10.10.10")
-	if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "10.10.10.10" {
-		t.Fatalf("unexpected targets: %#v", got)
-	}
-
-	got = effectiveCheckTargets([]string{"1.1.1.1"}, "10.10.10.10")
-	if len(got) != 2 || got[1] != "10.10.10.10" {
-		t.Fatalf("expected server target to be appended, got %#v", got)
 	}
 }
 

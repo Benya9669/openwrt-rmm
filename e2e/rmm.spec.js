@@ -22,6 +22,30 @@ test.describe("authenticated operator flows", () => {
   await expect(page.locator("#luciStateTitle")).toContainText("доступ");
   });
 
+  test("HTTPS probe failure is shown separately from heartbeat and ICMP loss", async ({ page }) => {
+    await page.route("**/api/devices", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.devices[0].metrics = {
+        ...data.devices[0].metrics,
+        connectivity_method: "https",
+        connectivity_failed_cycles: 0,
+        connectivity_checks: [
+          { target: "probe1.example.test", method: "https", reachable: true, http_status: 204, response_time_ms: 42 },
+          { target: "probe2.example.test", method: "https", reachable: false },
+        ],
+      };
+      await route.fulfill({ response, json: data });
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Открыть роутер E2E OpenWrt" }).click();
+    await expect(page.locator("#healthSummary")).toContainText("Heartbeat получен");
+    await expect(page.locator("#healthSummary")).toContainText("Проверка прошла");
+    await expect(page.locator("#connectivityStatus")).toContainText("probe1.example.test: 42 мс");
+    await expect(page.locator("#connectivityStatus")).toContainText("probe2.example.test: нет ответа");
+    await expect(page.locator("#connectivityStatus")).not.toContainText(/loss/i);
+  });
+
   test("profile tabs expose notification diagnostics without sending messages", async ({ page }) => {
   await page.locator("#profileBtn").click();
   await expect(page.locator("#profileDialog")).toBeVisible();

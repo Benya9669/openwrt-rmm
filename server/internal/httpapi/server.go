@@ -1710,6 +1710,18 @@ func connectivityAlerts(deviceID string, raw json.RawMessage, settings model.Not
 	}
 
 	alerts := make([]model.Alert, 0, 3)
+	var connectivity struct {
+		Method       string `json:"connectivity_method"`
+		FailedCycles int    `json:"connectivity_failed_cycles"`
+	}
+	if json.Unmarshal(raw, &connectivity) == nil && connectivity.Method == "https" {
+		if reachableCount == 0 && connectivity.FailedCycles >= 2 {
+			alerts = append(alerts, newAlert(deviceID, "wan_down", "critical", "External HTTPS connectivity checks are failing", map[string]any{
+				"targets": len(checks), "method": "https",
+			}, now))
+		}
+		return alerts
+	}
 	if reachableCount == 0 {
 		alerts = append(alerts, newAlert(deviceID, "wan_down", "critical", "WAN connectivity checks are failing", map[string]any{
 			"targets": len(checks),
