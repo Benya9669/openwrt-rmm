@@ -40,7 +40,7 @@ func TestFleetHTTPKeepsTenantAdminAndOriginBoundaries(t *testing.T) {
 		t.Fatal("fixture transfer failed")
 	}
 	for raw, id := range map[string]string{"fleet-owner-cookie": owner.ID, "fleet-admin-cookie": admin.ID} {
-		if err = st.CreateOperatorSession(ctx, store.TokenHash(raw), id, time.Now().Add(time.Hour)); err != nil {
+		if err = st.CreateOperatorSession(ctx, store.TokenHash(raw), id, "test-hash", time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
 	}

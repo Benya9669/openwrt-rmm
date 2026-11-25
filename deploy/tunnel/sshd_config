@@ -8,7 +8,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 PubkeyAuthentication yes
-AuthorizedKeysFile /data/authorized_keys
+AuthorizedKeysFile none
 AuthorizedKeysCommand /usr/local/bin/tunnel-authorized-key %u %f /run/rmm-tunnel/auth-token /run/rmm-tunnel/auth-url
 AuthorizedKeysCommandUser nobody
 

@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+case "$1" in
+	list) printf '%s\n' '{"start":{},"restart":{}}' ;;
+	call)
+		case "$2" in
+			start|restart)
+				code=0
+				/etc/init.d/rmm-agent "$2" >/dev/null || code=$?
+				printf '{"code":%d}\n' "$code"
+				;;
+			*) exit 3 ;;
+		esac
+		;;
+	*) exit 1 ;;
+esac

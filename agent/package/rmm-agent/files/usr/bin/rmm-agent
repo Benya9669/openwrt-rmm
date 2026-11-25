@@ -522,6 +522,12 @@ safe_user_name() {
 	[ -z "$clean" ]
 }
 
+safe_session_id() {
+	[ -n "$1" ] || return 1
+	clean="$(printf '%s' "$1" | tr -d 'A-Za-z0-9_-')"
+	[ -z "$clean" ]
+}
+
 package_manager() {
 	if command -v apk >/dev/null 2>&1; then
 		printf 'apk'
@@ -648,6 +654,8 @@ remote_ssh_reverse_output() {
 	server_host="$(command_arg_string "$args" "server_host")"
 	server_port="$(command_arg_string "$args" "server_port")"
 	remote_port="$(command_arg_string "$args" "remote_port")"
+	luci_port="$(command_arg_string "$args" "luci_port")"
+	luci_local_port="$(command_arg_string "$args" "luci_local_port")"
 	local_host="$(command_arg_string "$args" "local_host")"
 	local_port="$(command_arg_string "$args" "local_port")"
 	server_user="$(command_arg_string "$args" "server_user")"
@@ -656,19 +664,23 @@ remote_ssh_reverse_output() {
 	[ -n "$server_port" ] || server_port="22"
 	[ -n "$local_host" ] || local_host="127.0.0.1"
 	[ -n "$local_port" ] || local_port="22"
+	[ -n "$luci_local_port" ] || luci_local_port="80"
 	[ -n "$server_user" ] || server_user="rmm-tunnel"
 	[ -n "$duration_seconds" ] || duration_seconds="900"
 
-	if ! safe_host_name "$server_host" || ! safe_host_name "$local_host" || ! safe_user_name "$server_user"; then
+	if ! safe_session_id "$session_id" || ! safe_host_name "$server_host" || ! safe_host_name "$local_host" || ! safe_user_name "$server_user"; then
 		printf 'remote tunnel host or user is invalid\n'
 		return 2
 	fi
-	if ! safe_port "$server_port" || ! safe_port "$remote_port" || ! safe_port "$local_port" || ! safe_port "$duration_seconds"; then
+	if ! safe_port "$server_port" || ! safe_port "$remote_port" || ! safe_port "$luci_port" || ! safe_port "$local_port" || ! safe_port "$luci_local_port" || ! safe_port "$duration_seconds"; then
 		printf 'remote tunnel port or duration is invalid\n'
 		return 2
 	fi
 
 	log_file="/tmp/rmm-remote-${session_id:-session}.log"
+	mkdir -p "$TUNNEL_STATE_DIR"
+	pid_file="$TUNNEL_STATE_DIR/$session_id.pid"
+	remote_ssh_stop_session "$session_id" >/dev/null 2>&1 || true
 	rm -f "$log_file"
 	identity_args=""
 	if [ -f "$TUNNEL_IDENTITY_FILE" ]; then
@@ -676,18 +688,20 @@ remote_ssh_reverse_output() {
 	fi
 	if command -v ssh >/dev/null 2>&1; then
 		# shellcheck disable=SC2086
-		(ssh $identity_args -N -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host"; printf 'ssh exited with code %s\n' "$?" >> "$log_file") >> "$log_file" 2>&1 &
+		ssh $identity_args -N -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -R "$remote_port:$local_host:$local_port" -R "$luci_port:127.0.0.1:$luci_local_port" -p "$server_port" "$server_user@$server_host" >> "$log_file" 2>&1 &
 	elif command -v dbclient >/dev/null 2>&1; then
 		# shellcheck disable=SC2086
-		(dbclient $identity_args -N -y -R "$remote_port:$local_host:$local_port" -p "$server_port" "$server_user@$server_host"; printf 'dbclient exited with code %s\n' "$?" >> "$log_file") >> "$log_file" 2>&1 &
+		dbclient $identity_args -N -y -R "$remote_port:$local_host:$local_port" -R "$luci_port:127.0.0.1:$luci_local_port" -p "$server_port" "$server_user@$server_host" >> "$log_file" 2>&1 &
 	else
 		printf 'remote ssh reverse requires ssh or dbclient on router\n'
 		return 2
 	fi
 	pid="$!"
-	(sleep "$duration_seconds"; kill "$pid" >/dev/null 2>&1 || true) >/dev/null 2>&1 &
+	printf '%s\n' "$pid" > "$pid_file"
+	(sleep "$duration_seconds"; remote_ssh_stop_pid "$session_id" "$pid") >/dev/null 2>&1 &
 	sleep 2
 	if ! kill -0 "$pid" >/dev/null 2>&1; then
+		rm -f "$pid_file"
 		printf 'remote ssh reverse failed to stay running\n'
 		cat "$log_file" 2>/dev/null
 		return 1
@@ -695,8 +709,68 @@ remote_ssh_reverse_output() {
 	printf 'remote ssh reverse started\n'
 	printf 'session=%s pid=%s\n' "$session_id" "$pid"
 	printf 'operator endpoint: %s:%s -> %s:%s\n' "$server_host" "$remote_port" "$local_host" "$local_port"
+	printf 'LuCI proxy endpoint: %s:%s -> 127.0.0.1:%s\n' "$server_host" "$luci_port" "$luci_local_port"
 	printf 'log=%s\n' "$log_file"
 	return 0
+}
+
+remote_ssh_stop_pid() {
+	stop_session_id="$1"
+	stop_expected_pid="$2"
+	stop_pid_file="$TUNNEL_STATE_DIR/$stop_session_id.pid"
+	[ -f "$stop_pid_file" ] || return 0
+	stop_pid="$(cat "$stop_pid_file" 2>/dev/null)"
+	[ "$stop_pid" = "$stop_expected_pid" ] || return 0
+	case "$stop_pid" in
+		''|*[!0-9]*)
+			rm -f "$stop_pid_file"
+			return 1
+			;;
+	esac
+	# A stale pid file can refer to an unrelated, newly started process.
+	if [ "$stop_pid" -gt 1 ] && [ "$(readlink "/proc/$stop_pid/fd/1")" = "/tmp/rmm-remote-$stop_session_id.log" ]; then
+		kill "$stop_pid" >/dev/null 2>&1 || true
+	fi
+	rm -f "$stop_pid_file"
+}
+
+remote_ssh_stop_session() {
+	stop_session_id="$1"
+	stop_remote_port="${2:-}"
+	if ! safe_session_id "$stop_session_id"; then
+		printf 'remote session id is invalid\n'
+		return 2
+	fi
+	stop_pid_file="$TUNNEL_STATE_DIR/$stop_session_id.pid"
+	if [ ! -f "$stop_pid_file" ]; then
+		if safe_port "$stop_remote_port"; then
+			for cmdline in /proc/[0-9]*/cmdline; do
+				[ -f "$cmdline" ] || continue
+				command_line="$(tr '\000' ' ' < "$cmdline" 2>/dev/null)"
+				case "$command_line" in
+					*ssh*" -R $stop_remote_port:"*|*dbclient*" -R $stop_remote_port:"*)
+						stop_pid="$(printf '%s' "$cmdline" | cut -d/ -f3)"
+						[ "$(readlink "/proc/$stop_pid/fd/1")" = "/tmp/rmm-remote-$stop_session_id.log" ] || continue
+						kill "$stop_pid" >/dev/null 2>&1 || true
+						printf 'remote ssh session stopped by port\n'
+						return 0
+						;;
+				esac
+			done
+		fi
+		printf 'remote ssh session is already stopped\n'
+		return 0
+	fi
+	stop_pid="$(cat "$stop_pid_file" 2>/dev/null)"
+	remote_ssh_stop_pid "$stop_session_id" "$stop_pid"
+	printf 'remote ssh session stopped\n'
+}
+
+remote_ssh_close_output() {
+	args="$1"
+	session_id="$(command_arg_string "$args" "session_id")"
+	remote_port="$(command_arg_string "$args" "remote_port")"
+	remote_ssh_stop_session "$session_id" "$remote_port"
 }
 
 run_command() {
@@ -844,6 +918,10 @@ run_command() {
 			;;
 		remote_ssh_reverse)
 			remote_ssh_reverse_output "$args"
+			return $?
+			;;
+		remote_ssh_close)
+			remote_ssh_close_output "$args"
 			return $?
 			;;
 		*)

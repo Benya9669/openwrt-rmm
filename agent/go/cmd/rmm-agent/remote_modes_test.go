@@ -1,6 +1,29 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"net"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+func TestLuCIOnlyReportsUnavailableWebListener(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	listener.Close()
+	args := map[string]string{
+		"session_id": "ras-test", "server_host": "example.test", "remote_port": "0",
+		"luci_port": "22110", "luci_local_port": port, "credential_mode": "legacy",
+	}
+	output, code := remoteSSHReverseOutput(context.Background(), config{TunnelStateDir: t.TempDir()}, args)
+	if code != 1 || !strings.Contains(output, "LuCI listener 127.0.0.1:"+port+" unavailable") {
+		t.Fatalf("unexpected result: code=%d output=%q", code, output)
+	}
+}
 
 func TestRemoteAccessModesRejectNoListener(t *testing.T) {
 	args := map[string]string{"session_id": "ras-test", "server_host": "example.test", "remote_port": "22010", "luci_port": "0", "credential_mode": "legacy"}

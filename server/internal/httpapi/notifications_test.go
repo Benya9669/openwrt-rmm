@@ -26,9 +26,15 @@ type capturedNotification struct {
 
 func verifyEmailForTest(t *testing.T, st *store.Store, username, email string) {
 	t.Helper()
-	user, _, found, err := st.GetUserByUsername(context.Background(), username)
+	user, passwordHash, found, err := st.GetUserByUsername(context.Background(), username)
 	if err != nil || !found {
 		t.Fatalf("load verification user: found=%v err=%v", found, err)
+	}
+	if err := st.BeginRecoveryEmailChange(context.Background(), user.ID, passwordHash, user.Email, email, "fixture-code-hash", time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := st.ConfirmRecoveryEmailChange(context.Background(), user.ID, "fixture-code-hash"); err != nil || !ok {
+		t.Fatalf("set fixture email: %v %v", ok, err)
 	}
 	hash, err := store.VerificationCodeHash("123456")
 	if err != nil {
@@ -73,9 +79,6 @@ func TestNotificationSettingsTestAndAlertLifecycle(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := authenticatedClient(t, srv.URL, "admin", "notification-password-123")
-	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
-		"display_name": "Owner", "email": "owner@example.test",
-	}, http.StatusOK, nil)
 	verifyEmailForTest(t, st, "admin", "owner@example.test")
 
 	var defaults struct {
@@ -239,9 +242,6 @@ func TestNotificationFailureIsRetriedWithoutLeakingProviderError(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := authenticatedClient(t, srv.URL, "admin", "notification-password-123")
-	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
-		"display_name": "Owner", "email": "owner@example.test",
-	}, http.StatusOK, nil)
 	verifyEmailForTest(t, st, "admin", "owner@example.test")
 	authRequestJSON(t, client, http.MethodPut, srv.URL+"/api/notifications/settings", map[string]any{
 		"email_enabled": true, "notify_warning": true, "notify_critical": true, "notify_resolved": true,

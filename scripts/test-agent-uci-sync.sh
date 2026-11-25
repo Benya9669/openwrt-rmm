@@ -83,3 +83,15 @@ grep -Fxq 'DEVICE_TOKEN_EPOCH="1"' "$reset_config"
 grep -Fxq 'TUNNEL_KEY_EPOCH="1"' "$reset_config"
 grep -Fxq 'COMMAND_SIGNING_PUBLIC_KEY=""' "$reset_config"
 grep -Fxq 'COMMAND_SIGNING_KEY_ID=""' "$reset_config"
+
+# Validate the installed rpcd contract with a fixture init script.
+rpc="$repository_root/agent/package/luci-app-rmm-agent/root/usr/libexec/rpcd/rmm.agent"
+test "$(sh "$rpc" list)" = '{"start":{},"restart":{}}'
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" >> "$ACTION_LOG"\nexit "${TEST_EXIT:-0}"\n' > "$fixture/bin/init"
+chmod +x "$fixture/bin/init"
+sed "s|/etc/init.d/rmm-agent|$fixture/bin/init|" "$rpc" > "$fixture/service-rpc"
+export ACTION_LOG="$fixture/actions"
+test "$(sh "$fixture/service-rpc" call start)" = '{"code":0}'
+test "$(TEST_EXIT=7 sh "$fixture/service-rpc" call restart)" = '{"code":7}'
+if sh "$fixture/service-rpc" call stop; then exit 1; fi
+test "$(cat "$ACTION_LOG")" = "$(printf 'start\nrestart')"

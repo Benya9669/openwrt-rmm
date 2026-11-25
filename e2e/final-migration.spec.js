@@ -59,13 +59,17 @@ test("Login reports invalid credentials and network failure inline", async ({ pa
 
 test("Profile, Security, Notifications and Admin use compact responsive settings patterns", async ({ page }) => {
   const longValue = "production-router-accounting-floor-three-with-a-deliberately-long-technical-context";
-  await page.route("**/api/auth/profile", (route) => route.fulfill({ json: { user: {
+  const profile = {
     id: "e2e-admin",
     username: "e2e-admin",
     display_name: `Operator ${longValue}`,
     email: `${longValue}@example.infrastructure`,
     role: "admin",
-  } } }));
+  };
+  await page.route("**/api/auth/profile", (route) => route.fulfill({ json: {
+    user: { ...profile, email: "" }, email_confirmation_required: true,
+  } }));
+  await page.route("**/api/auth/profile/email/confirm", (route) => route.fulfill({ json: { user: profile } }));
   let passwordAttempt = 0;
   await page.route("**/api/auth/change-password", (route) => {
     passwordAttempt += 1;
@@ -137,8 +141,12 @@ test("Profile, Security, Notifications and Admin use compact responsive settings
   await expect(page.locator("#profileDialog")).toBeVisible();
   await page.locator("#profileDisplayName").fill(`Operator ${longValue}`);
   await page.locator("#profileEmail").fill(`${longValue}@example.infrastructure`);
+  await page.locator("#profileEmailPassword").fill("fixture-current-password");
   await page.locator("#profileSubmitBtn").click();
-  await expect(page.locator("#profileMessage")).toHaveText("Профиль сохранён");
+  await expect(page.locator("#profileMessage")).toContainText("Код отправлен");
+  await page.locator("#profileEmailCode").fill("fixture-code");
+  await page.locator("#profileEmailConfirm").click();
+  await expect(page.locator("#profileMessage")).toHaveText("Адрес подтверждён");
   await page.locator('[data-profile-tab="notifications"]').click();
   await expect(page.locator("#notificationEmailState")).toHaveText("PENDING VERIFICATION");
   await expect(page.locator("#notificationTelegramState")).toHaveText("VERIFIED");

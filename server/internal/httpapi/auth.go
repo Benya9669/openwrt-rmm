@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -34,20 +35,27 @@ type authPrincipal struct {
 
 func (p authPrincipal) IsAdmin() bool { return p.User.Role == "admin" }
 
+func (a *App) reservePasswordWork(w http.ResponseWriter) bool {
+	select {
+	case a.loginSlots <- struct{}{}:
+		return true
+	default:
+		w.Header().Set("Retry-After", "2")
+		writeError(w, http.StatusTooManyRequests, "authentication service is busy")
+		return false
+	}
+}
+
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if !sameOrigin(r) {
 		writeError(w, http.StatusForbidden, "cross-origin request rejected")
 		return
 	}
-	select {
-	case a.loginSlots <- struct{}{}:
-		defer func() { <-a.loginSlots }()
-	default:
-		w.Header().Set("Retry-After", "2")
-		writeError(w, http.StatusTooManyRequests, "authentication service is busy")
+	if !a.reservePasswordWork(w) {
 		return
 	}
+	defer func() { <-a.loginSlots }()
 	var req loginRequest
 	if !decodeJSON(w, r, &req) {
 		return
@@ -84,7 +92,11 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expiresAt := time.Now().UTC().Add(operatorSessionTTL)
-	if err := a.store.CreateOperatorSession(r.Context(), store.TokenHash(token), user.ID, expiresAt); err != nil {
+	if err := a.store.CreateOperatorSession(r.Context(), store.TokenHash(token), user.ID, passwordHash, expiresAt); err != nil {
+		if errors.Is(err, store.ErrRecoveryAccountChanged) {
+			writeError(w, http.StatusUnauthorized, "invalid username or password")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create session")
 		return
 	}
@@ -137,29 +149,23 @@ func (a *App) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
-	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	if len([]rune(req.DisplayName)) > 80 {
 		writeError(w, http.StatusBadRequest, "display_name must not exceed 80 characters")
 		return
 	}
-	if len(req.Email) > 254 {
-		writeError(w, http.StatusBadRequest, "email must not exceed 254 characters")
-		return
-	}
-	if req.Email != "" {
-		address, err := mail.ParseAddress(req.Email)
-		if err != nil || !strings.EqualFold(address.Address, req.Email) {
-			writeError(w, http.StatusBadRequest, "email is invalid")
-			return
-		}
-	}
 	principal, _ := principalFromContext(r.Context())
-	user, found, err := a.store.UpdateUserProfile(r.Context(), principal.User.ID, req.DisplayName, req.Email)
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "email is already in use") {
-			writeError(w, http.StatusConflict, "email is already in use")
-			return
+	pending := false
+	if req.Email != nil {
+		email := strings.ToLower(strings.TrimSpace(*req.Email))
+		if !strings.EqualFold(principal.User.Email, email) {
+			if !a.requestRecoveryEmailChange(w, r, principal, email, req.CurrentPassword) {
+				return
+			}
+			pending = true
 		}
+	}
+	user, found, err := a.store.UpdateDisplayName(r.Context(), principal.User.ID, req.DisplayName)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update profile")
 		return
 	}
@@ -170,7 +176,95 @@ func (a *App) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.store.AddAuditEvent(r.Context(), user.Username, "auth.profile_update", "", "", mustJSON(map[string]string{
 		"request_id": requestID(r.Context()),
 	}))
-	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+	writeJSON(w, http.StatusOK, map[string]any{"user": user, "email_confirmation_required": pending})
+}
+
+func (a *App) requestRecoveryEmailChange(w http.ResponseWriter, r *http.Request, principal authPrincipal, email, password string) bool {
+	if email != "" {
+		address, err := mail.ParseAddress(email)
+		if err != nil || address.Address != email || len(email) > 254 {
+			writeError(w, http.StatusBadRequest, "email is invalid")
+			return false
+		}
+	}
+	if a.alertEmailSender == nil {
+		writeError(w, http.StatusServiceUnavailable, "recovery email changes require SMTP")
+		return false
+	}
+	key := "recovery-email:" + principal.User.ID
+	if !a.passwordResetLimiter.Allow(key) {
+		writeError(w, http.StatusTooManyRequests, "too many email change attempts")
+		return false
+	}
+	if !a.reservePasswordWork(w) {
+		return false
+	}
+	user, hash, found, err := a.store.GetUserByUsername(r.Context(), principal.User.Username)
+	passwordOK := err == nil && found && !user.Disabled && authn.VerifyPassword(hash, password)
+	<-a.loginSlots
+	if err != nil {
+		writeError(w, 500, "failed to verify password")
+		return false
+	}
+	if !passwordOK {
+		a.passwordResetLimiter.Fail(key)
+		writeError(w, http.StatusUnauthorized, "invalid current password")
+		return false
+	}
+	code, err := randomToken(12)
+	if err != nil {
+		writeError(w, 500, "failed to generate verification code")
+		return false
+	}
+	if err := a.store.BeginRecoveryEmailChange(r.Context(), user.ID, hash, principal.User.Email, email, store.TokenHash(code), time.Now().UTC().Add(10*time.Minute)); err != nil {
+		if errors.Is(err, store.ErrRecoveryEmailInUse) || errors.Is(err, store.ErrRecoveryAccountChanged) {
+			writeError(w, 409, err.Error())
+		} else {
+			writeError(w, 500, "failed to save email confirmation")
+		}
+		return false
+	}
+	a.passwordResetLimiter.Fail(key)
+	destination := email
+	purpose := "confirm the new recovery email"
+	if email == "" {
+		destination = user.Email
+		purpose = "remove your recovery email"
+	}
+	if err := a.alertEmailSender.SendNotification(r.Context(), destination, "Confirm recovery email change", "Use this code to "+purpose+" in your OpenWrt RMM profile. The code expires in 10 minutes.\n\n"+code); err != nil {
+		writeError(w, http.StatusBadGateway, "failed to deliver verification code")
+		return false
+	}
+	return true
+}
+
+func (a *App) handleConfirmRecoveryEmail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, _ := principalFromContext(r.Context())
+	if len(req.Code) != 16 {
+		writeError(w, 400, "email confirmation code is invalid or expired")
+		return
+	}
+	user, confirmed, err := a.store.ConfirmRecoveryEmailChange(r.Context(), principal.User.ID, store.TokenHash(req.Code))
+	if errors.Is(err, store.ErrRecoveryEmailInUse) {
+		writeError(w, 409, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "failed to confirm email")
+		return
+	}
+	if !confirmed {
+		writeError(w, 400, "email confirmation code is invalid or expired")
+		return
+	}
+	_, _ = a.store.AddAuditEvent(r.Context(), user.Username, "auth.recovery_email_change", "", "", mustJSON(map[string]string{"request_id": requestID(r.Context())}))
+	writeJSON(w, 200, map[string]any{"user": user})
 }
 
 func (a *App) handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
@@ -210,18 +304,21 @@ func (a *App) handlePasswordResetRequest(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusInternalServerError, "failed to start password recovery")
 			return
 		}
-		if err := a.store.CreatePasswordReset(r.Context(), user.ID, store.TokenHash(token), time.Now().UTC().Add(30*time.Minute)); err != nil {
+		created, err := a.store.CreatePasswordReset(r.Context(), user.ID, user.Email, store.TokenHash(token), time.Now().UTC().Add(30*time.Minute))
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to start password recovery")
 			return
 		}
 		resetURL := a.publicURL + "/login#password-reset=" + url.QueryEscape(token)
-		a.startWorker(func(ctx context.Context) {
-			ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-			defer cancel()
-			if err := a.passwordResetSender.SendPasswordReset(ctx, user.Email, resetURL); err != nil {
-				log.Printf("password reset email delivery failed for user %s: %v", user.ID, err)
-			}
-		})
+		if created {
+			a.startWorker(func(ctx context.Context) {
+				ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+				defer cancel()
+				if err := a.passwordResetSender.SendPasswordReset(ctx, user.Email, resetURL); err != nil {
+					log.Printf("password reset email delivery failed for user %s: %v", user.ID, err)
+				}
+			})
+		}
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"status":  "accepted",
@@ -243,12 +340,26 @@ func (a *App) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "password reset link is invalid or expired")
 		return
 	}
+	tokenHash := store.TokenHash(req.Token)
+	valid, err := a.store.PasswordResetValid(r.Context(), tokenHash)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to validate reset link")
+		return
+	}
+	if !valid {
+		writeError(w, http.StatusBadRequest, "password reset link is invalid or expired")
+		return
+	}
+	if !a.reservePasswordWork(w) {
+		return
+	}
+	defer func() { <-a.loginSlots }()
 	passwordHash, err := authn.HashPassword(req.NewPassword)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	reset, err := a.store.ResetPassword(r.Context(), store.TokenHash(req.Token), passwordHash)
+	reset, err := a.store.ResetPassword(r.Context(), tokenHash, passwordHash)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to reset password")
 		return
@@ -269,6 +380,10 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	principal, _ := principalFromContext(r.Context())
+	if !a.reservePasswordWork(w) {
+		return
+	}
+	defer func() { <-a.loginSlots }()
 	_, currentHash, found, err := a.store.GetUserByUsername(r.Context(), principal.User.Username)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to verify password")
@@ -287,7 +402,11 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.store.UpdateOwnPassword(r.Context(), principal.User.ID, passwordHash, principal.SessionHash); err != nil {
+	if err := a.store.UpdateOwnPassword(r.Context(), principal.User.ID, currentHash, passwordHash, principal.SessionHash); err != nil {
+		if errors.Is(err, store.ErrRecoveryAccountChanged) {
+			writeError(w, http.StatusUnauthorized, "invalid current password")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to change password")
 		return
 	}

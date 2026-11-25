@@ -74,21 +74,24 @@ type Store interface {
 	ListUsers(ctx context.Context) ([]model.User, error)
 	GetUserByUsername(ctx context.Context, username string) (model.User, string, bool, error)
 	GetUserByID(ctx context.Context, id string) (model.User, bool, error)
-	CreateOperatorSession(ctx context.Context, tokenHash, userID string, expiresAt time.Time) error
+	CreateOperatorSession(ctx context.Context, tokenHash, userID, verifiedHash string, expiresAt time.Time) error
 	AuthorizeOperatorSession(ctx context.Context, tokenHash string) (model.User, bool, error)
 	RevokeOperatorSession(ctx context.Context, tokenHash string) error
-	UpdateUserProfile(ctx context.Context, userID, displayName, email string) (model.User, bool, error)
-	UpdateOwnPassword(ctx context.Context, userID, passwordHash, currentSessionHash string) error
+	UpdateDisplayName(ctx context.Context, userID, displayName string) (model.User, bool, error)
+	BeginRecoveryEmailChange(ctx context.Context, userID, currentHash, currentEmail, email, codeHash string, expires time.Time) error
+	ConfirmRecoveryEmailChange(ctx context.Context, userID, codeHash string) (model.User, bool, error)
+	UpdateOwnPassword(ctx context.Context, userID, previousHash, passwordHash, currentSessionHash string) error
 	RevokeUserSessions(ctx context.Context, userID string) error
 	GetUserForPasswordReset(ctx context.Context, identifier string) (model.User, bool, error)
-	CreatePasswordReset(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	CreatePasswordReset(ctx context.Context, userID, email, tokenHash string, expiresAt time.Time) (bool, error)
+	PasswordResetValid(ctx context.Context, tokenHash string) (bool, error)
 	ResetPassword(ctx context.Context, tokenHash, passwordHash string) (bool, error)
 	CreateEnrollmentGrant(ctx context.Context, userID, dnsLabel, tokenHash string, expiresAt time.Time) (model.EnrollmentGrant, error)
 	ListDevicesForUser(ctx context.Context, userID string, admin bool) ([]model.Device, error)
 	DeviceAccessible(ctx context.Context, deviceID, userID string, admin bool) (bool, error)
 	GetDeviceByDNSLabel(ctx context.Context, dnsLabel string) (model.Device, bool, error)
 	TransferDevice(ctx context.Context, deviceID, targetUserID, requesterUserID string, admin bool) (model.Device, bool, error)
-	CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, deviceID, remoteSessionID string, expiresAt time.Time) error
+	CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, operatorSessionHash, deviceID, remoteSessionID string, expiresAt time.Time) error
 	ConsumeDeviceAccessGrant(ctx context.Context, grantHash, sessionHash, dnsLabel string, sessionExpiresAt time.Time) (store.AccessRoute, bool, error)
 	AuthorizeDeviceAccessSession(ctx context.Context, sessionHash, dnsLabel string) (store.AccessRoute, bool, error)
 	PurgeExpiredSecurityData(ctx context.Context) error
@@ -173,6 +176,7 @@ type Config struct {
 	TunnelPublicHost           string
 	TunnelPublicPort           int
 	TunnelAuthToken            string
+	AllowLegacyTunnelKey       bool
 	TunnelHostPublicKey        string
 	DeviceDomain               string
 	PublicScheme               string
@@ -213,6 +217,7 @@ type App struct {
 	tunnelPublicHost           string
 	tunnelPublicPort           int
 	tunnelAuthToken            string
+	allowLegacyTunnelKey       bool
 	tunnelHostPublicKey        string
 	deviceDomain               string
 	publicScheme               string
@@ -352,8 +357,9 @@ type updateUserRequest struct {
 }
 
 type updateProfileRequest struct {
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
+	DisplayName     string  `json:"display_name"`
+	Email           *string `json:"email"`
+	CurrentPassword string  `json:"current_password"`
 }
 
 type changePasswordRequest struct {
@@ -419,6 +425,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 		tunnelPublicHost:           strings.TrimSpace(cfg.TunnelPublicHost),
 		tunnelPublicPort:           cfg.TunnelPublicPort,
 		tunnelAuthToken:            strings.TrimSpace(cfg.TunnelAuthToken),
+		allowLegacyTunnelKey:       cfg.AllowLegacyTunnelKey,
 		tunnelHostPublicKey:        normalizeSSHPublicKey(cfg.TunnelHostPublicKey),
 		deviceDomain:               strings.Trim(strings.ToLower(strings.TrimSpace(cfg.DeviceDomain)), "."),
 		publicScheme:               strings.ToLower(strings.TrimSpace(cfg.PublicScheme)),
@@ -483,6 +490,7 @@ func NewHandler(s Store, cfg Config) http.Handler {
 	mux.Handle("POST /api/auth/logout", a.operatorAuth(http.HandlerFunc(a.handleLogout)))
 	mux.Handle("GET /api/auth/me", a.operatorAuth(http.HandlerFunc(a.handleAuthMe)))
 	mux.Handle("PATCH /api/auth/profile", a.operatorAuth(http.HandlerFunc(a.handleUpdateProfile)))
+	mux.Handle("POST /api/auth/profile/email/confirm", a.operatorAuth(http.HandlerFunc(a.handleConfirmRecoveryEmail)))
 	mux.Handle("POST /api/auth/change-password", a.operatorAuth(http.HandlerFunc(a.handleChangePassword)))
 	mux.Handle("POST /api/auth/logout-all", a.operatorAuth(http.HandlerFunc(a.handleLogoutAll)))
 	mux.Handle("GET /api/meta", a.operatorAuth(http.HandlerFunc(a.handleReleaseMetadata)))
@@ -2166,8 +2174,12 @@ func (a *App) writeCloudAccessState(w http.ResponseWriter, r *http.Request, crea
 				return
 			}
 			principal, _ := principalFromContext(r.Context())
-			accessURL, expiresAt, grantErr := a.createDeviceAccessGrant(r.Context(), principal.User.ID, principal.User.Username, device, session)
+			accessURL, expiresAt, grantErr := a.createDeviceAccessGrant(r.Context(), principal, device, session)
 			if grantErr != nil {
+				if errors.Is(grantErr, store.ErrRecoveryAccountChanged) {
+					writeError(w, http.StatusUnauthorized, "session expired")
+					return
+				}
 				if strings.Contains(strings.ToLower(grantErr.Error()), "limit") {
 					writeCloudError(w, http.StatusTooManyRequests, "grant_limit", "active LuCI access grant limit reached")
 					return
@@ -2381,6 +2393,9 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "ports must be between 1 and 65535"}
 	}
 
+	if a.tunnelAuthToken == "" && !a.allowLegacyTunnelKey {
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusServiceUnavailable, "remote tunnels are disabled until per-device key authorization is configured"}
+	}
 	expiresAt := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	var session model.RemoteSession
 	var found bool

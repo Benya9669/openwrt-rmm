@@ -89,12 +89,16 @@ async function installFeatureFixtures(page) {
   await page.route("**/api/devices/*/remote-sessions/*/close", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
 }
 
-async function loginAndOpenDevice(page) {
+async function login(page) {
   await page.goto("/login");
   await page.locator("#loginUsername").fill("e2e-admin");
   await page.locator("#loginPassword").fill("e2e-password-long-enough");
   await page.locator("#loginForm").press("Enter");
   await expect(page.locator("#appShell")).toBeVisible();
+}
+
+async function loginAndOpenDevice(page) {
+  await login(page);
   await page.getByRole("button", { name: /Открыть роутер edge-router-production-site/ }).click();
   await expect(page.locator("#deviceView")).toBeVisible();
 }
@@ -112,6 +116,137 @@ async function expectNoOverflow(page, selector) {
   expect(metrics.page, `${selector} creates page overflow: ${JSON.stringify(metrics.offenders)}`).toBeLessThanOrEqual(0);
   expect(metrics.local, `${selector} creates local overflow: ${JSON.stringify(metrics.offenders)}`).toBeLessThanOrEqual(0);
 }
+
+test("card refresh preserves the router's unsaved group and tags", async ({ page }) => {
+  await installFeatureFixtures(page);
+  await loginAndOpenDevice(page);
+  await page.getByRole("tab", { name: "Сведения" }).click();
+  await page.locator("#fleetGroup").fill("Север");
+  await page.locator("#fleetTags").fill("склад, резерв");
+  const refreshed = page.waitForRequest("**/api/devices/*/clients");
+  await page.locator("#refreshBtn").click();
+  await refreshed; // The detail is repainted before its clients are requested.
+  await expect(page.locator("#fleetGroup")).toHaveValue("Север");
+  await expect(page.locator("#fleetTags")).toHaveValue("склад, резерв");
+  const deviceId = await page.locator(".device-item.is-selected").getAttribute("data-device-id");
+  const device = (await (await page.request.get("/api/devices")).json()).devices.find((item) => item.id === deviceId);
+  let finishSave;
+  await page.route(`**/api/devices/${deviceId}/fleet`, (route) => {
+    finishSave = () => route.fulfill({ json: { ...device, ...route.request().postDataJSON() } });
+  });
+  const saved = page.waitForRequest((req) => req.method() === "PATCH" && req.url().endsWith(`/${deviceId}/fleet`));
+  await page.locator("#saveFleetBtn").click();
+  expect((await saved).postDataJSON()).toEqual({ group: "Север", tags: ["склад", "резерв"] });
+  await page.locator("#fleetTags").fill("следующая правка");
+  await finishSave();
+  await expect(page.locator("#saveFleetBtn")).toBeEnabled();
+  await expect(page.locator("#fleetTags")).toHaveValue("следующая правка");
+});
+
+test("a late client list cannot replace the newly selected router's clients", async ({ page }) => {
+  await installFeatureFixtures(page);
+  await page.route("**/api/devices", async (route) => {
+    const data = await (await route.fetch()).json();
+    const first = data.devices[0];
+    await route.fulfill({ json: { devices: [first, { ...first, id: "second-router", hostname: "Second router", inventory: {} }] } });
+  });
+  await page.route("**/api/devices/second-router/**", (route) => route.fulfill({ json: {} }));
+  let releaseFirst;
+  await page.route("**/api/devices/*/clients", (route) => {
+    const second = route.request().url().endsWith("/second-router/clients");
+    const reply = () => route.fulfill({ json: { clients: [{ ...clients[0], hostname: second ? "client-second" : "client-first" }] } });
+    if (second) return reply();
+    releaseFirst = reply;
+  });
+  await login(page);
+  await page.locator('.device-item:not([data-device-id="second-router"])').click();
+  await expect.poll(() => Boolean(releaseFirst)).toBe(true);
+  await page.locator("#backToFleetBtn").click();
+  await page.locator('.device-item[data-device-id="second-router"]').click();
+  await page.getByRole("tab", { name: "Клиенты" }).click();
+  await expect(page.locator("#clientList")).toContainText("client-second");
+  const lateResponse = page.waitForResponse("**/api/devices/*/clients");
+  await releaseFirst();
+  await (await lateResponse).finished();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(page.locator("#clientList .client-row")).toHaveCount(1);
+  await expect(page.locator("#clientList")).toContainText("client-second");
+});
+
+test("late router panels cannot replace the selected router's data or session actions", async ({ page }) => {
+  const devices = ["first", "second"].map((id) => ({ id, hostname: id, online: true }));
+  await page.route("**/api/devices", (route) => route.fulfill({ json: { devices } }));
+  const waiting = new Map();
+  const panels = {
+    "remote-sessions": (id) => ({ remote_sessions: [{ ...remoteSessions[0], device_id: id, id: `session-${id}`, status: id === "first" ? "active" : "expired" }] }),
+    commands: (id) => ({ commands: [{ ...commands[0], id: `command-${id}` }] }),
+    alerts: (id) => ({ alerts: [{ ...alerts[0], message: `alert-${id}` }] }),
+    backups: (id) => ({ backups: [{ id, model: `backup-${id}` }] }),
+    "metrics-history": (id) => ({ samples: Array(id === "first" ? 2 : 1).fill({ created_at: iso(), metrics: {} }) }),
+    "audit-events": (id) => ({ audit_events: [{ id, action: `audit-${id}` }] }),
+  };
+  for (const [section, payload] of Object.entries(panels)) {
+    const path = section === "audit-events" ? "/api/audit-events" : `/api/devices/*/${section}`;
+    await page.route(`**${path}*`, (route) => {
+      const url = new URL(route.request().url());
+      const id = url.searchParams.get("device_id") || url.pathname.split("/")[3];
+      const reply = () => route.fulfill({ json: payload(id) });
+      if (id === "first") waiting.set(section, reply);
+      else return reply();
+    });
+  }
+  await page.route("**/api/devices/*/clients", (route) => route.fulfill({ json: { clients: [] } }));
+  await login(page);
+  await page.locator('.device-item[data-device-id="first"]').click();
+  await expect.poll(() => waiting.size).toBe(Object.keys(panels).length);
+  await page.locator("#backToFleetBtn").click();
+  await page.locator('.device-item[data-device-id="second"]').click();
+  await page.getByRole("tab", { name: "Операции" }).click();
+  const check = async () => {
+    await expect(page.locator("#remoteSessionList")).toContainText("session-second");
+    await expect(page.locator('#remoteSessionList [data-action="close"]')).toBeDisabled();
+    await expect(page.locator('#remoteSessionList [data-action="luci"]')).toBeDisabled();
+    await expect(page.locator("#commandList")).toContainText("command-second");
+    await expect(page.locator("#alertList")).toContainText("alert-second");
+    await expect(page.locator("#backupList")).toContainText("backup-second");
+    await expect(page.locator("#metricsHistorySummary")).toContainText("первый замер");
+    await expect(page.locator("#auditList")).toContainText("audit-second");
+  };
+  await check();
+  await Promise.all([...waiting].map(async ([section, reply]) => {
+    const response = page.waitForResponse((res) => res.url().includes(section) && res.url().includes("first"));
+    await reply();
+    await (await response).finished();
+  }));
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await check();
+});
+
+test("switching routers during Cloud LuCI setup closes the waiting window and keeps the second router idle", async ({ page }) => {
+  const devices = ["first", "second"].map((id) => ({ id, hostname: id, online: true }));
+  await page.route("**/api/devices", (route) => route.fulfill({ json: { devices } }));
+  await page.route("**/api/devices/*/**", (route) => route.fulfill({ json: {} }));
+  const requests = [];
+  let release;
+  await page.route("**/api/devices/*/cloud-access", (route) => {
+    requests.push(new URL(route.request().url()).pathname);
+    if (requests.length === 1) release = () => route.fulfill({ json: { status: "starting" } });
+    else return route.fulfill({ json: { status: "unavailable" } });
+  });
+  await login(page);
+  await page.locator('.device-item[data-device-id="first"]').click();
+  const waiting = page.waitForEvent("popup");
+  await page.locator("#openLuciBtn").click();
+  const popup = await waiting;
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await page.locator("#backToFleetBtn").click();
+  await page.locator('.device-item[data-device-id="second"]').click();
+  await expect(page.locator("#openLuciBtn")).toBeEnabled();
+  await release();
+  await expect.poll(() => popup.isClosed()).toBe(true);
+  expect(requests).toEqual(["/api/devices/first/cloud-access"]);
+  await expect(page.locator("#luciStateDialog")).toBeHidden();
+});
 
 test("Clients, Network, Problems, Operations, Diagnostics and Remote Access fit the responsive matrix", async ({ page }) => {
   await installFeatureFixtures(page);
@@ -144,6 +279,38 @@ test("Clients, Network, Problems, Operations, Diagnostics and Remote Access fit 
   await expect(page.locator(".client-table-head")).toBeHidden();
   await page.setViewportSize({ width: 900, height: 700 });
   await expect(page.locator(".client-table-head")).toBeVisible();
+});
+
+test("per-router notification overrides only save the loaded selection", async ({ page }) => {
+  const devices = ["first", "second"].map((id) => ({ id, hostname: id }));
+  await page.route("**/api/devices", (route) => route.fulfill({ json: { devices } }));
+  let releaseFirst;
+  let saved;
+  await page.route("**/api/devices/*/notification-settings", (route) => {
+    const id = new URL(route.request().url()).pathname.split("/")[3];
+    if (route.request().method() === "PATCH") {
+      saved = { id, ...route.request().postDataJSON() };
+      return route.fulfill({ json: {} });
+    }
+    const reply = () => route.fulfill({ json: { settings: { notify_warning: id === "first" } } });
+    if (id === "first") releaseFirst = reply;
+    else return reply();
+  });
+  await login(page);
+  await page.locator("#profileBtn").click();
+  await page.locator('[data-profile-tab="notifications"]').click();
+  const select = page.locator("#notificationDeviceSelect");
+  const save = page.locator("#saveDeviceNotificationSettingsBtn");
+  await select.selectOption("first");
+  await expect.poll(() => Boolean(releaseFirst)).toBe(true);
+  await expect(save).toBeDisabled();
+  await select.selectOption("second");
+  await expect(save).toBeEnabled();
+  const late = page.waitForResponse("**/api/devices/first/notification-settings");
+  await releaseFirst();
+  await (await late).finished();
+  await save.click();
+  await expect.poll(() => saved).toMatchObject({ id: "second", notify_warning: false });
 });
 
 test("migrated feature interactions preserve filters, diagnostics, output and remote lifecycle", async ({ page }) => {
@@ -198,5 +365,6 @@ test("migrated feature interactions preserve filters, diagnostics, output and re
 
   await expect(page.locator(".mobile-nav")).toBeVisible();
   await page.locator('[data-mobile-route="operations"]').click();
-  await expect(page.getByRole("tab", { name: "Операции" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('#fleetManagementView [data-fleet-tab="operations"]')).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "История операций" })).toBeVisible();
 });

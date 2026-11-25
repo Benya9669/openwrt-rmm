@@ -119,17 +119,36 @@ func TestPasswordResetIsOneTimeAndRevokesSessions(t *testing.T) {
 	}
 	defer st.Close()
 	sender := &captureResetSender{messages: make(chan capturedResetMessage, 1)}
+	emailSender := &captureNotificationSender{messages: make(chan capturedNotification, 1)}
 	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
 		OperatorUsername:    "admin",
 		OperatorPassword:    "initial-password-123",
 		PublicURL:           "https://rmm.example.test",
 		PasswordResetSender: sender,
+		AlertEmailSender:    emailSender,
 	}))
 	defer srv.Close()
 	client := authenticatedClient(t, srv.URL, "admin", "initial-password-123")
-	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
-		"display_name": "Owner", "email": "owner@example.test",
-	}, http.StatusOK, nil)
+	profileURL := srv.URL + "/api/auth/profile"
+	change := map[string]any{"display_name": "Owner", "email": "owner@example.test"}
+	authRequestJSON(t, client, http.MethodPatch, profileURL, change, http.StatusUnauthorized, nil)
+	change["current_password"] = "initial-password-123"
+	var pending struct {
+		User                      model.User
+		EmailConfirmationRequired bool `json:"email_confirmation_required"`
+	}
+	authRequestJSON(t, client, http.MethodPatch, profileURL, change, http.StatusOK, &pending)
+	if !pending.EmailConfirmationRequired || pending.User.Email != "" {
+		t.Fatal("unconfirmed email became active")
+	}
+	confirmation := <-emailSender.messages
+	fields := strings.Fields(confirmation.body)
+	code := map[string]any{"code": fields[len(fields)-1]}
+	if confirmation.destination != "owner@example.test" {
+		t.Fatal("wrong confirmation recipient")
+	}
+	authRequestJSON(t, client, http.MethodPost, profileURL+"/email/confirm", code, http.StatusOK, nil)
+	authRequestJSON(t, client, http.MethodPost, profileURL+"/email/confirm", code, http.StatusBadRequest, nil)
 	authRequestJSON(t, client, http.MethodPost, srv.URL+"/api/users", map[string]any{
 		"username": "duplicate-email", "email": "owner@example.test", "password": "temporary-password-123", "role": "user",
 	}, http.StatusConflict, nil)
@@ -270,6 +289,37 @@ func TestDeviceDomainUsesOneTimeLuCIAccessGrant(t *testing.T) {
 	if reused.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected reused access grant to be rejected, got %d", reused.StatusCode)
 	}
+	authRequestJSON(t, admin, http.MethodPost, srv.URL+"/api/devices/"+device.DeviceID+"/remote-sessions/"+remote.ID+"/access", nil, http.StatusCreated, &access)
+	parsed, err = url.Parse(access.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authRequestJSON(t, admin, http.MethodPost, srv.URL+"/api/auth/logout-all", nil, http.StatusOK, nil)
+	expired := consume(parsed.Host)
+	expired.Body.Close()
+	if expired.StatusCode != http.StatusUnauthorized {
+		t.Fatal("outstanding device grant survived logout-all")
+	}
+	if _, ok, err := st.AuthorizeDeviceAccessSession(context.Background(), store.TokenHash(deviceCookie.Value), "office"); err != nil || ok {
+		t.Fatalf("device session survived logout-all: %v %v", ok, err)
+	}
+}
+
+func TestProfileNameWithoutMail(t *testing.T) {
+	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "no-smtp.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{OperatorUsername: "admin", OperatorPassword: "account-password-fixture"}))
+	defer srv.Close()
+	client := authenticatedClient(t, srv.URL, "admin", "account-password-fixture")
+	var response struct{ User model.User }
+	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]string{"display_name": "Updated"}, 200, &response)
+	if response.User.DisplayName != "Updated" {
+		t.Fatal("display name did not change")
+	}
+	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]string{"display_name": "Updated", "email": "new@example.test", "current_password": "account-password-fixture"}, 503, nil)
 }
 
 type enrolledCredentials struct {

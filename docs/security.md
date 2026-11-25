@@ -44,6 +44,10 @@ operators.
 
 ## Operational guidance
 
+To change the recovery address, open the profile, enter the new address and current password, then enter the code delivered to the new address within ten minutes. To remove the address, clear it and confirm the code delivered to the existing address. The old address remains active until confirmation and receives a security notice through the delivery queue. Display-name edits work independently of email.
+
+Configure the SMTP settings and the HTTPS public URL as described in [Docker Compose](docker-compose.md). Verify the flow with a test account and two mailboxes. Request a reset before changing the email. After confirming the change, the old reset link must be rejected, and the next request must deliver to the new mailbox. To check revocation, open LuCI, then choose **Logout all** in the control panel. Both the LuCI session and an outstanding LuCI access grant must require fresh authorization.
+
 - Keep `RMM_INSECURE_DEV_MODE`, `RMM_ALLOW_LEGACY_ENROLLMENT`, and
   `RMM_ALLOW_LEGACY_LUCI_PROXY` disabled in production.
 - Keep `RMM_COOKIE_SECURE=true`, use separate control and wildcard device hostnames, and

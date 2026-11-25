@@ -1,0 +1,27 @@
+# Package builds also use externally verified LuCI packages staged by CI.
+**
+!go.mod
+!go.sum
+!internal/**/*.go
+!internal/**/*.sql
+!agent/go/**/*.go
+!agent/package/luci-app-rmm-agent/Makefile
+!agent/package/luci-app-rmm-agent/LICENSE
+!agent/package/luci-app-rmm-agent/htdocs/**/*.js
+!agent/package/luci-app-rmm-agent/root/**/*.json
+!agent/package/luci-app-rmm-agent/root/usr/libexec/rpcd/rmm.agent
+!agent/package/luci-app-rmm-agent/po/**/*.po
+!agent/package/rmm-agent-go-production/Makefile
+!agent/package/rmm-agent-go-production/LICENSE
+!agent/package/rmm-agent-go-production/files/etc/apk/keys/rmm-openwrt.pem
+!agent/package/rmm-agent-go-production/files/etc/config/rmm-agent
+!agent/package/rmm-agent-go-production/files/etc/init.d/rmm-agent
+!agent/package/rmm-agent-go-production/files/etc/opkg/keys/7fb0908fb6bc82c8
+!agent/package/rmm-agent-go-production/files/etc/rmm-agent.conf
+!agent/package/rmm-agent-go-production/files/etc/rmm-agent/update-manifest.pem
+!agent/package/rmm-agent-go-production/files/usr/libexec/rmm-agent-uci-sync
+!deploy/luci-external/.gitkeep
+!deploy/luci-external/*.apk
+!deploy/luci-external/*.ipk
+!keys/openwrt/apk/rmm-openwrt.pem
+!keys/openwrt/usign/7fb0908fb6bc82c8

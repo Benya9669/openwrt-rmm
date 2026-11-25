@@ -764,9 +764,10 @@ Response:
 Authenticated browser sessions can manage their own account without administrator access:
 
 - `GET /api/auth/me` returns the current user, including `display_name` and `email`.
-- `PATCH /api/auth/profile` accepts `display_name` and `email`.
-- `POST /api/auth/change-password` accepts `current_password` and `new_password`; other sessions are revoked.
-- `POST /api/auth/logout-all` revokes every session for the current user.
+- `PATCH /api/auth/profile` accepts `display_name`. To change the recovery address include `email` and `current_password`. An empty email requests removal. SMTP delivers a 16-character confirmation code to the proposed address, or to the current address for removal. The response includes the active user and `email_confirmation_required`. Editing the display name works with SMTP disabled.
+- `POST /api/auth/profile/email/confirm` accepts `code` from the email within 10 minutes and returns the updated user. Confirmation invalidates outstanding password-reset links and queues a security notice for the previous address.
+- `POST /api/auth/change-password` accepts `current_password` and `new_password`. It retains the current browser session and revokes the other browser sessions, LuCI access grants and LuCI sessions.
+- `POST /api/auth/logout-all` and a successful password reset revoke all browser and LuCI sessions for the user, including outstanding LuCI grants and account-recovery challenges. Managed SSH tunnels keep their existing explicit close and expiry controls.
 
 ## Notification center and delivery policy
 

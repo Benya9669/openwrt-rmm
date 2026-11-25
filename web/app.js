@@ -23,6 +23,7 @@ const state = {
   auditEvents: [],
   alerts: [],
   notificationSettings: null,
+  notificationOverride: null,
   notificationChannels: {},
   notifications: [],
   notificationMetrics: {},
@@ -30,6 +31,8 @@ const state = {
   inboxNotifications: [],
   notificationUnread: 0,
   lanClients: [],
+  deviceRequests: new Map(),
+  fleetEditor: null,
   remoteSessions: [],
   backups: [],
   notifiedAgentOperations: new Set(),
@@ -121,7 +124,6 @@ const els = {
   agentRollbackMessage: document.querySelector("#agentRollbackMessage"),
   quickDiagnosticBtn: document.querySelector("#quickDiagnosticBtn"),
   openLuciBtn: document.querySelector("#openLuciBtn"),
-  remoteAccessPanel: document.querySelector("#remoteAccessPanel"),
   runFullDiagnosticBtn: document.querySelector("#runFullDiagnosticBtn"),
   diagnosticStatus: document.querySelector("#diagnosticStatus"),
   deviceName: document.querySelector("#deviceName"),
@@ -274,6 +276,11 @@ const els = {
   profileForm: document.querySelector("#profileForm"),
   profileDisplayName: document.querySelector("#profileDisplayName"),
   profileEmail: document.querySelector("#profileEmail"),
+  profileEmailPassword: document.querySelector("#profileEmailPassword"),
+  profileEmailPasswordField: document.querySelector("#profileEmailPasswordField"),
+  profileEmailCode: document.querySelector("#profileEmailCode"),
+  profileEmailVerification: document.querySelector("#profileEmailVerification"),
+  profileEmailConfirm: document.querySelector("#profileEmailConfirm"),
   profileMessage: document.querySelector("#profileMessage"),
   profileSubmitBtn: document.querySelector("#profileSubmitBtn"),
   profileAdminTab: document.querySelector("#profileAdminTab"),
@@ -374,7 +381,6 @@ const els = {
   confirmationCancelBtn: document.querySelector("#confirmationCancelBtn"),
   confirmationConfirmBtn: document.querySelector("#confirmationConfirmBtn"),
   logoutAllBtn: document.querySelector("#logoutAllBtn"),
-  userManagementSection: document.querySelector("#userManagementSection"),
   userList: document.querySelector("#userList"),
   luciStateDialog: document.querySelector("#luciStateDialog"),
   luciStateCode: document.querySelector("#luciStateCode"),
@@ -388,7 +394,6 @@ const els = {
   systemStateDialog: document.querySelector("#systemStateDialog"),
   systemStateSheet: document.querySelector("#systemStateSheet"),
   systemStateCode: document.querySelector("#systemStateCode"),
-  systemStateSymbol: document.querySelector("#systemStateSymbol"),
   systemStateIconUse: document.querySelector("#systemStateIconUse"),
   systemStateTitle: document.querySelector("#systemStateTitle"),
   systemStateDescription: document.querySelector("#systemStateDescription"),
@@ -823,6 +828,10 @@ function friendlyAPIError(status, code, rawMessage) {
   const known = {
     "invalid username or password": "Неверный логин или пароль",
     "invalid current password": "Текущий пароль указан неверно",
+    "recovery email changes require SMTP": "Для смены адреса администратору нужно настроить SMTP. Для изменения имени оставьте прежний адрес.",
+    "email confirmation code is invalid or expired": "Код недействителен или истёк. Запросите новый код.",
+    "failed to deliver verification code": "Не удалось доставить код. Проверьте адрес и повторите попытку.",
+    "too many email change attempts": "Слишком много попыток. Повторите позже.",
     "device not found": "Роутер не найден или у вас нет к нему доступа",
     "invalid or expired enrollment grant": "Код подключения недействителен или уже использован",
     "active LuCI access grant limit reached": "Создано слишком много временных ссылок. Подождите минуту",
@@ -841,6 +850,12 @@ function friendlyAPIError(status, code, rawMessage) {
 
 function showLogin(message = "") {
   disconnectLiveUpdates();
+  state.notificationOverride = null;
+  els.notificationDeviceSelect.value = "";
+  clearDeviceNotificationSettings();
+  state.fleetEditor = null;
+  state.lanClients = [];
+  state.deviceRequests.clear();
   document.title = "Вход — OpenWrt RMM";
   els.appShell.classList.add("is-hidden");
   els.appShell.hidden = true;
@@ -1315,6 +1330,7 @@ function filteredDevices() {
 
 function renderDevices() {
   const devices = sortDevices(filteredDevices());
+  const focusedId = els.deviceList.contains(document.activeElement) && document.activeElement.dataset.deviceId;
   els.deviceList.innerHTML = "";
   const online = state.devices.filter((device) => device.online).length;
   const alerts = state.devices.filter((device) => device.active_alerts).length;
@@ -1382,6 +1398,7 @@ function renderDevices() {
     `;
     item.addEventListener("click", () => selectDevice(device.id));
     els.deviceList.appendChild(item);
+    if (device.id === focusedId) item.focus({ preventScroll: true });
   }
 }
 
@@ -1470,14 +1487,27 @@ function renderExpertOperationPanels(commands = state.commands) {
   }
 }
 
+function renderFleetMetadata(device) {
+  const changedDevice = state.fleetEditor?.id !== device.id;
+  if (changedDevice) state.fleetEditor = { id: device.id, saving: false };
+  const tags = Array.isArray(device.tags) ? device.tags.join(", ") : "";
+  for (const [field, saved] of [[els.fleetGroup, device.group || ""], [els.fleetTags, tags]]) {
+    // defaultValue tracks the server value, while value may contain an operator's draft.
+    if ((changedDevice || field.value === field.defaultValue) && field.value !== saved) field.value = saved;
+    field.defaultValue = saved;
+  }
+  els.saveFleetBtn.disabled = state.fleetEditor.saving;
+}
+
 function renderDeviceDetail(device) {
   els.appShell.classList.toggle("has-selected-device", Boolean(device));
   if (!device) {
+    state.fleetEditor = null;
     els.fleetView.classList.remove("is-hidden");
     els.fleetView.hidden = false;
     els.deviceView.classList.add("is-hidden");
     els.deviceView.hidden = true;
-    els.pageTitle.textContent = "Объекты";
+    if (!document.body.classList.contains("fleet-management-active")) els.pageTitle.textContent = "Объекты";
     return;
   }
 
@@ -1487,7 +1517,7 @@ function renderDeviceDetail(device) {
   els.deviceView.hidden = false;
   renderDeviceTab();
   const displayName = deviceDisplayName(device);
-  els.pageTitle.textContent = displayName;
+  if (!document.body.classList.contains("fleet-management-active")) els.pageTitle.textContent = displayName;
   els.deviceName.textContent = displayName;
   els.deviceMeta.textContent = `${device.id} - ${device.openwrt_version || "unknown"}${device.domain_name ? ` - ${device.domain_name}` : ""}`;
   els.deviceBadge.textContent = device.online ? "На связи" : "Не на связи";
@@ -1507,8 +1537,7 @@ function renderDeviceDetail(device) {
   const clientCounts = deviceClientCount(device);
   els.clientCounts.textContent = `${clientCounts.online} в сети / ${clientCounts.total} известно`;
   els.connectivityStatus.textContent = formatConnectivity(device.metrics && device.metrics.connectivity_checks);
-  els.fleetGroup.value = device.group || "";
-  els.fleetTags.value = Array.isArray(device.tags) ? device.tags.join(", ") : "";
+  renderFleetMetadata(device);
   renderInventory(device);
   renderDeviceInformation(device);
   renderDeviceStatus(device);
@@ -1977,8 +2006,16 @@ function renderInterfaceCounters(device) {
 
 async function loadMetricsHistory() {
   if (!state.selectedDeviceId) return;
-  const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/metrics-history?limit=48`);
-  renderMetricsHistory(data.samples || []);
+  const current = startDeviceRequest("metrics");
+  try {
+    const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/metrics-history?limit=48`);
+    if (current()) renderMetricsHistory(data.samples || []);
+  } catch (error) {
+    if (!current()) return;
+    els.metricsHistorySummary.textContent = "Ошибка загрузки";
+    els.metricsHistory.innerHTML = inlineStateMarkup("Не удалось загрузить историю", error.message, "error");
+    throw error;
+  }
 }
 
 function renderMetricsHistory(samples) {
@@ -2053,13 +2090,16 @@ function metricChart(label, unit, points, tone, fixedMax = 0) {
 
 async function loadAlerts() {
   if (!state.selectedDeviceId) return;
+  const current = startDeviceRequest("alerts");
   const status = encodeURIComponent(state.alertStatusFilter || "open");
   els.alertList.innerHTML = inlineStateMarkup("Загрузка проблем", "Получаем актуальное состояние мониторинга.", "loading");
   try {
     const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/alerts?status=${status}`);
+    if (!current()) return;
     state.alerts = data.alerts || [];
     renderAlerts(state.alerts);
   } catch (error) {
+    if (!current()) return;
     els.alertList.innerHTML = inlineStateMarkup("Не удалось загрузить проблемы", error.message || "Повторите обновление.", "error");
     throw error;
   }
@@ -2136,7 +2176,15 @@ async function loadDevices() {
   setStatus(`Обновлено ${state.lastUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
 }
 
+function startDeviceRequest(section) {
+  const id = state.selectedDeviceId;
+  const current = () => state.selectedDeviceId === id && state.deviceRequests.get(section) === current;
+  state.deviceRequests.set(section, current);
+  return current;
+}
+
 async function selectDevice(id) {
+  state.deviceRequests.clear();
   state.selectedDeviceId = id;
   state.deviceTab = "overview";
   state.presetReview = null;
@@ -2144,8 +2192,22 @@ async function selectDevice(id) {
   state.auditOffset = 0;
   state.commands = [];
   state.auditEvents = [];
+  state.alerts = [];
+  state.remoteSessions = [];
+  state.selectedCommand = null;
+  state.commandHasMore = false;
+  state.auditHasMore = false;
   state.lanClients = [];
   state.backups = [];
+  renderCommandDetail(null);
+  renderCommandLoadMore();
+  renderAuditLoadMore();
+  renderCloudAccessState([]);
+  setCloudAccessPending(false);
+  for (const summary of [els.metricsHistorySummary, els.remoteSummary, els.commandSummary, els.auditSummary, els.alertSummary]) {
+    summary.textContent = "Загрузка…";
+  }
+  els.metricsHistory.innerHTML = inlineStateMarkup("Загрузка истории", "Получаем замеры роутера.", "loading");
   renderDevices();
   renderDeviceDetail(currentDevice());
   setMobileRoute("fleet");
@@ -2154,13 +2216,17 @@ async function selectDevice(id) {
 }
 
 async function loadLANClients() {
-  if (!state.selectedDeviceId) return;
+  const id = state.selectedDeviceId;
+  if (!id) return;
+  const current = startDeviceRequest("clients");
   els.clientList.innerHTML = inlineStateMarkup("Загрузка клиентов", "Получаем DHCP, neighbour и Wi-Fi presence data.", "loading");
   try {
-    const response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/clients`);
+    const response = await api(`/api/devices/${encodeURIComponent(id)}/clients`);
+    if (!current()) return;
     state.lanClients = response.clients || [];
     renderClients(currentDevice());
   } catch (error) {
+    if (!current()) return;
     els.clientList.innerHTML = inlineStateMarkup("Не удалось загрузить клиентов", error.message || "Повторите обновление.", "error");
     throw error;
   }
@@ -2183,7 +2249,6 @@ function showFleet() {
 function selectDeviceTab(tab) {
   state.deviceTab = tab;
   renderDeviceTab();
-  if (tab === "operations") setMobileRoute("operations");
 }
 
 function renderDeviceTab() {
@@ -2202,11 +2267,13 @@ function renderDeviceTab() {
 }
 
 async function openLuCIAccess(session) {
+  const current = startDeviceRequest("sessionAccess");
   const popup = window.open("", "_blank");
   try {
     const data = await api(`/api/devices/${encodeURIComponent(session.device_id)}/remote-sessions/${encodeURIComponent(session.id)}/access`, {
       method: "POST",
     });
+    if (!current()) { popup?.close(); return; }
     if (popup) {
       popup.opener = null;
       popup.location = data.url;
@@ -2215,7 +2282,7 @@ async function openLuCIAccess(session) {
     }
   } catch (error) {
     if (popup) popup.close();
-    showLuCIState(error, "retry");
+    if (current()) showLuCIState(error, "retry");
   }
 }
 
@@ -2273,7 +2340,10 @@ function showLuCIState(error = {}, mode = "retry") {
 }
 
 function setMobileRoute(route) {
-	const managerOpen = route === "management";
+  const fleetTitles = { management: "Управление парком", problems: "Проблемы", operations: "Операции" };
+  const managerOpen = Boolean(fleetTitles[route]);
+  if (managerOpen) els.pageTitle.textContent = fleetTitles[route];
+  if (route === "fleet") els.pageTitle.textContent = currentDevice() ? deviceDisplayName(currentDevice()) : "Объекты";
 	document.body.classList.toggle("fleet-management-active", managerOpen);
 	document.querySelector("#fleetManagementView").classList.toggle("is-hidden", !managerOpen);
   state.mobileRoute = route;
@@ -2285,20 +2355,12 @@ function setMobileRoute(route) {
   els.operationsNavBtn.classList.toggle("is-active", route === "operations");
 }
 
-async function openDeviceArea(tab, selector, route) {
-  let device = currentDevice();
-  if (!device) {
-    device = route === "problems"
-      ? state.devices.find((item) => Number(item.active_alerts || 0) > 0) || state.devices[0]
-      : state.devices[0];
-  }
-  if (!device) {
+function openDeviceOperations(selector) {
+  if (!currentDevice()) {
     notify("Сначала добавьте роутер", "info");
     return;
   }
-  if (device.id !== state.selectedDeviceId) await selectDevice(device.id);
-  selectDeviceTab(tab);
-  setMobileRoute(route);
+  selectDeviceTab("operations");
   window.requestAnimationFrame(() => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" }));
 }
 
@@ -2307,6 +2369,10 @@ function showProfile() {
   setMobileRoute("profile");
   els.profileDisplayName.value = state.user && state.user.display_name ? state.user.display_name : "";
   els.profileEmail.value = state.user && state.user.email ? state.user.email : "";
+  els.profileEmailPassword.value = "";
+  els.profileEmailCode.value = "";
+  els.profileEmailVerification.open = false;
+  updateProfileEmailPasswordField();
   setFormMessage(els.profileMessage, "");
   setFormMessage(els.passwordMessage, "");
   els.passwordForm.reset();
@@ -2405,15 +2471,57 @@ async function saveProfile() {
       body: JSON.stringify({
         display_name: els.profileDisplayName.value.trim(),
         email: els.profileEmail.value.trim(),
+        current_password: els.profileEmailPassword.value,
       }),
     });
     showApp(response.user);
-    await loadNotificationPreferences();
-    setFormMessage(els.profileMessage, "Профиль сохранён", "success");
+    const removingEmail = !els.profileEmail.value.trim();
+    els.profileEmail.value = response.user.email || "";
+    els.profileEmailPassword.value = "";
+    updateProfileEmailPasswordField();
+    if (response.email_confirmation_required) {
+      els.profileEmailVerification.open = true;
+      els.profileEmailCode.value = "";
+      els.profileEmailCode.focus();
+      const destination = removingEmail ? "прежний" : "новый";
+      setFormMessage(els.profileMessage, `Код отправлен на ${destination} адрес и действует 10 минут.`, "success");
+    } else {
+      setFormMessage(els.profileMessage, "Профиль сохранён", "success");
+    }
   } finally {
     setSubmitting(els.profileForm, els.profileSubmitBtn, false);
   }
 }
+
+function updateProfileEmailPasswordField() {
+  const changed = els.profileEmail.value.trim().toLowerCase() !== (state.user?.email || "").toLowerCase();
+  els.profileEmailPasswordField.classList.toggle("is-hidden", !changed);
+  els.profileEmailPassword.required = changed;
+  if (!changed) els.profileEmailPassword.value = "";
+}
+
+els.profileEmail.addEventListener("input", updateProfileEmailPasswordField);
+els.profileEmailCode.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  els.profileEmailConfirm.click();
+});
+els.profileEmailConfirm.addEventListener("click", async () => {
+  setSubmitting(els.profileForm, els.profileEmailConfirm, true, "Подтверждаем…");
+  try {
+    const response = await api("/api/auth/profile/email/confirm", { method: "POST", body: JSON.stringify({ code: els.profileEmailCode.value.trim() }) });
+    showApp(response.user);
+    els.profileEmail.value = response.user.email || "";
+    els.profileEmailCode.value = "";
+    els.profileEmailVerification.open = false;
+    updateProfileEmailPasswordField();
+    setFormMessage(els.profileMessage, response.user.email ? "Адрес подтверждён" : "Адрес удалён", "success");
+  } catch (error) {
+    setFormMessage(els.profileMessage, error.message, "error");
+  } finally {
+    setSubmitting(els.profileForm, els.profileEmailConfirm, false);
+  }
+});
 
 async function loadNotificationPreferences() {
   setFormMessage(els.notificationSettingsMessage, "Загружаем настройки…");
@@ -2705,7 +2813,19 @@ function renderNotificationDeviceOptions() {
     els.notificationDeviceSelect.appendChild(option);
   }
   if (state.devices.some((device) => device.id === current)) els.notificationDeviceSelect.value = current;
-  setDeviceNotificationControlsDisabled(!els.notificationDeviceSelect.value);
+  if (!els.notificationDeviceSelect.value) {
+    state.notificationOverride = null;
+    clearDeviceNotificationSettings();
+  }
+}
+
+function clearDeviceNotificationSettings() {
+  setDeviceNotificationControlsDisabled(true);
+  els.notificationDeviceEnabled.checked = false;
+  els.notificationDeviceWarning.checked = false;
+  els.notificationDeviceCritical.checked = false;
+  els.notificationDeviceResolved.checked = false;
+  els.notificationDevicePausedUntil.value = "";
 }
 
 function setDeviceNotificationControlsDisabled(disabled) {
@@ -2719,34 +2839,54 @@ function setDeviceNotificationControlsDisabled(disabled) {
 
 async function loadDeviceNotificationSettings() {
   const deviceId = els.notificationDeviceSelect.value;
-  setDeviceNotificationControlsDisabled(!deviceId);
+  const form = { deviceId, loaded: false };
+  state.notificationOverride = form;
+  clearDeviceNotificationSettings();
+  setFormMessage(els.notificationSettingsMessage, "");
   if (!deviceId) return;
-  const response = await api(`/api/devices/${encodeURIComponent(deviceId)}/notification-settings`);
-  const settings = response.settings || {};
+  let settings;
+  try {
+    const response = await api(`/api/devices/${encodeURIComponent(deviceId)}/notification-settings`);
+    settings = response.settings;
+  } catch (error) {
+    if (state.notificationOverride === form) setFormMessage(els.notificationSettingsMessage, error.message, "error");
+    return;
+  }
+  if (state.notificationOverride !== form) return;
+  if (!settings) {
+    setFormMessage(els.notificationSettingsMessage, "Не удалось прочитать настройки роутера", "error");
+    return;
+  }
   els.notificationDeviceEnabled.checked = settings.enabled !== false;
   els.notificationDeviceWarning.checked = settings.notify_warning !== false;
   els.notificationDeviceCritical.checked = settings.notify_critical !== false;
   els.notificationDeviceResolved.checked = settings.notify_resolved !== false;
   els.notificationDevicePausedUntil.value = dateTimeLocalValue(settings.paused_until);
+  form.loaded = true;
+  setDeviceNotificationControlsDisabled(false);
 }
 
 async function saveDeviceNotificationSettings() {
-  const deviceId = els.notificationDeviceSelect.value;
-  if (!deviceId) {
-    setFormMessage(els.notificationSettingsMessage, "Выберите роутер", "error");
-    return;
+  const form = state.notificationOverride;
+  if (!form?.loaded || form.deviceId !== els.notificationDeviceSelect.value || els.saveDeviceNotificationSettingsBtn.disabled) return;
+  setDeviceNotificationControlsDisabled(true);
+  try {
+    await api(`/api/devices/${encodeURIComponent(form.deviceId)}/notification-settings`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        enabled: els.notificationDeviceEnabled.checked,
+        notify_warning: els.notificationDeviceWarning.checked,
+        notify_critical: els.notificationDeviceCritical.checked,
+        notify_resolved: els.notificationDeviceResolved.checked,
+        paused_until: isoFromDateTimeLocal(els.notificationDevicePausedUntil.value),
+      }),
+    });
+    if (state.notificationOverride === form) setFormMessage(els.notificationSettingsMessage, "Настройки роутера сохранены", "success");
+  } catch (error) {
+    if (state.notificationOverride === form) setFormMessage(els.notificationSettingsMessage, error.message, "error");
+  } finally {
+    if (state.notificationOverride === form) setDeviceNotificationControlsDisabled(false);
   }
-  await api(`/api/devices/${encodeURIComponent(deviceId)}/notification-settings`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      enabled: els.notificationDeviceEnabled.checked,
-      notify_warning: els.notificationDeviceWarning.checked,
-      notify_critical: els.notificationDeviceCritical.checked,
-      notify_resolved: els.notificationDeviceResolved.checked,
-      paused_until: isoFromDateTimeLocal(els.notificationDevicePausedUntil.value),
-    }),
-  });
-  setFormMessage(els.notificationSettingsMessage, "Настройки роутера сохранены", "success");
 }
 
 async function loadNotificationCenter() {
@@ -3037,7 +3177,7 @@ async function runLuCIPrimaryAction() {
     await openCloudAccess();
     return;
   }
-  await openDeviceArea("operations", "#remoteAccessPanel", "operations");
+  openDeviceOperations("#remoteAccessPanel");
 }
 
 async function refreshDevicesIfIdle() {
@@ -3054,11 +3194,13 @@ refreshDevicesIfIdle.inFlight = false;
 
 async function loadCommands(options = {}) {
   if (!state.selectedDeviceId) return;
+  const current = startDeviceRequest("commands");
   const append = Boolean(options.append);
   const offset = append ? state.commandOffset : 0;
   if (!append) els.commandList.innerHTML = inlineStateMarkup("Загрузка операций", "Получаем lifecycle и последние результаты команд.", "loading");
   try {
     const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/commands?limit=${state.commandLimit}&offset=${offset}`);
+    if (!current()) return;
     const nextCommands = data.commands || [];
     state.commands = append ? [...state.commands, ...nextCommands] : nextCommands;
     state.commandOffset = offset + nextCommands.length;
@@ -3072,6 +3214,7 @@ async function loadCommands(options = {}) {
       renderCommandDetail(state.selectedCommand);
     }
   } catch (error) {
+    if (!current()) return;
     els.commandList.innerHTML = inlineStateMarkup("Не удалось загрузить операции", error.message || "Повторите обновление.", "error");
     throw error;
   }
@@ -3171,11 +3314,13 @@ function outputSummary(output) {
 
 async function loadAudit(options = {}) {
   if (!state.selectedDeviceId) return;
+  const current = startDeviceRequest("audit");
   const append = Boolean(options.append);
   const offset = append ? state.auditOffset : 0;
   if (!append) els.auditList.innerHTML = inlineStateMarkup("Загрузка Audit", "Получаем инженерный журнал устройства.", "loading");
   try {
     const data = await api(`/api/audit-events?device_id=${encodeURIComponent(state.selectedDeviceId)}&limit=${state.auditLimit}&offset=${offset}`);
+    if (!current()) return;
     const events = data.audit_events || [];
     const allEvents = append ? [...state.auditEvents || [], ...events] : events;
     state.auditEvents = allEvents;
@@ -3184,6 +3329,7 @@ async function loadAudit(options = {}) {
     renderAudit(allEvents);
     renderAuditLoadMore();
   } catch (error) {
+    if (!current()) return;
     els.auditList.innerHTML = inlineStateMarkup("Не удалось загрузить Audit", error.message || "Повторите обновление.", "error");
     throw error;
   }
@@ -3224,12 +3370,15 @@ function renderAudit(events) {
 
 async function loadBackups() {
   if (!state.selectedDeviceId || !els.backupList) return;
+  const current = startDeviceRequest("backups");
   els.backupList.innerHTML = inlineStateMarkup("Загрузка резервных копий", "Проверяем зашифрованное хранилище.", "loading");
   try {
     const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/backups`);
+    if (!current()) return;
     state.backups = data.backups || [];
     renderBackups();
   } catch (error) {
+    if (!current()) return;
     els.backupList.innerHTML = inlineStateMarkup("Не удалось загрузить копии", error.message || "Повторите обновление.", "error");
     throw error;
   }
@@ -3360,12 +3509,15 @@ async function downloadDatabaseSnapshot() {
 
 async function loadRemoteSessions() {
   if (!state.selectedDeviceId) return;
+  const current = startDeviceRequest("sessions");
   els.remoteSessionList.innerHTML = inlineStateMarkup("Загрузка remote sessions", "Проверяем состояние временных туннелей.", "loading");
   try {
     const data = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions?limit=25`);
+    if (!current()) return;
     state.remoteSessions = data.remote_sessions || [];
     renderRemoteSessions(state.remoteSessions);
   } catch (error) {
+    if (!current()) return;
     els.remoteSessionList.innerHTML = inlineStateMarkup("Не удалось загрузить remote sessions", error.message || "Повторите обновление.", "error");
     throw error;
   }
@@ -3470,27 +3622,36 @@ function prepareCloudAccessPopup(popup) {
   }
 }
 
+function setCloudAccessPending(pending) {
+  for (const button of [els.openLuciBtn, els.openCloudAccessBtn]) {
+    button.disabled = pending;
+    button.classList.toggle("is-loading", pending);
+  }
+  els.openLuciBtn.textContent = pending ? "Подключаемся…" : "Открыть LuCI";
+}
+
 async function openCloudAccess() {
-  if (!state.selectedDeviceId || openCloudAccess.inFlight) return;
-  openCloudAccess.inFlight = true;
+  const id = state.selectedDeviceId;
+  if (!id || state.deviceRequests.has("cloudAccess")) return;
+  const current = startDeviceRequest("cloudAccess");
+  const path = `/api/devices/${encodeURIComponent(id)}/cloud-access`;
   const popup = window.open("", "_blank");
+  let opened = false;
   prepareCloudAccessPopup(popup);
-  els.openLuciBtn.disabled = true;
-  els.openCloudAccessBtn.disabled = true;
-  els.openLuciBtn.classList.add("is-loading");
-  els.openCloudAccessBtn.classList.add("is-loading");
-  els.openLuciBtn.textContent = "Подключаемся…";
+  setCloudAccessPending(true);
   els.openCloudAccessBtn.textContent = "Подключаемся…";
   els.cloudAccessCard.dataset.state = "starting";
   els.cloudAccessStatus.textContent = "Связываемся с агентом и проверяем LuCI…";
   els.cloudAccessState.className = "status creating";
   els.cloudAccessState.textContent = "CREATING";
   try {
-    let response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/cloud-access`, { method: "POST" });
-    for (let attempt = 0; response.status === "starting" && attempt < 10; attempt += 1) {
+    let response = await api(path, { method: "POST" });
+    for (let attempt = 0; current() && response.status === "starting" && attempt < 10; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
-      response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/cloud-access`);
+      if (!current()) return;
+      response = await api(path);
     }
+    if (!current()) return;
     if (response.status !== "ready") {
       const error = new Error("cloud tunnel is not ready");
       error.status = response.status === "unavailable" ? 503 : 409;
@@ -3498,7 +3659,8 @@ async function openCloudAccess() {
       throw error;
     }
     if (!response.url) {
-      response = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/cloud-access`, { method: "POST" });
+      response = await api(path, { method: "POST" });
+      if (!current()) return;
     }
     if (popup) {
       popup.opener = null;
@@ -3506,23 +3668,22 @@ async function openCloudAccess() {
     } else {
       window.location.assign(response.url);
     }
+    opened = true;
     await loadRemoteSessions();
   } catch (error) {
-    if (popup) popup.close();
+    if (!current()) return;
     showLuCIState(error, "retry");
     await loadRemoteSessions().catch(() => {});
   } finally {
-    openCloudAccess.inFlight = false;
-    els.openLuciBtn.classList.remove("is-loading");
-    els.openCloudAccessBtn.classList.remove("is-loading");
-    els.openLuciBtn.textContent = "Открыть LuCI";
-    renderCloudAccessState(state.remoteSessions || []);
-    els.openLuciBtn.disabled = !state.selectedDeviceId;
-    els.openCloudAccessBtn.disabled = false;
+    if (!opened) popup?.close();
+    if (current()) {
+      state.deviceRequests.delete("cloudAccess");
+      setCloudAccessPending(false);
+      renderCloudAccessState(state.remoteSessions);
+    }
   }
 }
 
-openCloudAccess.inFlight = false;
 
 async function sendCommand() {
   if (!state.selectedDeviceId) return;
@@ -3685,18 +3846,31 @@ async function sendBulkCommand() {
 }
 
 async function saveFleetMetadata() {
-  if (!state.selectedDeviceId) return;
+  const editor = state.fleetEditor;
+  if (!editor || editor.saving || editor.id !== state.selectedDeviceId) return;
+  editor.saving = true;
+  els.saveFleetBtn.disabled = true;
   setStatus("Saving fleet metadata");
-  const tags = els.fleetTags.value.split(",").map((tag) => tag.trim()).filter(Boolean);
-  const device = await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/fleet`, {
-    method: "PATCH",
-    body: JSON.stringify({ group: els.fleetGroup.value.trim(), tags }),
-  });
-  state.devices = state.devices.map((item) => (item.id === device.id ? device : item));
-  renderDevices();
-  renderDeviceDetail(device);
-  await loadAudit();
-  notify("Fleet metadata saved", "success");
+  const group = els.fleetGroup.value;
+  const rawTags = els.fleetTags.value;
+  const tags = rawTags.split(",").map((tag) => tag.trim()).filter(Boolean);
+  try {
+    const device = await api(`/api/devices/${encodeURIComponent(editor.id)}/fleet`, {
+      method: "PATCH",
+      body: JSON.stringify({ group: group.trim(), tags }),
+    });
+    state.devices = state.devices.map((item) => item.id === device.id ? device : item);
+    renderDevices();
+    if (state.fleetEditor !== editor || state.selectedDeviceId !== editor.id) return;
+    els.fleetGroup.defaultValue = group;
+    els.fleetTags.defaultValue = rawTags;
+    renderDeviceDetail(device);
+    await loadAudit();
+    notify("Fleet metadata saved", "success");
+  } finally {
+    editor.saving = false;
+    if (state.fleetEditor === editor) els.saveFleetBtn.disabled = false;
+  }
 }
 
 async function sendPackageCommand() {
@@ -3744,7 +3918,9 @@ async function sendUciCommand(type) {
 }
 
 async function createRemoteSession() {
-  if (!state.selectedDeviceId) return;
+  const id = state.selectedDeviceId;
+  if (!id) return;
+  const current = startDeviceRequest("createSession");
   const serverHost = els.remoteServerHost.value.trim() || window.location.hostname;
   const serverPort = Number(els.remoteServerPort.value || 2222);
   const remotePort = Number(els.remotePort.value || 0);
@@ -3764,13 +3940,14 @@ async function createRemoteSession() {
     values: [["Device", deviceDisplayName(currentDevice())], ["Destination", `${serverHost}:${serverPort}`], ["Duration", `${Math.round(durationSeconds / 60)} мин.`]],
     confirmLabel: "Создать сессию",
   })) return;
+  if (!current()) return;
   setStatus("Открытие удаленного доступа");
   els.cloudAccessCard.dataset.state = "starting";
   els.cloudAccessStatus.textContent = "Создаём временный tunnel request…";
   els.cloudAccessState.className = "status creating";
   els.cloudAccessState.textContent = "CREATING";
   try {
-    await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions`, {
+    await api(`/api/devices/${encodeURIComponent(id)}/remote-sessions`, {
       method: "POST",
       body: JSON.stringify({
         target: "ssh",
@@ -3782,9 +3959,11 @@ async function createRemoteSession() {
         duration_seconds: durationSeconds,
       }),
     });
+    if (!current()) return;
     await Promise.all([loadRemoteSessions(), loadCommands(), loadAudit()]);
-    notify("Команда открытия доступа отправлена", "success");
+    if (current()) notify("Команда открытия доступа отправлена", "success");
   } catch (error) {
+    if (!current()) return;
     els.cloudAccessCard.dataset.state = "unavailable";
     els.cloudAccessStatus.textContent = error.message || "Не удалось создать remote session";
     els.cloudAccessState.className = "status failed";
@@ -3794,7 +3973,9 @@ async function createRemoteSession() {
 }
 
 async function closeRemoteSession(sessionId) {
-  if (!state.selectedDeviceId) return;
+  const id = state.selectedDeviceId;
+  if (!id) return;
+  const current = startDeviceRequest("closeSession");
   if (!await confirmAction({
     variant: "warning",
     context: "REMOTE ACCESS / SESSION",
@@ -3803,14 +3984,17 @@ async function closeRemoteSession(sessionId) {
     values: [["Device", deviceDisplayName(currentDevice())], ["Session ID", sessionId]],
     confirmLabel: "Закрыть сессию",
   })) return;
+  if (!current()) return;
   setStatus("Закрытие удаленного доступа");
   try {
-    await api(`/api/devices/${encodeURIComponent(state.selectedDeviceId)}/remote-sessions/${encodeURIComponent(sessionId)}/close`, {
+    await api(`/api/devices/${encodeURIComponent(id)}/remote-sessions/${encodeURIComponent(sessionId)}/close`, {
       method: "POST",
     });
+    if (!current()) return;
     await Promise.all([loadRemoteSessions(), loadAudit()]);
-    notify("Удаленный доступ закрыт", "success");
+    if (current()) notify("Удаленный доступ закрыт", "success");
   } catch (error) {
+    if (!current()) return;
     els.cloudAccessStatus.textContent = error.message || "Не удалось закрыть remote session";
     els.cloudAccessState.className = "status failed";
     els.cloudAccessState.textContent = "FAILED";
@@ -4366,8 +4550,8 @@ for (const button of document.querySelectorAll("[data-dialog-cancel]")) {
 }
 els.logoutBtn.addEventListener("click", () => logout().catch(reportError));
 els.fleetNavBtn.addEventListener("click", showFleet);
-els.problemsNavBtn.addEventListener("click", () => openDeviceArea("overview", "#alertList", "problems").catch(reportError));
-els.operationsNavBtn.addEventListener("click", () => openDeviceArea("operations", "#remoteAccessPanel", "operations").catch(reportError));
+els.problemsNavBtn.addEventListener("click", () => fleetManager.open("incidents"));
+els.operationsNavBtn.addEventListener("click", () => fleetManager.open("operations"));
 els.profileBtn.addEventListener("click", showProfile);
 els.notificationCenterBtn.addEventListener("click", () => showNotificationCenter().catch(reportError));
 els.closeNotificationCenterBtn.addEventListener("click", () => els.notificationCenterDialog.close());
@@ -4381,8 +4565,8 @@ for (const button of document.querySelectorAll(".mobile-nav-item")) {
   button.addEventListener("click", () => {
     const route = button.dataset.mobileRoute;
     if (route === "fleet") showFleet();
-    if (route === "problems") openDeviceArea("overview", "#alertList", "problems").catch(reportError);
-    if (route === "operations") openDeviceArea("operations", "#remoteAccessPanel", "operations").catch(reportError);
+    if (route === "problems") fleetManager.open("incidents");
+    if (route === "operations") fleetManager.open("operations");
     if (route === "notifications") showNotificationCenter().catch(reportError);
     if (route === "profile") showProfile();
   });
@@ -4459,7 +4643,7 @@ els.closeLuciStateBtn.addEventListener("click", () => els.luciStateDialog.close(
 els.luciStatePrimaryBtn.addEventListener("click", () => runLuCIPrimaryAction().catch(reportError));
 els.luciStateDiagnosticBtn.addEventListener("click", () => {
   els.luciStateDialog.close();
-  openDeviceArea("operations", "#diagnosticStatus", "operations").catch(reportError);
+  openDeviceOperations("#diagnosticStatus");
 });
 els.luciStateDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
@@ -4685,7 +4869,8 @@ setInterval(updateLiveStateLabel, 10000);
 const fleetManager = window.RMMFleet.mount({
 	chart: metricChart,
   api, notify, confirm: confirmAction, getDevices: () => state.devices,
-  onOpen: () => { setMobileRoute("management"); els.pageTitle.textContent = "Управление парком"; },
+  onOpen: (route) => setMobileRoute(route),
+  onDevice: (id) => selectDevice(id).catch(reportError),
   onClose: () => showFleet(),
 });
 

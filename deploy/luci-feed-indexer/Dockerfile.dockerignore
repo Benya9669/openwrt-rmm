@@ -1,0 +1,12 @@
+**
+!keys/openwrt/apk/rmm-openwrt.pem
+!keys/openwrt/usign/7fb0908fb6bc82c8
+!site/feeds/stable/openwrt/*/*/*.apk
+!site/feeds/stable/openwrt/*/*/*.ipk
+!site/feeds/stable/openwrt/*/*/Packages
+!site/feeds/stable/openwrt/*/*/Packages.gz
+!site/feeds/stable/openwrt/*/*/Packages.sig
+!site/feeds/stable/openwrt/*/*/packages.adb
+!site/feeds/stable/openwrt/*/*/SHA256SUMS
+!site/feeds/stable/openwrt/*/*/rmm-openwrt.pem
+!site/feeds/stable/openwrt/*/*/7fb0908fb6bc82c8

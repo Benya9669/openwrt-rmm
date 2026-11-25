@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	"rmm-openwrt/server/internal/model"
 )
@@ -129,8 +128,4 @@ ON CONFLICT(user_id, device_id) DO UPDATE SET
 	}
 	stored, _, err := s.GetDeviceNotificationSettings(ctx, userID, settings.DeviceID)
 	return stored, err
-}
-
-func inboxRetentionCutoff(days int) time.Time {
-	return time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
 }

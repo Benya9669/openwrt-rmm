@@ -1,6 +1,6 @@
 /* Extended management workflows share the fleet view and application dialogs. */
 window.RMMManagement = {
-  mount({ root, api, action, escape, confirm, getDevices, create }) {
+  mount({ root, api, action, escape, confirm, getDevices, create, bindPolicyForm, deviceLink }) {
     const content = () => root.querySelector("[data-fleet-content]");
     const devices = () => getDevices().map((d) => `<option value="${escape(d.id)}">${escape(d.hostname)} · ${escape(d.id)}</option>`).join("");
     const deviceName = (id) => getDevices().find((d) => d.id === id)?.hostname || id;
@@ -8,44 +8,60 @@ window.RMMManagement = {
 
     function permissions() {
       content().innerHTML = `<h3>Роли и права</h3><p>Права ограничивают существующее владение устройствами. Группы и площадки задают дополнительную область; пустой список означает все принадлежащие пользователю устройства.</p><div data-permission-current></div><form class="fleet-management-form is-hidden" data-permission-form><div class="fleet-management-fields"><label>Пользователь<select name="user" required></select></label><label>Шаблон роли<select name="preset"><option value="viewer">Наблюдатель</option><option value="operator">Оператор</option><option value="maintainer">Инженер</option><option value="custom">Свои права</option></select></label></div><fieldset><legend>Разрешения</legend>${Object.entries(permissionNames).map(([key, label]) => `<label class="fleet-management-device-choice"><input name="permissions" type="checkbox" value="${key}"><span>${label}</span></label>`).join("")}</fieldset><div class="fleet-management-fields"><label>Группы: одна на строку<textarea name="groups" rows="3" maxlength="12000"></textarea></label><label>Площадки: одна на строку<textarea name="sites" rows="3" maxlength="12000"></textarea></label></div><button type="submit">Сохранить права</button><div data-permission-saved></div></form>`;
-      action(async () => {
-        const own = await api("/api/fleet/permissions");
-        root.querySelector("[data-permission-current]").textContent = own.configured ? `Ваши разрешения: ${own.permissions.map((p) => permissionNames[p] || p).join(", ") || "Нет доступа к устройствам"}` : "Для вашей учётной записи действуют стандартные права роли.";
-        let users;
-        try { users = (await api("/api/users")).users || []; }
-        catch (error) { if (error.status === 403 || error.status === 401) return "Изменение прав доступно администратору"; throw error; }
-        const form = root.querySelector("[data-permission-form]");
-        form.classList.remove("is-hidden");
-        const targets = users.filter((u) => u.role !== "admin" && !u.disabled);
-        form.elements.user.innerHTML = targets.map((u) => `<option value="${escape(u.id)}">${escape(u.display_name || u.username)}</option>`).join("");
-        const presets = { viewer: ["view"], operator: ["view", "diagnostics", "backups", "incidents"], maintainer: Object.keys(permissionNames) };
-        const fill = (policy) => {
-          form.elements.preset.value = "custom";
-          form.querySelectorAll('[name="permissions"]').forEach((c) => { c.checked = policy.permissions.includes(c.value); });
-          form.elements.groups.value = (policy.groups || []).join("\n"); form.elements.sites.value = (policy.sites || []).join("\n");
-        };
-        const load = async () => { if (form.elements.user.value) fill(await api(`/api/fleet/permissions/${encodeURIComponent(form.elements.user.value)}`)); };
-        form.elements.user.addEventListener("change", () => action(load));
-        form.elements.preset.addEventListener("change", () => { const preset = presets[form.elements.preset.value]; if (preset) form.querySelectorAll('[name="permissions"]').forEach((c) => { c.checked = preset.includes(c.value); }); });
-        form.addEventListener("submit", (event) => { event.preventDefault(); action(async () => {
-          const user = targets.find((u) => u.id === form.elements.user.value); if (!user) throw new Error("Выберите пользователя");
-          const split = (value) => value.split("\n").map((s) => s.trim()).filter(Boolean);
-          const policy = { permissions: [...form.querySelectorAll('[name="permissions"]:checked')].map((c) => c.value), groups: split(form.elements.groups.value), sites: split(form.elements.sites.value) };
-          if (!await confirm({ title: "Изменить права пользователя?", message: `Учётная запись: ${user.display_name || user.username}. Изменения действуют сразу; ожидающие команды проверяются перед выдачей. Связанные с пользователем сессии SSH/LuCI RMM будут закрыты. Администраторы сохраняют полный доступ.`, confirmLabel: "Сохранить права", variant: "warning" })) return;
-          await api(`/api/fleet/permissions/${encodeURIComponent(user.id)}`, { method: "PUT", body: JSON.stringify(policy) });
-          root.querySelector("[data-permission-saved]").textContent = `Права сохранены: ${user.username}`; await load();
-        }); });
-        if (!targets.length) { form.querySelector("button[type=submit]").disabled = true; return "Нет обычных пользователей. Создайте пользователя в разделе администрирования."; }
-        await load();
+      const form = root.querySelector("[data-permission-form]");
+      const current = root.querySelector("[data-permission-current]");
+      const saved = form.querySelector("[data-permission-saved]");
+      const presets = { viewer: ["view"], operator: ["view", "diagnostics", "backups", "incidents"], maintainer: Object.keys(permissionNames) };
+      let targets = [];
+      form.elements.user.addEventListener("change", () => { saved.textContent = ""; });
+      form.elements.preset.addEventListener("change", () => {
+        const preset = presets[form.elements.preset.value];
+        if (preset) form.querySelectorAll('[name="permissions"]').forEach((box) => { box.checked = preset.includes(box.value); });
+      });
+      bindPolicyForm(form, form.elements.user, {
+        async prepare() {
+          const own = await api("/api/fleet/permissions");
+          current.textContent = own.configured ? `Ваши разрешения: ${own.permissions.map((p) => permissionNames[p] || p).join(", ") || "Нет доступа к устройствам"}` : "Для вашей учётной записи действуют стандартные права роли.";
+          try { targets = ((await api("/api/users")).users || []).filter((u) => u.role !== "admin" && !u.disabled); }
+          catch (error) {
+            if (error.status === 403 || error.status === 401) return "Изменение прав доступно администратору";
+            throw error;
+          }
+          form.elements.user.innerHTML = targets.map((u) => `<option value="${escape(u.id)}">${escape(u.display_name || u.username)}</option>`).join("");
+          form.classList.remove("is-hidden");
+          if (!targets.length) return "Нет обычных пользователей. Создайте пользователя в разделе администрирования.";
+        },
+        read: (id) => api(`/api/fleet/permissions/${encodeURIComponent(id)}`),
+        fill(policy) {
+          form.elements.preset.value = policy ? "custom" : "";
+          form.querySelectorAll('[name="permissions"]').forEach((box) => { box.checked = Boolean(policy?.permissions.includes(box.value)); });
+          form.elements.groups.value = (policy?.groups || []).join("\n");
+          form.elements.sites.value = (policy?.sites || []).join("\n");
+        },
+        async save(id, values) {
+          const user = targets.find((u) => u.id === id);
+          if (!await confirm({ title: "Изменить права пользователя?", message: `Учётная запись: ${user.display_name || user.username}. Изменения действуют сразу; ожидающие команды проверяются перед выдачей. Связанные с пользователем сессии SSH/LuCI RMM будут закрыты. Администраторы сохраняют полный доступ.`, confirmLabel: "Сохранить права", variant: "warning" })) return false;
+          const lines = (value) => value.split("\n").map((line) => line.trim()).filter(Boolean);
+          await api(`/api/fleet/permissions/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({
+            permissions: values.getAll("permissions"), groups: lines(values.get("groups")), sites: lines(values.get("sites")),
+          }) });
+          saved.textContent = `Права сохранены: ${user.username}`;
+          return true;
+        },
       });
     }
 
+    const incidentFilters = { status: "open", search: "" };
     function incidents() {
       content().innerHTML = `<h3>Центр инцидентов</h3><p>Подтверждённые условия объединяются по устройству и категории. Неизвестное состояние не считается восстановлением. Можно назначить ответственного, подтвердить проблему и добавить комментарий.</p><div class="fleet-management-fields"><label>Статус<select data-incident-filter><option value="open">Открытые</option><option value="resolved">Закрытые</option><option value="all">Все</option></select></label><label>Поиск<input type="search" data-incident-search></label></div><button type="button" data-incident-refresh>Обновить инциденты</button><div class="fleet-management-records" data-incidents></div>`;
       let entries = []; let users = [];
+      const filter = root.querySelector("[data-incident-filter]");
+      const search = root.querySelector("[data-incident-search]");
+      filter.value = incidentFilters.status;
+      search.value = incidentFilters.search;
       const render = () => {
-        const state = root.querySelector("[data-incident-filter]").value, query = root.querySelector("[data-incident-search]").value.toLowerCase();
-        root.querySelector("[data-incidents]").innerHTML = entries.filter((i) => (state === "all" || (state === "open" ? i.status !== "resolved" : i.status === "resolved")) && `${i.title} ${deviceName(i.device_id)} ${i.category}`.toLowerCase().includes(query)).map((i) => `<article class="fleet-management-record" data-incident="${escape(i.id)}"><header><strong>${escape(i.title)}</strong><span class="status ${i.status === "resolved" ? "success" : "warning"}">${escape({ open: "OPEN", acknowledged: "ACKNOWLEDGED", resolved: "RESOLVED" }[i.status])}</span></header><p>${escape(deviceName(i.device_id))} · ${escape(i.category)} · Повторений: ${i.occurrences}</p><p>Открыт: ${escape(i.opened_at)} · Ответственный: ${escape(users.find((u) => u.id === i.assignee_id)?.display_name || i.assignee_id || "Не назначен")}</p>${i.status !== "resolved" ? `<button type="button" data-incident-action="acknowledge">Подтвердить</button> <button type="button" data-incident-action="resolve">Закрыть вручную</button>` : ""}<button type="button" data-incident-diagnostic>Диагностика</button> <button type="button" data-incident-history>История состояния</button><form class="fleet-management-form" data-incident-assign><label>Ответственный<select name="assignee"><option value="">Не назначен</option>${users.map((u) => `<option value="${escape(u.id)}" ${i.assignee_id === u.id ? "selected" : ""}>${escape(u.display_name || u.username)}</option>`).join("")}</select></label><button type="submit">Назначить</button></form><form class="fleet-management-form" data-incident-comment><label>Комментарий<textarea name="body" maxlength="2048" rows="2" required></textarea></label><button type="submit">Добавить комментарий</button></form><details><summary>История инцидента · ${i.events.length}</summary>${i.events.map((e) => `<p><span class="fleet-management-muted">${escape(e.created_at)} · ${escape(e.actor)} · ${escape(e.action)}</span><br>${escape(e.body)}</p>`).join("")}</details><pre class="fleet-management-output is-hidden" data-incident-output></pre></article>`).join("") || "Инцидентов по выбранному фильтру нет";
+        const state = filter.value, query = search.value.toLowerCase();
+        root.querySelector("[data-incidents]").innerHTML = entries.filter((i) => (state === "all" || (state === "open" ? i.status !== "resolved" : i.status === "resolved")) && `${i.title} ${deviceName(i.device_id)} ${i.category}`.toLowerCase().includes(query)).map((i) => `<article class="fleet-management-record" data-incident="${escape(i.id)}"><header><strong>${escape(i.title)}</strong><span class="status ${i.status === "resolved" ? "success" : "warning"}">${escape({ open: "OPEN", acknowledged: "ACKNOWLEDGED", resolved: "RESOLVED" }[i.status])}</span></header><p>${deviceLink(i.device_id)} · ${escape(i.category)} · Повторений: ${i.occurrences}</p><p>Открыт: ${escape(i.opened_at)} · Ответственный: ${escape(users.find((u) => u.id === i.assignee_id)?.display_name || i.assignee_id || "Не назначен")}</p>${i.status !== "resolved" ? `<button type="button" data-incident-action="acknowledge">Подтвердить</button> <button type="button" data-incident-action="resolve">Закрыть вручную</button>` : ""}<button type="button" data-incident-diagnostic>Диагностика</button> <button type="button" data-incident-history>История состояния</button><form class="fleet-management-form" data-incident-assign><label>Ответственный<select name="assignee"><option value="">Не назначен</option>${users.map((u) => `<option value="${escape(u.id)}" ${i.assignee_id === u.id ? "selected" : ""}>${escape(u.display_name || u.username)}</option>`).join("")}</select></label><button type="submit">Назначить</button></form><form class="fleet-management-form" data-incident-comment><label>Комментарий<textarea name="body" maxlength="2048" rows="2" required></textarea></label><button type="submit">Добавить комментарий</button></form><details><summary>История инцидента · ${i.events.length}</summary>${i.events.map((e) => `<p><span class="fleet-management-muted">${escape(e.created_at)} · ${escape(e.actor)} · ${escape(e.action)}</span><br>${escape(e.body)}</p>`).join("")}</details><pre class="fleet-management-output is-hidden" data-incident-output></pre></article>`).join("") || "Инцидентов по выбранному фильтру нет";
         root.querySelectorAll("[data-incident]").forEach((record) => {
           const i = entries.find((item) => item.id === record.dataset.incident);
           const update = async (kind, body = "") => { await api(`/api/fleet/incidents/${encodeURIComponent(i.id)}`, { method: "POST", body: JSON.stringify({ action: kind, body }) }); await load(); };
@@ -61,7 +77,8 @@ window.RMMManagement = {
       };
       const load = async () => { entries = (await api("/api/fleet/incidents")).incidents || []; render(); };
       root.querySelector("[data-incident-refresh]").addEventListener("click", () => action(load));
-      root.querySelector("[data-incident-filter]").addEventListener("change", render); root.querySelector("[data-incident-search]").addEventListener("input", render);
+      filter.addEventListener("change", () => { incidentFilters.status = filter.value; render(); });
+      search.addEventListener("input", () => { incidentFilters.search = search.value; render(); });
       action(async () => {
         const me = await api("/api/auth/me"); users = me.user ? [me.user] : [];
         if (me.user?.role === "admin") users = ((await api("/api/users")).users || []).filter((u) => !u.disabled);

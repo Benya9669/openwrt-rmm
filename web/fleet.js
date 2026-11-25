@@ -1,6 +1,6 @@
 /* Fleet controls reuse the application's API and native confirmation dialog. */
 window.RMMFleet = {
-  mount({ api, notify, confirm, chart, getDevices, onOpen, onClose }) {
+  mount({ api, notify, confirm, chart, getDevices, onOpen, onClose, onDevice }) {
     const root = document.querySelector("#fleetManagementView");
     const selected = new Set();
 	const pendingCreates = new Map();
@@ -11,10 +11,21 @@ window.RMMFleet = {
 		pendingCreates.delete(path);return response;
 	}
     const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
-    const management = window.RMMManagement.mount({root,api,action,escape,confirm,getDevices,create});
+    function deviceLink(id) {
+      const device = getDevices().find((item) => item.id === id);
+      if (!device) return escape(id);
+      return `<button type="button" data-open-device="${escape(id)}" aria-label="Открыть роутер ${escape(device.hostname || id)}">${escape(device.hostname || id)}</button>`;
+    }
+    root.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-open-device]");
+      if (button) { close(); onDevice(button.dataset.openDevice); }
+    });
+    const management = window.RMMManagement.mount({root,api,action,escape,confirm,getDevices,create,bindPolicyForm,deviceLink});
     let tab = "operations";
     let timer = null;
     let busy = false;
+    let pendingTab = null;
+    const operationFilters = { group: "", tag: "" };
     let operations = [];
     let backups = [];
     const states = { running: "RUNNING", queued: "QUEUED", pending: "PENDING", claimed: "RUNNING", paused: "PAUSED", completed: "COMPLETED", failed: "FAILED", cancelled: "CANCELLED", cancelling: "CANCELLING" };
@@ -23,22 +34,96 @@ window.RMMFleet = {
     async function action(work) {
       if (busy) return;
       busy = true;
-      const buttons = [...root.querySelectorAll("button[type=submit], [data-fleet-tab]")];
+      const buttons = [...root.querySelectorAll('button[type=submit]:enabled, [data-fleet-tab]:enabled:not([aria-current="page"])')];
       buttons.forEach((button) => { button.disabled = true; });
       message("Выполняется…");
       try { const result = await work(); message(typeof result === "string" ? result : "Готово"); }
       catch (error) { message(error.message); }
-      finally { busy = false; buttons.forEach((button) => { button.disabled = false; }); }
+      finally {
+        busy = false;
+        buttons.forEach((button) => { button.disabled = false; });
+        const next = pendingTab;
+        pendingTab = null;
+        if (next && !root.classList.contains("is-hidden")) show(next);
+      }
+    }
+
+    function bindPolicyForm(form, target, { prepare, read, fill, save }) {
+      const submit = form.querySelector("button[type=submit]");
+      let revision = 0;
+      let loadedId = "";
+      function lockFields(locked) {
+        for (const field of form.elements) {
+          if (field !== target) field.disabled = locked;
+        }
+      }
+      async function load() {
+        const id = target.value;
+        const request = ++revision;
+        const current = () => form.isConnected && revision === request && target.value === id;
+        loadedId = "";
+        lockFields(true);
+        fill(null);
+        message("Выполняется…");
+        try {
+          const policy = await read(id);
+          if (!current()) return;
+          fill(policy);
+          loadedId = id;
+          lockFields(submit.hidden);
+          message("Готово");
+        } catch (error) {
+          if (current()) {
+            message(error.message);
+            return error.message;
+          }
+        }
+      }
+      target.addEventListener("change", load);
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (busy || submit.hidden || submit.disabled || !loadedId || loadedId !== target.value) return;
+        const id = loadedId;
+        const values = new FormData(form);
+        target.disabled = true;
+        lockFields(true);
+        action(async () => {
+          try {
+            if (await save(id, values)) return await load();
+          } finally {
+            target.disabled = false;
+            lockFields(!loadedId || submit.hidden);
+          }
+        });
+      });
+      async function initialize() {
+        target.disabled = true;
+        lockFields(true);
+        message("Выполняется…");
+        try {
+          const unavailable = await prepare();
+          if (!form.isConnected) return;
+          if (unavailable) { message(unavailable); return; }
+          target.disabled = false;
+          await load();
+        } catch (error) {
+          if (form.isConnected) message(error.message);
+        }
+      }
+      initialize();
     }
     const deviceOptions = () => getDevices().map((device) => `<option value="${escape(device.id)}">${escape(device.hostname)} · ${escape(device.id)}</option>`).join("");
     function show(nextTab = tab) {
+      const tabFocused = document.activeElement?.hasAttribute("data-fleet-tab");
       const navScroll=root.querySelector(".fleet-management-tabs")?.scrollLeft || 0;
       tab = nextTab;
       root.innerHTML = `<header class="fleet-management-header"><div><p class="eyebrow">FLEET / MANAGEMENT</p><h2 id="fleetManagementTitle">Управление парком</h2></div><button type="button" data-fleet-close>К объектам</button></header>
         <nav class="fleet-management-tabs" aria-label="Управление парком">${[["operations", "Массовые операции"], ["profiles", "Профили UCI"], ["schedules", "Расписания"], ["access", "Политики доступа"], ["diagnostics", "Диагностика"], ["backups", "Сравнение копий"], ["history", "История состояния"], ["rules", "Автоматические реакции"], ["assets", "Оборудование"], ["permissions", "Роли и права"], ["incidents", "Центр инцидентов"], ["waves", "Обновления волнами"], ["topology", "Карта сети"]].map(([key, label]) => `<button type="button" data-fleet-tab="${key}" ${key === tab ? 'aria-current="page"' : ""}>${label}</button>`).join("")}</nav>
         <p class="fleet-management-message" data-fleet-message role="status" aria-live="polite"></p><section class="panel" data-fleet-content></section>`;
       root.querySelector("[data-fleet-close]").addEventListener("click", () => { close(); onClose(); });
-      root.querySelectorAll("[data-fleet-tab]").forEach((button) => button.addEventListener("click", () => show(button.dataset.fleetTab)));
+      root.querySelectorAll("[data-fleet-tab]").forEach((button) => button.addEventListener("click", () => {
+        if (!busy) { onOpen("management"); show(button.dataset.fleetTab); }
+      }));
       if (tab === "operations" || tab === "diagnostics") renderOperationForm();
       if (tab === "assets") renderAssets();
       if (tab === "backups") renderBackups();
@@ -49,6 +134,7 @@ window.RMMFleet = {
       if (tab === "rules") renderRules();
       if (management[tab]) management[tab]();
       const nav=root.querySelector(".fleet-management-tabs"),active=nav.querySelector('[aria-current="page"]');nav.scrollLeft=navScroll;
+      if (tabFocused) active.focus({ preventScroll: true });
       const bounds=nav.getBoundingClientRect(),selectedBounds=active.getBoundingClientRect();
       if (selectedBounds.left<bounds.left) nav.scrollLeft+=selectedBounds.left-bounds.left;
       else if(selectedBounds.right>bounds.right) nav.scrollLeft+=selectedBounds.right-bounds.right;
@@ -67,6 +153,9 @@ window.RMMFleet = {
         <div class="fleet-management-device-list" data-fleet-devices></div><p data-fleet-selection></p><button class="primary" type="submit">${diagnostic ? "Начать диагностику" : "Запустить операцию"}</button></form>
         <h3>История операций</h3><div class="fleet-management-records" data-fleet-operations></div>`;
       const form = root.querySelector("[data-fleet-operation-form]");
+      const group = form.querySelector("[data-fleet-group]");
+      const tag = form.querySelector("[data-fleet-tag]");
+      if (!diagnostic) { group.value = operationFilters.group; tag.value = operationFilters.tag; }
       const visible = () => getDevices().filter((device) => (!form.querySelector("[data-fleet-group]").value || device.group === form.querySelector("[data-fleet-group]").value) && (!form.querySelector("[data-fleet-tag]").value || (device.tags || []).includes(form.querySelector("[data-fleet-tag]").value)));
       const refreshSelection = () => { root.querySelector("[data-fleet-selection]").textContent = `Выбрано ${selected.size} из ${getDevices().length} · максимум 100`; };
       const renderDevices = () => {
@@ -74,7 +163,10 @@ window.RMMFleet = {
         root.querySelectorAll("[data-device-id]").forEach((input) => input.addEventListener("change", () => { if (input.checked) selected.add(input.dataset.deviceId); else selected.delete(input.dataset.deviceId); refreshSelection(); }));
         refreshSelection();
       };
-      form.querySelectorAll("[data-fleet-group], [data-fleet-tag]").forEach((input) => input.addEventListener("input", renderDevices));
+      for (const input of [group, tag]) input.addEventListener("input", () => {
+        if (!diagnostic) { operationFilters.group = group.value; operationFilters.tag = tag.value; }
+        renderDevices();
+      });
       form.querySelector("[data-fleet-select-visible]").addEventListener("click", () => { visible().forEach((device) => selected.add(device.id)); renderDevices(); });
       form.querySelector("[data-fleet-clear-selection]").addEventListener("click", () => { selected.clear(); renderDevices(); });
       form.addEventListener("submit", (event) => { event.preventDefault(); action(async () => {
@@ -94,7 +186,7 @@ window.RMMFleet = {
       list.innerHTML = operations.map((operation) => `<article class="fleet-management-record" data-operation-record="${escape(operation.id)}"><header><strong>${escape(operation.title || operation.type)}</strong>${status(operation.status)}</header><p>${escape(operation.created_at)} · Параллельность ${operation.parallelism}</p>
         ${["running", "paused", "cancelling"].includes(operation.status) ? `<button type="button" data-operation-action="cancel" data-operation-id="${escape(operation.id)}">Отменить оставшуюся очередь</button>` : ""}
         ${operation.status === "paused" ? `<button type="button" data-operation-action="resume" data-operation-id="${escape(operation.id)}">Продолжить очередь</button>` : ""}
-        <details><summary>Устройства · ${operation.items.length}</summary>${operation.items.map((item) => `<div class="fleet-management-target"><span>${escape(getDevices().find((device) => device.id === item.device_id)?.hostname || item.device_id)}${item.error ? ` · ${escape(item.error)}` : ""}</span>${status(item.status)}${item.command_id ? `<button type="button" data-fleet-result="${escape(item.command_id)}" data-result-device="${escape(item.device_id)}">Результат</button>` : ""}${operation.type === "uci_profile_apply" && item.status === "completed" ? `<button type="button" data-profile-rollback="${escape(item.command_id)}" data-rollback-device="${escape(item.device_id)}">Откатить профиль</button>` : ""}</div>`).join("")}</details><pre class="fleet-management-output is-hidden" data-operation-output></pre></article>`).join("") || "Операций пока нет";
+        <details><summary>Устройства · ${operation.items.length}</summary>${operation.items.map((item) => `<div class="fleet-management-target"><span>${deviceLink(item.device_id)}${item.error ? ` · ${escape(item.error)}` : ""}</span>${status(item.status)}${item.command_id ? `<button type="button" data-fleet-result="${escape(item.command_id)}" data-result-device="${escape(item.device_id)}">Результат</button>` : ""}${operation.type === "uci_profile_apply" && item.status === "completed" ? `<button type="button" data-profile-rollback="${escape(item.command_id)}" data-rollback-device="${escape(item.device_id)}">Откатить профиль</button>` : ""}</div>`).join("")}</details><pre class="fleet-management-output is-hidden" data-operation-output></pre></article>`).join("") || "Операций пока нет";
       list.querySelectorAll("[data-operation-record]").forEach((record) => {
         const saved = retained.get(record.dataset.operationRecord); if (!saved) return;
         record.querySelector("details").open = saved.open;
@@ -165,20 +257,35 @@ window.RMMFleet = {
       root.querySelector("[data-fleet-content]").innerHTML = `<h3>Политика удалённого доступа</h3><p>Политику изменяет администратор. Сохранение закрывает действующие сессии и отзывает LuCI-гранты. Для ограничения SSH/LuCI требуется агент с поддержкой отдельных режимов.</p><form class="fleet-management-form" data-access-form><div class="fleet-management-fields"><label>Устройство<select name="device">${deviceOptions()}</select></label><label>Максимальный TTL, секунд<input name="ttl" type="number" min="60" max="7200" required></label></div><label><input type="checkbox" name="ssh"> Разрешить SSH</label><label><input type="checkbox" name="luci"> Разрешить LuCI</label><label><input type="checkbox" name="restrict"> Ограничить список пользователей</label><div class="fleet-management-device-list" data-access-users></div><button type="submit">Сохранить политику</button></form>`;
       const form = root.querySelector("[data-access-form]");
       let users = [];
-      const load = async () => {
-        const policy = await api(`/api/fleet/access-policies/${encodeURIComponent(form.elements.device.value)}`);
-        if (tab !== "access") return;
-        form.elements.ttl.value = policy.max_ttl_seconds;
-        form.elements.ssh.checked = policy.ssh_allowed; form.elements.luci.checked = policy.luci_allowed; form.elements.restrict.checked = policy.restrict_users;
-        root.querySelector("[data-access-users]").innerHTML = users.map((user) => `<label><input type="checkbox" name="users" value="${escape(user.id)}" ${(policy.user_ids || []).includes(user.id) ? "checked" : ""}> ${escape(user.display_name || user.username)}</label>`).join("") || "Список доступен администратору";
-      };
-      form.elements.device.addEventListener("change", () => action(load));
-      form.addEventListener("submit", (event) => { event.preventDefault(); action(async () => {
-        if (!await confirm({ title: "Применить политику доступа?", message: "Действующие сессии устройства будут закрыты, а LuCI-гранты отозваны. Новые сессии будут проверяться по этой политике.", confirmLabel: "Применить" })) return;
-        const values = new FormData(form);
-        await api(`/api/fleet/access-policies/${encodeURIComponent(values.get("device"))}`, { method: "PUT", body: JSON.stringify({ ssh_allowed: values.has("ssh"), luci_allowed: values.has("luci"), max_ttl_seconds: Number(values.get("ttl")), restrict_users: values.has("restrict"), user_ids: values.getAll("users") }) }); await load();
-      }); });
-      action(async () => { try { users = (await api("/api/users")).users || []; } catch (error) { if (!/403|administrator|admin|forbidden/i.test(error.message)) throw error; form.querySelector("button[type=submit]").hidden = true; } if (getDevices().length) await load(); else return "Сначала добавьте устройство"; });
+      bindPolicyForm(form, form.elements.device, {
+        async prepare() {
+          try { users = (await api("/api/users")).users || []; }
+          catch (error) {
+            if (error.status !== 403 && error.status !== 401 && !/403|administrator|admin|forbidden/i.test(error.message)) throw error;
+            form.querySelector("button[type=submit]").hidden = true;
+          }
+          if (!form.elements.device.value) return "Сначала добавьте устройство";
+        },
+        read: (id) => api(`/api/fleet/access-policies/${encodeURIComponent(id)}`),
+        fill(policy) {
+          form.elements.ttl.value = policy?.max_ttl_seconds ?? "";
+          form.elements.ssh.checked = Boolean(policy?.ssh_allowed);
+          form.elements.luci.checked = Boolean(policy?.luci_allowed);
+          form.elements.restrict.checked = Boolean(policy?.restrict_users);
+          form.querySelector("[data-access-users]").innerHTML = policy
+            ? users.map((user) => `<label><input type="checkbox" name="users" value="${escape(user.id)}" ${(policy.user_ids || []).includes(user.id) ? "checked" : ""}> ${escape(user.display_name || user.username)}</label>`).join("") || "Список доступен администратору"
+            : "";
+        },
+        async save(id, values) {
+          const name = form.elements.device.selectedOptions[0].textContent;
+          if (!await confirm({ title: "Применить политику доступа?", message: `Роутер: ${name}. Действующие сессии устройства будут закрыты, а LuCI-гранты отозваны. Новые сессии будут проверяться по этой политике.`, confirmLabel: "Применить" })) return false;
+          await api(`/api/fleet/access-policies/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({
+            ssh_allowed: values.has("ssh"), luci_allowed: values.has("luci"), max_ttl_seconds: Number(values.get("ttl")),
+            restrict_users: values.has("restrict"), user_ids: values.getAll("users"),
+          }) });
+          return true;
+        },
+      });
     }
     function renderProfiles() {
       root.querySelector("[data-fleet-content]").innerHTML = `<h3>Профили UCI</h3><p>Поддерживаются именованные секции и @type[index]. Preview читает текущие значения без staging. Пароли и ключи задаются через существующий процесс управления учётными данными.</p><form class="fleet-management-form" data-profile-form><div class="fleet-management-fields"><label>Название<input name="title" maxlength="160" required></label><label>Конфигурация<select name="config">${["system", "network", "wireless", "dhcp", "firewall"].map((name) => `<option>${name}</option>`).join("")}</select></label></div><label>Параметры: одна строка section.option=value<textarea name="options" rows="5" maxlength="12000" placeholder="core.hostname=branch-router" required></textarea></label><button type="submit">Сохранить профиль</button></form><h3>Проверка и применение</h3><form class="fleet-management-form" data-profile-operation><div class="fleet-management-fields"><label>Профиль<select name="profile" required></select></label><label>Устройства<select name="devices" multiple size="5" required>${deviceOptions()}</select></label><label>Успешный preview<select name="preview"></select></label><label>Параллельность после canary<input name="parallelism" type="number" min="1" max="20" value="3"></label></div><p>Применение сначала выполнится на одном устройстве и остановится для проверки. Остальную очередь можно продолжить в массовых операциях. Перед изменением сохраняется backup; потеря связи вызывает откат. Preview действует 30 минут.</p><button type="submit" value="preview">Проверить отклонения</button> <button type="submit" value="apply">Применить с canary</button></form><div class="fleet-management-records" data-profiles></div>`;
@@ -238,12 +345,16 @@ window.RMMFleet = {
         await create("/api/fleet/rules", { title: String(values.get("title")), device_ids: [String(values.get("device"))], kind: String(values.get("kind")), threshold: Number(values.get("threshold")), consecutive: Number(values.get("consecutive")), cooldown_seconds: Number(values.get("cooldown")), max_actions_per_day: Number(values.get("maximum")), action: String(values.get("action")), service: String(values.get("service")), enabled }); await load();
       }); }); action(load);
     }
-    function close() { root.classList.add("is-hidden"); clearInterval(timer); timer = null; }
-    function open() {
-      onOpen(); root.classList.remove("is-hidden"); if (!busy) show(); clearInterval(timer);
+    function close() { pendingTab = null; root.classList.add("is-hidden"); clearInterval(timer); timer = null; }
+    function open(target) {
+      onOpen(target === "incidents" ? "problems" : target === "operations" ? "operations" : "management");
+      root.classList.remove("is-hidden");
+      if (busy) pendingTab = target || tab;
+      else show(target || tab);
+      clearInterval(timer);
       timer = setInterval(() => { if (!busy && !root.classList.contains("is-hidden") && !document.querySelector("#appShell")?.classList.contains("is-hidden") && document.visibilityState === "visible" && root.querySelector("[data-fleet-operations]") && !root.querySelector("[data-fleet-operations]").contains(document.activeElement)) loadOperations().catch((error) => message(error.message)); }, 10000);
     }
-    document.querySelectorAll("[data-fleet-management-open]").forEach((button) => button.addEventListener("click", open));
-    return { close };
+    document.querySelectorAll("[data-fleet-management-open]").forEach((button) => button.addEventListener("click", () => open()));
+    return { close, open };
   },
 };

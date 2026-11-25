@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-FROM golang:1.26.5-alpine AS build
+FROM golang:1.26.11-alpine AS build
 
 ARG RMM_SERVER_VERSION=dev
 ARG RMM_SOURCE_REVISION=unknown
-ARG RMM_STABLE_AGENT_VERSION=0.11.0
+ARG RMM_STABLE_AGENT_VERSION=0.11.1
 
 WORKDIR /src
 COPY go.mod go.sum ./

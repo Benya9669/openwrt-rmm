@@ -47,7 +47,7 @@ func TestReadinessMetricsAndShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateOperatorSession(context.Background(), store.TokenHash("viewer-session"), user.ID, time.Now().Add(time.Hour)); err != nil {
+	if err := st.CreateOperatorSession(context.Background(), store.TokenHash("viewer-session"), user.ID, "test-hash", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	restricted, _ := http.NewRequest(http.MethodGet, srv.URL+"/metrics", nil)

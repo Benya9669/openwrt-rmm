@@ -98,6 +98,26 @@ func TestPostgresCriticalFlowsIntegration(t *testing.T) {
 			t.Fatalf("expected exactly one winner, got %d", successes)
 		}
 	}
+	t.Run("recovery-changes-are-single-use", func(t *testing.T) {
+		account, err := a.CreateUser(ctx, "recovery-test", "", "", "initial-hash", "user")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.BeginRecoveryEmailChange(ctx, account.ID, "initial-hash", account.Email, "after@example.test", "confirm-code-hash", time.Now().Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		race(t, func(st *store.Store, _ int) (bool, error) {
+			_, changed, err := st.ConfirmRecoveryEmailChange(ctx, account.ID, "confirm-code-hash")
+			return changed, err
+		})
+		created, err := a.CreatePasswordReset(ctx, account.ID, "after@example.test", "reset-token-hash", time.Now().Add(time.Minute))
+		if err != nil || !created {
+			t.Fatalf("create reset: %v %v", created, err)
+		}
+		race(t, func(st *store.Store, _ int) (bool, error) {
+			return st.ResetPassword(ctx, "reset-token-hash", "replacement-hash")
+		})
+	})
 	t.Run("signed-command-single-claim", func(t *testing.T) {
 		created, found, err := a.CreateCommand(ctx, device.DeviceID, "system.info", []byte(`{}`))
 		if err != nil || !found {
@@ -175,7 +195,7 @@ func TestPostgresCriticalFlowsIntegration(t *testing.T) {
 		if err != nil || !found {
 			t.Fatalf("session: %v %v", found, err)
 		}
-		if err := a.CreateDeviceAccessGrant(ctx, "critical-luci-grant", user.ID, device.DeviceID, session.ID, time.Now().Add(time.Minute)); err != nil {
+		if err := a.CreateDeviceAccessGrant(ctx, "critical-luci-grant", user.ID, "", device.DeviceID, session.ID, time.Now().Add(time.Minute)); err != nil {
 			t.Fatal(err)
 		}
 		race(t, func(st *store.Store, index int) (bool, error) {

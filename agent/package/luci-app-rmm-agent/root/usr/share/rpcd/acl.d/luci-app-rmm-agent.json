@@ -3,14 +3,13 @@
 		"description": "Configure and control the RMM agent",
 		"read": {
 			"ubus": {
-				"rc": [ "list" ],
 				"service": [ "list" ]
 			},
 			"uci": [ "rmm-agent" ]
 		},
 		"write": {
 			"ubus": {
-				"rc": [ "init" ]
+				"rmm.agent": [ "start", "restart" ]
 			},
 			"uci": [ "rmm-agent" ]
 		}

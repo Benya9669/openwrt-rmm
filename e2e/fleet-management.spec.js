@@ -21,6 +21,7 @@ for (const width of [320, 390, 1440]) {
       await view.getByRole("button", { name, exact: true }).click();
       await expect(view.locator("[data-fleet-message]")).not.toHaveText("Выполняется…");
       await expect(view.locator("[data-fleet-content] h3").first()).toBeVisible();
+      await expect(view.getByRole("button", { name, exact: true })).toBeFocused();
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
     }
     expect(errors).toEqual([]);
@@ -30,6 +31,36 @@ for (const width of [320, 390, 1440]) {
     await expect(page.locator("#fleetView")).toBeVisible();
   });
 }
+
+test("fleet navigation keeps incident filters and opens the incident's router", async ({ page }) => {
+  const device = (await (await page.request.get("/api/devices")).json()).devices[0];
+  const incident = { id: "fixture-incident", title: "WAN unavailable", device_id: device.id, category: "network", status: "open", events: [] };
+  await page.route("**/api/fleet/incidents", (route) => route.fulfill({ json: { incidents: [incident] } }));
+  await page.locator("#problemsNavBtn").click();
+  const view = page.locator("#fleetManagementView");
+  await view.locator("[data-incident-filter]").selectOption("all");
+  await view.locator("[data-incident-search]").fill("WAN");
+  await view.locator("[data-open-device]").click();
+  await expect(page.locator("#deviceView")).toBeVisible();
+  await expect(page.locator("#deviceMeta")).toContainText(device.id);
+  await page.locator("#operationsNavBtn").click();
+  await expect(view.getByRole("heading", { name: "История операций" })).toBeVisible();
+  await page.locator("#problemsNavBtn").click();
+  await expect(view.locator("[data-incident-filter]")).toHaveValue("all");
+  await expect(view.locator("[data-incident-search]")).toHaveValue("WAN");
+  await expect(view.locator("[data-incidents]")).toContainText(incident.title);
+});
+
+test("fleet refresh keeps keyboard focus on the same router", async ({ page }) => {
+  await page.locator("[data-fleet-close]").click();
+  const row = page.locator(".device-item").first();
+  const id = await row.getAttribute("data-device-id");
+  await row.focus();
+  const oldRow = await row.elementHandle();
+  await page.locator("#refreshBtn").evaluate((button) => button.click());
+  await expect.poll(() => oldRow.evaluate((item) => item.isConnected)).toBe(false);
+  await expect(page.locator(`.device-item[data-device-id="${id}"]`)).toBeFocused();
+});
 
 test("operation refresh preserves expanded targets and command output", async ({ page }) => {
   let refreshes = 0;
@@ -101,6 +132,65 @@ test("permission presets save through the administrator confirmation", async ({ 
   const saved = await (await page.request.get(`/api/fleet/permissions/${user.user?.id || user.id}`)).json();
   expect(saved.permissions).toEqual(["view", "diagnostics", "backups", "incidents"]);
   expect(saved.groups).toEqual(["Лаборатория"]);
+});
+
+for (const kind of ["device", "user"]) {
+  test(`policy form keeps the selected ${kind} when an older read finishes`, async ({ page }) => {
+    const device = kind === "device";
+    const records = ["first", "second"].map((id) => ({
+      id, hostname: `Router ${id}`, username: `User ${id}`, role: "user", tags: [],
+    }));
+    await page.route("**/api/devices", (route) => route.fulfill({ json: { devices: records } }));
+    await page.route("**/api/users", (route) => route.fulfill({ json: { users: records } }));
+    await page.route("**/api/fleet/permissions", (route) => route.fulfill({ json: { configured: false } }));
+    const prefix = device ? "/api/fleet/access-policies/" : "/api/fleet/permissions/";
+    let firstRead;
+    let saved;
+    await page.route(`**${prefix}*`, (route) => {
+      const id = new URL(route.request().url()).pathname.slice(prefix.length);
+      if (route.request().method() === "PUT") {
+        saved = { id, data: route.request().postDataJSON() };
+        return route.fulfill({ json: {} });
+      }
+      const policy = device
+        ? { max_ttl_seconds: id === "first" ? 300 : 900, user_ids: [] }
+        : { permissions: ["view"], groups: [id], sites: [] };
+      if (id === "first") firstRead = () => route.fulfill({ json: policy });
+      else return route.fulfill({ json: policy });
+    });
+    await page.reload();
+    await page.locator("[data-fleet-management-open]:visible").first().click();
+    const view = page.locator("#fleetManagementView");
+    await view.locator(device ? '[data-fleet-tab="access"]' : '[data-fleet-tab="permissions"]').click();
+    const form = view.locator(device ? "[data-access-form]" : "[data-permission-form]");
+    const target = form.locator(`[name="${kind}"]`);
+    const value = form.locator(device ? '[name="ttl"]' : '[name="groups"]');
+    const submit = form.locator('button[type="submit"]');
+    await expect.poll(() => Boolean(firstRead)).toBe(true);
+    await expect(submit).toBeDisabled();
+    await target.selectOption("second");
+    await expect(value).toHaveValue(device ? "900" : "second");
+    const lateResponse = page.waitForResponse((response) => response.url().endsWith(prefix + "first"));
+    await firstRead();
+    await (await lateResponse).finished();
+    await expect(value).toHaveValue(device ? "900" : "second");
+    await expect(target).toHaveValue("second");
+    await value.fill(device ? "960" : "updated");
+    await submit.click();
+    const dialog = page.locator("#confirmationDialog");
+    await expect(dialog).toContainText(records[1][device ? "hostname" : "username"]);
+    await dialog.locator("#confirmationConfirmBtn").click();
+    await expect.poll(() => saved).toEqual(device
+      ? { id: "second", data: { ssh_allowed: false, luci_allowed: false, max_ttl_seconds: 960, restrict_users: false, user_ids: [] } }
+      : { id: "second", data: { permissions: ["view"], groups: ["updated"], sites: [] } });
+  });
+}
+
+test("permissions form stays disabled without eligible users", async ({ page }) => {
+  await page.route("**/api/users", (route) => route.fulfill({ json: { users: [] } }));
+  await page.locator('[data-fleet-tab="permissions"]').click();
+  await expect(page.locator("[data-fleet-message]")).toContainText("Нет обычных пользователей");
+  await expect(page.locator('[data-permission-form] button[type="submit"]')).toBeDisabled();
 });
 
 test("incident comments and explicit canary waves are submitted", async ({ page }) => {

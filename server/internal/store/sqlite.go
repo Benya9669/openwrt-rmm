@@ -2657,10 +2657,6 @@ func parseTime(value string) time.Time {
 	return t
 }
 
-func ptrTime(t time.Time) *time.Time {
-	return &t
-}
-
 func randomID(prefix string) (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

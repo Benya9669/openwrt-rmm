@@ -25,7 +25,7 @@ import (
 var (
 	serverVersion      = "dev"
 	serverRevision     = "unknown"
-	stableAgentVersion = "0.11.0"
+	stableAgentVersion = "0.11.1"
 )
 
 func main() {
@@ -210,6 +210,7 @@ func main() {
 		TunnelPublicHost:           strings.TrimSpace(os.Getenv("RMM_TUNNEL_PUBLIC_HOST")),
 		TunnelPublicPort:           envInt("RMM_TUNNEL_PUBLIC_PORT", 2222, 1, 65535),
 		TunnelAuthToken:            strings.TrimSpace(os.Getenv("RMM_TUNNEL_AUTH_TOKEN")),
+		AllowLegacyTunnelKey:       os.Getenv("RMM_ALLOW_LEGACY_TUNNEL_KEY") == "true",
 		TunnelHostPublicKey:        strings.TrimSpace(os.Getenv("RMM_TUNNEL_HOST_PUBLIC_KEY")),
 		DeviceDomain:               strings.TrimSpace(os.Getenv("RMM_DEVICE_DOMAIN")),
 		PublicScheme:               env("RMM_PUBLIC_SCHEME", "https"),

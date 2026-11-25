@@ -19,6 +19,7 @@ if [ -n "${RMM_TUNNEL_AUTH_TOKEN_FILE:-}" ]; then
 		exit 1
 	}
 	token="$(tr -d '\r\n' < "$RMM_TUNNEL_AUTH_TOKEN_FILE")"
+	[ -n "$token" ] || { echo "Tunnel authorization token file is empty." >&2; exit 1; }
 fi
 endpoint="${RMM_TUNNEL_AUTH_URL:-http://rmm-server:8080/internal/tunnel/authorized-key}"
 active_ports_endpoint="${RMM_TUNNEL_ACTIVE_PORTS_URL:-http://rmm-server:8080/internal/tunnel/active-ports}"
@@ -85,32 +86,27 @@ if [ ! -f /data/ssh_host_rsa_key ]; then
 	ssh-keygen -q -t rsa -b 3072 -N '' -f /data/ssh_host_rsa_key
 fi
 
-if [ -n "$token" ]; then
-	# Per-device keys are resolved for each authentication attempt. Keep the static
-	# file present but empty so a previously shared bootstrap key cannot bypass revocation.
-	: > /data/authorized_keys
-elif [ -f /bootstrap/router_tunnel_key.pub ]; then
-	printf 'restrict,port-forwarding %s\n' "$(cat /bootstrap/router_tunnel_key.pub)" > /data/authorized_keys
-else
-	if [ ! -f /data/router_tunnel_key ]; then
-		ssh-keygen -q -t ed25519 -N '' -C 'rmm-router-tunnel' -f /data/router_tunnel_key
-	fi
-	if [ ! -f /data/authorized_keys ]; then
-		printf 'restrict,port-forwarding %s\n' "$(cat /data/router_tunnel_key.pub)" > /data/authorized_keys
-	fi
-fi
-
-chmod 0600 /data/ssh_host_ed25519_key /data/ssh_host_rsa_key /data/authorized_keys
+chmod 0600 /data/ssh_host_ed25519_key /data/ssh_host_rsa_key
 chmod 0644 /data/ssh_host_ed25519_key.pub /data/ssh_host_rsa_key.pub
-if [ -f /data/router_tunnel_key ]; then
-	chmod 0600 /data/router_tunnel_key
-	chmod 0644 /data/router_tunnel_key.pub
-fi
-chown rmm-tunnel:rmm-tunnel /data/authorized_keys
-
+set -- /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config
 if [ -n "$token" ]; then
 	/usr/local/bin/tunnel-session-reaper "$auth_token_file" "$active_ports_url_file" 5 &
+elif [ "${RMM_ALLOW_LEGACY_TUNNEL_KEY:-false}" = true ]; then
+	if [ -f /bootstrap/router_tunnel_key.pub ]; then
+		printf 'restrict,port-forwarding %s\n' "$(cat /bootstrap/router_tunnel_key.pub)" > /data/authorized_keys
+	elif [ ! -s /data/authorized_keys ]; then
+		if [ ! -f /data/router_tunnel_key ]; then
+			ssh-keygen -q -t ed25519 -N '' -C 'rmm-router-tunnel' -f /data/router_tunnel_key
+		fi
+		printf 'restrict,port-forwarding %s\n' "$(cat /data/router_tunnel_key.pub)" > /data/authorized_keys
+	fi
+	chown root:root /data/authorized_keys
+	chmod 0644 /data/authorized_keys
+	set -- "$@" -o AuthorizedKeysFile=/data/authorized_keys
+	echo "Legacy shared tunnel key enabled." >&2
+else
+	echo "Remote tunnel access disabled until RMM_TUNNEL_AUTH_TOKEN is configured." >&2
 fi
 
 echo "Tunnel SSH endpoint ready."
-exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config
+exec "$@"

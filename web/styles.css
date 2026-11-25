@@ -259,7 +259,7 @@ textarea {
 
 input::placeholder,
 textarea::placeholder {
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   opacity: 1;
 }
 
@@ -735,6 +735,7 @@ samp,
 .login-form label,
 .profile-form > label,
 .device-transfer-form label,
+.fleet-toolbar label,
 .fleet-form label,
 .remote-form label,
 .remote-quick-form label,
@@ -1668,9 +1669,19 @@ samp,
 .fleet-toolbar {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(240px, 1fr) auto auto minmax(240px, .7fr);
-  align-items: center;
+  grid-template-columns: minmax(240px, 1fr) auto minmax(200px, .6fr);
+  align-items: end;
   gap: var(--space-3);
+}
+
+.fleet-toolbar label,
+.fleet-toolbar input {
+  min-width: 0;
+  width: 100%;
+}
+
+.fleet-toolbar [data-fleet-management-open] {
+  display: none;
 }
 
 .fleet-toolbar .filters,
@@ -5035,7 +5046,7 @@ dialog > form {
   }
 
   .fleet-toolbar {
-    grid-template-columns: minmax(210px, 1fr) auto minmax(220px, .8fr);
+    grid-template-columns: minmax(210px, 1fr) minmax(200px, .8fr);
   }
 
   .fleet-toolbar .filters {
@@ -5371,7 +5382,11 @@ dialog > form {
 
   .fleet-toolbar {
     grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
+  }
+
+  .fleet-toolbar [data-fleet-management-open] {
+    display: block;
+    grid-column: 1 / -1;
   }
 
   .filter-toggle {

@@ -1,16 +1,12 @@
 package httpapi
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	pathpkg "path"
 	"strconv"
 	"strings"
 	"time"
@@ -210,37 +206,6 @@ func (a *App) handleDatabaseSnapshot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = io.Copy(w, file)
-}
-
-func backupManifest(archive []byte) ([]string, error) {
-	gzipReader, err := gzip.NewReader(bytes.NewReader(archive))
-	if err != nil {
-		return nil, err
-	}
-	defer gzipReader.Close()
-	tarReader := tar.NewReader(gzipReader)
-	files := make([]string, 0)
-	var expandedSize int64
-	for len(files) < 4096 {
-		header, err := tarReader.Next()
-		if errors.Is(err, io.EOF) {
-			return files, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		if header.Size < 0 || header.Size > (128<<20)-expandedSize {
-			return nil, errors.New("backup archive expands beyond the safety limit")
-		}
-		expandedSize += header.Size
-		name := strings.TrimSpace(header.Name)
-		cleaned := pathpkg.Clean(name)
-		if name == "" || strings.HasPrefix(name, "/") || cleaned == ".." || strings.HasPrefix(cleaned, "../") || len(cleaned) > 1024 {
-			return nil, errors.New("backup archive contains an unsafe path")
-		}
-		files = append(files, cleaned)
-	}
-	return nil, errors.New("backup archive has too many entries")
 }
 
 func limitedHeader(r *http.Request, name string, limit int) string {

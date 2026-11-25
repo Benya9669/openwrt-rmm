@@ -106,6 +106,32 @@ func TestTunnelAuthorizedKeyEndpointUsesDeviceCredentialAndSessionPorts(t *testi
 	}
 }
 
+func TestRemoteSessionRequiresConfiguredTunnelAuthorization(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "tunnel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	device, err := st.EnrollDevice(ctx, "router", "OpenWrt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{OperatorToken: "operator-test"}))
+	defer srv.Close()
+	path := srv.URL + "/api/devices/" + device.DeviceID + "/remote-sessions"
+	requestJSON(t, http.MethodPost, path, "operator-test", map[string]string{
+		"target": "ssh", "server_host": "tunnel.example.test",
+	}, http.StatusServiceUnavailable, nil)
+	var result struct {
+		Sessions []model.RemoteSession `json:"remote_sessions"`
+	}
+	requestJSON(t, http.MethodGet, path, "operator-test", nil, http.StatusOK, &result)
+	if len(result.Sessions) != 0 {
+		t.Fatal("unconfigured tunnel created a session")
+	}
+}
+
 func TestAgentOperatorSmokeFlow(t *testing.T) {
 	st, err := store.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -114,8 +140,9 @@ func TestAgentOperatorSmokeFlow(t *testing.T) {
 	defer st.Close()
 
 	srv := httptest.NewServer(httpapi.NewHandler(st, httpapi.Config{
-		EnrollmentToken: "enroll-test",
-		OperatorToken:   "operator-test",
+		EnrollmentToken:      "enroll-test",
+		OperatorToken:        "operator-test",
+		AllowLegacyTunnelKey: true,
 	}))
 	defer srv.Close()
 
@@ -976,6 +1003,7 @@ func TestAccountProfilePasswordAndBootstrapPersistence(t *testing.T) {
 	var profile struct {
 		User model.User `json:"user"`
 	}
+	verifyEmailForTest(t, st, "admin", "owner@example.com")
 	authRequestJSON(t, client, http.MethodPatch, srv.URL+"/api/auth/profile", map[string]any{
 		"display_name": "Network Owner", "email": "owner@example.com",
 	}, http.StatusOK, &profile)

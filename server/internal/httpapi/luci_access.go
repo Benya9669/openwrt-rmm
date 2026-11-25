@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -517,8 +518,12 @@ func (a *App) handleCreateDeviceAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	principal, _ := principalFromContext(r.Context())
-	accessURL, expiresAt, err := a.createDeviceAccessGrant(r.Context(), principal.User.ID, principal.User.Username, device, session)
+	accessURL, expiresAt, err := a.createDeviceAccessGrant(r.Context(), principal, device, session)
 	if err != nil {
+		if errors.Is(err, store.ErrRecoveryAccountChanged) {
+			writeError(w, http.StatusUnauthorized, "session expired")
+			return
+		}
 		if strings.Contains(strings.ToLower(err.Error()), "limit") {
 			writeError(w, http.StatusTooManyRequests, "active LuCI access grant limit reached")
 			return
@@ -529,18 +534,18 @@ func (a *App) handleCreateDeviceAccess(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"url": accessURL, "expires_at": expiresAt})
 }
 
-func (a *App) createDeviceAccessGrant(ctx context.Context, userID, username string, device model.Device, session model.RemoteSession) (string, time.Time, error) {
+func (a *App) createDeviceAccessGrant(ctx context.Context, principal authPrincipal, device model.Device, session model.RemoteSession) (string, time.Time, error) {
 	rawToken, err := randomToken(32)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	expiresAt := time.Now().UTC().Add(deviceAccessGrantTTL)
-	if err := a.store.CreateDeviceAccessGrant(ctx, store.TokenHash(rawToken), userID, device.ID, session.ID, expiresAt); err != nil {
+	if err := a.store.CreateDeviceAccessGrant(ctx, store.TokenHash(rawToken), principal.User.ID, principal.SessionHash, device.ID, session.ID, expiresAt); err != nil {
 		return "", time.Time{}, err
 	}
 	domainName := device.DNSLabel + "." + a.deviceDomain
 	accessURL := a.publicScheme + "://" + domainName + "/_rmm/access?token=" + rawToken
-	_, _ = a.store.AddAuditEvent(ctx, username, "luci.access_grant", device.ID, "", mustJSON(map[string]any{
+	_, _ = a.store.AddAuditEvent(ctx, principal.User.Username, "luci.access_grant", device.ID, "", mustJSON(map[string]any{
 		"remote_session_id": session.ID,
 		"expires_at":        expiresAt,
 		"request_id":        requestID(ctx),

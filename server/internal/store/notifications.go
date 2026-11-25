@@ -134,6 +134,14 @@ ON CONFLICT(user_id) DO UPDATE SET
 }
 
 func (s *Store) CreateNotificationDelivery(ctx context.Context, delivery model.NotificationDelivery, dedupeKey string) (model.NotificationDelivery, bool, error) {
+	return s.createNotificationDelivery(ctx, s.db, delivery, dedupeKey)
+}
+
+type notificationExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func (s *Store) createNotificationDelivery(ctx context.Context, executor notificationExecutor, delivery model.NotificationDelivery, dedupeKey string) (model.NotificationDelivery, bool, error) {
 	id, err := randomID("ntf")
 	if err != nil {
 		return model.NotificationDelivery{}, false, err
@@ -159,7 +167,7 @@ func (s *Store) CreateNotificationDelivery(ctx context.Context, delivery model.N
 	if err != nil {
 		return model.NotificationDelivery{}, false, err
 	}
-	res, err := s.db.ExecContext(ctx, `
+	res, err := executor.ExecContext(ctx, `
 INSERT OR IGNORE INTO notification_deliveries (
   id, user_id, device_id, alert_id, dedupe_key, event, channel, status, title, body,
   destination, destination_masked, error, attempt_count, max_attempts, created_at,

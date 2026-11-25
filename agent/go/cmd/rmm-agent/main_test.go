@@ -27,7 +27,7 @@ import (
 )
 
 func TestAgentVersionIsStable(t *testing.T) {
-	if agentVersion != "0.11.0" {
+	if agentVersion != "0.11.1" {
 		t.Fatalf("unexpected agent version %q", agentVersion)
 	}
 }
@@ -177,12 +177,13 @@ func TestOpenWrtTargetManifestFormat(t *testing.T) {
 	}
 }
 
-func TestParseLocalInterfaceIPv4CandidatesPrefersLAN(t *testing.T) {
-	output := `1: lo    inet 127.0.0.1/8 scope host lo
-2: eth0    inet 203.0.113.10/24 brd 203.0.113.255 scope global eth0
-5: br-lan    inet 10.10.10.1/24 brd 10.10.10.255 scope global br-lan
-6: guest    inet 192.168.50.1/24 brd 192.168.50.255 scope global guest`
-	got := parseLocalInterfaceIPv4Candidates(output)
+func TestOrderLocalInterfaceIPv4CandidatesPrefersLAN(t *testing.T) {
+	got := orderLocalInterfaceIPv4Candidates([]localInterfaceIPv4{
+		{"lo", net.ParseIP("127.0.0.1")},
+		{"eth0", net.ParseIP("203.0.113.10")},
+		{"br-lan", net.ParseIP("10.10.10.1")},
+		{"guest", net.ParseIP("192.168.50.1")},
+	})
 	want := []string{"10.10.10.1", "203.0.113.10", "192.168.50.1"}
 	if len(got) != len(want) {
 		t.Fatalf("unexpected candidates: %#v", got)

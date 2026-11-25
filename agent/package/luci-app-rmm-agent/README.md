@@ -27,6 +27,11 @@ opkg install rmm-agent_*.ipk luci-app-rmm-agent_*.ipk
 
 On apk-based OpenWrt releases, install the generated `.apk` packages instead.
 
+The LuCI write role controls only `rmm.agent.start` and `rmm.agent.restart`. Both
+methods target the installed RMM init script. After upgrading refresh rpcd during
+a maintenance window (`service rpcd reload`) and verify with `ubus -v list rmm.agent`.
+The form refreshes the procd instance status after an action.
+
 English remains the built-in default language. The same build produces the standard
 optional Russian translation package:
 

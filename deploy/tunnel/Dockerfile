@@ -13,6 +13,6 @@ EXPOSE 22 22000-22099
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
-  CMD nc -z 127.0.0.1 22 || exit 1
+  CMD awk '$2 == "00000000:0016" && $4 == "0A" { listening=1 } END { exit !listening }' /proc/net/tcp
 
 ENTRYPOINT ["/usr/local/bin/tunnel-entrypoint"]

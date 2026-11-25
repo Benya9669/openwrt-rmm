@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-rmm-agent
 PKG_VERSION:=0.2.4
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_MAINTAINER:=RMM OpenWrt
 PKG_LICENSE:=MIT
@@ -41,6 +41,8 @@ define Build/Compile
 endef
 
 define Package/luci-app-rmm-agent/install
+	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
+	$(INSTALL_BIN) ./root/usr/libexec/rpcd/rmm.agent $(1)/usr/libexec/rpcd/rmm.agent
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/services
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/services/rmm-agent.js \
 		$(1)/www/luci-static/resources/view/services/rmm-agent.js

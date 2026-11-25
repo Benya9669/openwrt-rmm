@@ -56,7 +56,7 @@ RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
 RMM_NOTIFICATION_MAX_ATTEMPTS=5
 RMM_NOTIFICATION_RETENTION_DAYS=90
 RMM_BACKUP_RETENTION_DAYS=90
-RMM_STABLE_AGENT_VERSION=0.11.0
+RMM_STABLE_AGENT_VERSION=0.11.1
 RMM_AGENT_RECONNECT_TIMEOUT_SECONDS=300
 RMM_UPDATE_MANIFEST_URL=https://packages.daemonlord.ru/update-manifest.json
 RMM_UPDATE_MANIFEST_SIGNATURE_URL=https://packages.daemonlord.ru/update-manifest.sig
@@ -77,7 +77,7 @@ For a production deployment, pin the server release in `.env`. The base Compose 
 the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.15.0
+RMM_RELEASE_VERSION=0.16.0
 ```
 
 ```powershell
@@ -154,7 +154,7 @@ tar tzf backups/tunnel-data.tgz | head
 Configure Arcane with the existing volume names and the exact image release:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.15.0
+RMM_RELEASE_VERSION=0.16.0
 RMM_DATA_VOLUME=openwrt-rmm_rmm-data
 RMM_TUNNEL_DATA_VOLUME=openwrt-rmm_tunnel-data
 ```
@@ -176,13 +176,22 @@ For HTTPS and domain-based access, use [npmplus.md](npmplus.md) or the optional 
 
 ## 3. Enable Per-device Tunnel Keys
 
-The secure mode does not distribute one shared private key. Agent `0.7.0` creates
+New installations should use per-device keys. The agent creates
 `/etc/rmm-agent/tunnel_device_key` locally with mode `0600` and reports only its public
 key during heartbeat.
 
-Use a staged migration so existing routers do not lose remote access:
+Without an authorization token, the updated SSH image starts and generates its host
+key, but accepts no router key by default. The updated server rejects new tunnel
+requests with HTTP 503 until configured. Heartbeats and direct router SSH continue
+to work. Use matching server and tunnel images containing this change.
 
-1. Deploy the new server, tunnel image and agent while `RMM_TUNNEL_AUTH_TOKEN` is empty.
+For a new installation leave `RMM_ALLOW_LEGACY_TUNNEL_KEY=false` and start at step 2.
+For an upgrade from shared keys, keep independent administrative SSH access and
+use a maintenance window for this migration.
+
+1. Before upgrading an existing shared-key deployment, explicitly set
+   `RMM_ALLOW_LEGACY_TUNNEL_KEY=true` in its environment while
+   `RMM_TUNNEL_AUTH_TOKEN` is empty. Apply the same setting to both services.
 2. Wait until every online router has sent at least one heartbeat with its per-device key.
 3. Read the persistent SSH host public key:
 
@@ -201,6 +210,7 @@ openssl rand -hex 32
 ```dotenv
 RMM_TUNNEL_AUTH_TOKEN=<64 hexadecimal characters>
 RMM_TUNNEL_HOST_PUBLIC_KEY="ssh-ed25519 AAAA..."
+RMM_ALLOW_LEGACY_TUNNEL_KEY=false
 ```
 
 6. Recreate only the two affected services during a maintenance window. This terminates
@@ -210,14 +220,17 @@ RMM_TUNNEL_HOST_PUBLIC_KEY="ssh-ed25519 AAAA..."
 docker compose up -d --force-recreate rmm-server tunnel-ssh
 ```
 
-When the authorization token is set, the SSH sidecar empties the legacy static
-`authorized_keys` file. New authentications are resolved by key fingerprint through the
-internal server API and are restricted to the ports of a non-expired session.
+When the token is configured, the sidecar ignores the static key file even if the
+legacy switch is enabled. New authentications are resolved by key fingerprint through
+the internal server API and restricted to the ports of a non-expired session.
+Open a short test session for a router whose heartbeat registered a device key, then
+close it and verify that the tunnel port closes before migrating the rest of the fleet.
 
 ### Legacy rollback
 
-If migration must be rolled back, remove `RMM_TUNNEL_AUTH_TOKEN` from both services and
-recreate them. The following shared-key procedure is retained only for that rollback.
+For a planned rollback, restore the previous shared public key and explicitly set
+`RMM_ALLOW_LEGACY_TUNNEL_KEY=true` with an empty authorization token on both services.
+Recreate those two services. Reuse the matching private key already on your routers.
 
 Generate the router tunnel key before starting Compose:
 
@@ -325,3 +338,7 @@ replacing the command-signing key requires explicit agent re-enrollment because 
 - Never commit the authorization token, tunnel host private key or router device keys.
 - Never commit the command-signing or data-encryption keys; protect backups of both keys separately from the database.
 - Roll out secure mode in two stages; enabling it before agent `0.7.0` heartbeats will intentionally reject legacy shared-key authentication.
+
+### Troubleshoot a LuCI upstream refusal
+
+If the proxy returns 502 and the agent logs a refused forwarded connection, check the web listener on the selected router with `uci -q show uhttpd | grep -E 'listen_http|listen_https'` and `netstat -lnt`. Confirm that the selected scheme matches the loopback listener (HTTP port 80 or HTTPS port 443). A successful heartbeat checks agent connectivity separately. Agent 0.11.1 reports an unavailable LuCI-only listener before opening the tunnel.

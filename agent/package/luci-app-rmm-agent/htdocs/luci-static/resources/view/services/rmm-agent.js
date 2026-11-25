@@ -12,22 +12,25 @@ var callServiceList = rpc.declare({
 	expect: { '': {} }
 });
 
-var callRcInit = rpc.declare({
-	object: 'rc',
-	method: 'init',
-	params: [ 'name', 'action' ]
-});
+var startAgent = rpc.declare({ object: 'rmm.agent', method: 'start', expect: { code: -1 } });
+var restartAgent = rpc.declare({ object: 'rmm.agent', method: 'restart', expect: { code: -1 } });
+
+function isRunning(services) {
+	var instances = (services['rmm-agent'] || {}).instances || {};
+	return Object.keys(instances).some(function(key) { return instances[key] && instances[key].running === true; });
+}
 
 return view.extend({
 	load: function() {
 		return Promise.all([ uci.load('rmm-agent'), callServiceList('rmm-agent') ]);
 	},
 
-	handleServiceAction: function(action) {
-		return callRcInit('rmm-agent', action).then(function(code) {
+	handleServiceAction: function(update, button, status) {
+		return (button.dataset.running === 'true' ? restartAgent() : startAgent()).then(function(code) {
 			if (code)
 				throw new Error(_('Command failed with code %d').format(code));
 			ui.addNotification(null, E('p', {}, _('RMM agent action completed.')), 'info');
+			return callServiceList('rmm-agent').then(function(services) { update(button, status, services); });
 		}).catch(function(error) {
 			ui.addNotification(null, E('p', {}, _('Unable to control RMM agent: %s').format(error.message)));
 		});
@@ -35,7 +38,6 @@ return view.extend({
 
 	render: function(data) {
 		var services = data[1] || {};
-		var running = !!(services['rmm-agent'] && services['rmm-agent'].instances && Object.keys(services['rmm-agent'].instances).length);
 		var map = new form.Map('rmm-agent', _('RMM agent'),
 			_('Connect this router to your RMM account. Create a one-time enrollment grant in the RMM control panel, paste it below, save and restart the agent.'));
 		var section = map.section(form.NamedSection, 'main', 'agent', _('Connection'));
@@ -91,13 +93,20 @@ return view.extend({
 		option = section.option(form.Flag, 'reset_identity', _('Re-enroll on next restart'));
 		option.description = _('Deletes the current device identity. Create and enter a fresh one-time grant first.');
 
+		function update(button, status, services) {
+			var running = isRunning(services);
+			status.textContent = running ? _('The RMM agent is running.') : _('The RMM agent is stopped.');
+			button.textContent = running ? _('Restart agent') : _('Start agent');
+			button.dataset.running = String(running);
+		}
+		var state = E('p');
+		var button = E('button', { 'type': 'button', 'class': 'btn cbi-button-action' });
+		button.addEventListener('click', ui.createHandlerFn(this, 'handleServiceAction', update, button, state));
+		update(button, state, services);
 		var status = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Service status')),
-			E('p', {}, running ? _('The RMM agent is running.') : _('The RMM agent is stopped.')),
-			E('button', {
-				'class': 'btn cbi-button-action',
-				'click': ui.createHandlerFn(this, 'handleServiceAction', running ? 'restart' : 'start')
-			}, running ? _('Restart agent') : _('Start agent'))
+			state,
+			button
 		]);
 
 		return map.render().then(function(node) {

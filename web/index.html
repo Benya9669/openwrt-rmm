@@ -11,7 +11,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=1">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
     <link rel="manifest" href="/site.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=33">
+    <link rel="stylesheet" href="/styles.css?v=34">
     <link rel="stylesheet" href="/fleet.css?v=2">
   </head>
   <body class="account-page">
@@ -140,8 +140,7 @@
           </div>
 
           <div class="fleet-toolbar">
-            <button data-fleet-management-open type="button">Управление парком</button>
-            <input id="fleetSearch" type="search" placeholder="Поиск по имени, модели, ID или тегу">
+            <label>Поиск по парку<input id="fleetSearch" type="search" placeholder="Имя, модель, ID или тег"></label>
             <button id="fleetFilterToggle" class="filter-toggle" type="button" aria-expanded="false">Фильтры</button>
             <div class="filters">
               <button class="filter is-active" data-filter="all" type="button">Все</button>
@@ -150,9 +149,10 @@
               <button class="filter" data-filter="alerts" type="button">Проблемы</button>
             </div>
             <div id="fleetAdvancedFilters" class="fleet-advanced-filters">
-              <input id="fleetGroupFilter" type="text" placeholder="Группа">
-              <input id="fleetTagFilter" type="text" placeholder="Тег">
+              <label>Группа<input id="fleetGroupFilter" type="text"></label>
+              <label>Тег<input id="fleetTagFilter" type="text"></label>
             </div>
+            <button data-fleet-management-open type="button">Управление парком</button>
           </div>
 
           <div class="fleet-table-shell">
@@ -937,6 +937,11 @@
           <form id="profileForm" class="profile-form settings-section profile-tab-panel" data-profile-panel="account" role="tabpanel">
             <header class="settings-section-header"><div><span class="eyebrow">ACCOUNT / IDENTITY</span><h3>Контактные данные</h3><p>Используются только в вашем аккаунте и для восстановления доступа.</p></div></header>
             <div class="settings-field-grid"><label>Отображаемое имя<input id="profileDisplayName" type="text" maxlength="80" autocomplete="name" placeholder="Как к вам обращаться"></label><label>E-mail<input id="profileEmail" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com"></label></div>
+            <label id="profileEmailPasswordField" class="is-hidden">Текущий пароль для смены адреса<input id="profileEmailPassword" type="password" autocomplete="current-password" maxlength="1024"></label>
+            <details id="profileEmailVerification"><summary>Ввести код из письма</summary>
+              <label>Код подтверждения<input id="profileEmailCode" type="text" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" maxlength="16"></label>
+              <button id="profileEmailConfirm" type="button">Подтвердить адрес</button>
+            </details>
             <footer class="settings-actions"><p id="profileMessage" class="form-message" role="status" aria-live="polite"></p><button id="profileSubmitBtn" class="primary" type="submit">Сохранить профиль</button></footer>
           </form>
 
@@ -1009,7 +1014,7 @@
       </form>
     </dialog>
 
-    <dialog id="luciStateDialog" class="luci-state-dialog">
+    <dialog id="luciStateDialog" class="luci-state-dialog" aria-labelledby="luciStateTitle" aria-describedby="luciStateDescription">
       <div class="luci-state-sheet">
         <div class="luci-state-route" aria-hidden="true">
           <span class="luci-cloud"><svg class="icon icon-md"><use href="/assets/icons/tabler-sprite.svg#icon-cloud-lock"></use></svg></span>
@@ -1051,8 +1056,8 @@
 
     <script src="/landing-motion.js?v=2" defer></script>
     <script src="/version.js?v=1" defer></script>
-    <script src="/management.js?v=1" defer></script>
-    <script src="/fleet.js?v=2" defer></script>
-    <script src="/app.js?v=37" defer></script>
+    <script src="/management.js?v=2" defer></script>
+    <script src="/fleet.js?v=3" defer></script>
+    <script src="/app.js?v=39" defer></script>
   </body>
 </html>

@@ -6,10 +6,8 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -38,7 +36,7 @@ import (
 )
 
 const (
-	agentVersion          = "0.11.0"
+	agentVersion          = "0.11.1"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -1601,16 +1599,21 @@ func remoteSSHReverseOutput(ctx context.Context, cfg config, args map[string]str
 	if !ok {
 		return validationOutput, 2
 	}
-	localHost, err := selectRemoteSSHLocalHost(
-		remoteArgs.LocalHost,
-		remoteArgs.LocalPort,
-		localInterfaceIPv4Candidates(),
-		remoteSSHTargetReachable,
-	)
-	if err != nil {
-		return err.Error() + "\n", 1
+	if remoteArgs.RemotePort > 0 {
+		localHost, err := selectRemoteSSHLocalHost(remoteArgs.LocalHost, remoteArgs.LocalPort, localInterfaceIPv4Candidates(), remoteSSHTargetReachable)
+		if err != nil {
+			return err.Error() + "\n", 1
+		}
+		remoteArgs.LocalHost = localHost
+	} else {
+		// LuCI-only sessions do not require a local SSH server.
+		address := net.JoinHostPort("127.0.0.1", strconv.Itoa(remoteArgs.LuCILocalPort))
+		conn, err := net.DialTimeout("tcp", address, time.Second)
+		if err != nil {
+			return fmt.Sprintf("LuCI listener %s unavailable: %v; check uhttpd and the selected LuCI scheme\n", address, err), 1
+		}
+		conn.Close()
 	}
-	remoteArgs.LocalHost = localHost
 	_, _ = remoteSSHStopSession(cfg, remoteArgs.SessionID, remoteArgs.RemotePort)
 	if err := os.MkdirAll(cfg.TunnelStateDir, 0o700); err != nil {
 		return err.Error() + "\n", 1
@@ -1753,23 +1756,6 @@ func localInterfaceIPv4Candidates() []string {
 type localInterfaceIPv4 struct {
 	interfaceName string
 	ip            net.IP
-}
-
-func parseLocalInterfaceIPv4Candidates(output string) []string {
-	var candidates []localInterfaceIPv4
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 4 || fields[2] != "inet" {
-			continue
-		}
-		interfaceName := strings.TrimSuffix(fields[1], ":")
-		ip, _, err := net.ParseCIDR(fields[3])
-		if err != nil {
-			continue
-		}
-		candidates = append(candidates, localInterfaceIPv4{interfaceName: interfaceName, ip: ip})
-	}
-	return orderLocalInterfaceIPv4Candidates(candidates)
 }
 
 func orderLocalInterfaceIPv4Candidates(values []localInterfaceIPv4) []string {
@@ -2627,14 +2613,6 @@ func splitWords(value string) []string {
 		return []string{}
 	}
 	return fields
-}
-
-func randomID(prefix string) string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return prefix + "_" + strconv.FormatInt(time.Now().UnixNano(), 16)
-	}
-	return prefix + "_" + hex.EncodeToString(b[:])
 }
 
 func logf(format string, args ...any) {

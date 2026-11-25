@@ -63,7 +63,7 @@ func TestFleetAccessPolicyEnforcementAndRevocation(t *testing.T) {
 	if command.ExpiresAt.After(session.ExpiresAt.Add(time.Second)) {
 		t.Fatal("command outlives access session")
 	}
-	if err = s.CreateDeviceAccessGrant(ctx, "synthetic-grant", admin.ID, device.DeviceID, session.ID, time.Now().Add(time.Minute)); !errors.Is(err, ErrFleetAccess) {
+	if err = s.CreateDeviceAccessGrant(ctx, "synthetic-grant", admin.ID, "", device.DeviceID, session.ID, time.Now().Add(time.Minute)); !errors.Is(err, ErrFleetAccess) {
 		t.Fatalf("LuCI grant bypass: %v", err)
 	}
 	policy.SSHAllowed = false

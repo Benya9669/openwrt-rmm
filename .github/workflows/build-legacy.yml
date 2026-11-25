@@ -18,15 +18,30 @@ concurrency:
 jobs:
   validate:
     name: Validate agent release
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.verified.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.agent_tag }}
+          ref: refs/tags/${{ inputs.agent_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: release-tools
+          sparse-checkout: scripts/verify-release-tag.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Validate tag and package version
+        id: verified
         env:
           AGENT_TAG: ${{ inputs.agent_tag }}
           GH_TOKEN: ${{ github.token }}
+          RELEASE_OPENPGP_PUBLIC_KEYS: ${{ vars.RELEASE_OPENPGP_PUBLIC_KEYS }}
+          RELEASE_OPENPGP_FINGERPRINTS: ${{ vars.RELEASE_OPENPGP_FINGERPRINTS }}
         shell: bash
         run: |
           set -euo pipefail
@@ -35,6 +50,8 @@ jobs:
             exit 1
           fi
           agent_version="${AGENT_TAG#agent-v}"
+          bash release-tools/scripts/verify-release-tag.sh "$AGENT_TAG"
+          printf 'commit=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           source_version="$(sed -n 's/^[[:space:]]*agentVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' agent/go/cmd/rmm-agent/main.go)"
           package_version="$(sed -n 's/^PKG_VERSION:=//p' agent/package/rmm-agent-go-production/Makefile)"
           test "$source_version" = "$agent_version"
@@ -51,6 +68,7 @@ jobs:
   legacy-packages:
     name: OpenWrt ${{ matrix.release }} · ${{ matrix.label }}
     needs: validate
+    environment: rmm-release
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
@@ -79,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.agent_tag }}
+          ref: ${{ needs.validate.outputs.commit }}
 
       - name: Resolve official OpenWrt SDK
         id: sdk

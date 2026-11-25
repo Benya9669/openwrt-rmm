@@ -727,7 +727,10 @@ remote_ssh_stop_pid() {
 			return 1
 			;;
 	esac
-	kill "$stop_pid" >/dev/null 2>&1 || true
+	# A stale pid file can refer to an unrelated, newly started process.
+	if [ "$stop_pid" -gt 1 ] && [ "$(readlink "/proc/$stop_pid/fd/1")" = "/tmp/rmm-remote-$stop_session_id.log" ]; then
+		kill "$stop_pid" >/dev/null 2>&1 || true
+	fi
 	rm -f "$stop_pid_file"
 }
 
@@ -747,6 +750,7 @@ remote_ssh_stop_session() {
 				case "$command_line" in
 					*ssh*" -R $stop_remote_port:"*|*dbclient*" -R $stop_remote_port:"*)
 						stop_pid="$(printf '%s' "$cmdline" | cut -d/ -f3)"
+						[ "$(readlink "/proc/$stop_pid/fd/1")" = "/tmp/rmm-remote-$stop_session_id.log" ] || continue
 						kill "$stop_pid" >/dev/null 2>&1 || true
 						printf 'remote ssh session stopped by port\n'
 						return 0

@@ -48,4 +48,33 @@ if env -i \
 	exit 1
 fi
 
-echo "tunnel authorized-key tests passed"
+# Exercise the entrypoint against an isolated persisted volume and record the sshd options.
+mkdir -p "$fixture/data"
+touch "$fixture/data"/ssh_host_{ed25519,rsa}_key{,.pub}
+printf '%s\n' 'existing shared public key fixture' > "$fixture/data/authorized_keys"
+for command in passwd chown reaper; do
+  printf '#!/bin/sh\nexit 0\n' > "$fixture/bin/$command"
+done
+printf '#!/bin/sh\necho 0\n' > "$fixture/bin/id"
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$OUTPUT_ARGS"\n' > "$fixture/bin/sshd"
+chmod +x "$fixture"/bin/{sshd,id,passwd,chown,reaper}
+sed -e "s|/data|$fixture/data|g" -e "s|/bootstrap/|$fixture/bootstrap/|g" \
+    -e "s|/run/rmm-tunnel|$fixture/runtime|g" -e "s|/usr/sbin/sshd|$fixture/bin/sshd|" \
+    -e "s|/usr/local/bin/tunnel-session-reaper|$fixture/bin/reaper|" \
+    "$repository_root/deploy/tunnel/entrypoint.sh" > "$fixture/entrypoint.sh"
+run_mode() {
+  env -i PATH="$fixture/bin:/usr/bin:/bin" OUTPUT_ARGS="$fixture/sshd-args" "$@" sh "$fixture/entrypoint.sh"
+}
+grep -Fxq 'AuthorizedKeysFile none' "$repository_root/deploy/tunnel/sshd_config"
+run_mode
+if grep -q 'AuthorizedKeysFile=' "$fixture/sshd-args"; then exit 1; fi
+run_mode RMM_ALLOW_LEGACY_TUNNEL_KEY=true
+grep -Fxq "AuthorizedKeysFile=$fixture/data/authorized_keys" "$fixture/sshd-args"
+run_mode RMM_ALLOW_LEGACY_TUNNEL_KEY=true RMM_TUNNEL_AUTH_TOKEN="$token"
+if grep -q 'AuthorizedKeysFile=' "$fixture/sshd-args"; then exit 1; fi
+grep -Fxq 'existing shared public key fixture' "$fixture/data/authorized_keys"
+run_mode
+test ! -e "$fixture/runtime/auth-token"
+if run_mode RMM_ALLOW_LEGACY_TUNNEL_KEY=true RMM_TUNNEL_AUTH_TOKEN_FILE="$fixture/auth-token"; then exit 1; fi
+
+echo "tunnel authorization and key mode tests passed"

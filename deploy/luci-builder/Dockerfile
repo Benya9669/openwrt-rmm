@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # SPDX-License-Identifier: MIT
 
-FROM golang:1.26.5-bookworm AS go-agent
+FROM golang:1.26.11-bookworm AS go-agent
 
 ARG RMM_GOARCH=mipsle
 ARG RMM_GOARM=7

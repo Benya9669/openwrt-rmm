@@ -34,15 +34,24 @@ jobs:
       - name: Validate immutable signed agent release
         if: startsWith(github.ref, 'refs/tags/agent-v')
         shell: bash
+        env:
+          RELEASE_OPENPGP_PUBLIC_KEYS: ${{ vars.RELEASE_OPENPGP_PUBLIC_KEYS }}
+          RELEASE_OPENPGP_FINGERPRINTS: ${{ vars.RELEASE_OPENPGP_FINGERPRINTS }}
         run: |
           set -euo pipefail
-          git cat-file -p "$GITHUB_REF_NAME" | grep -q -- '-----BEGIN PGP SIGNATURE-----'
+          bash scripts/verify-release-tag.sh "$GITHUB_REF_NAME"
           bash scripts/extract-release-notes.sh \
             "$GITHUB_REF_NAME" \
             CHANGELOG.md \
             release-notes.md
       - run: go test ./...
       - run: go vet ./...
+      - name: Scan Linux release entry points
+        env:
+          CGO_ENABLED: '0'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./server/cmd/... ./agent/go/cmd/rmm-agent
+      - run: bash scripts/test-verify-release-tag.sh
+      - run: bash scripts/test-docker-context.sh
       - name: Install web test dependencies
         run: npm ci
       - run: npm run check:web
@@ -102,6 +111,7 @@ jobs:
             scripts/test-stage-luci-stable-packages.sh \
             scripts/prepare-package-repository.sh \
             scripts/unpack-release-package-assets.sh
+          cmp agent/openwrt/rmm-agent.sh agent/package/rmm-agent/files/usr/bin/rmm-agent
           bash scripts/test-agent-uci-sync.sh
           bash scripts/test-package-repository.sh
           bash scripts/test-tunnel-authorized-key.sh
@@ -137,6 +147,7 @@ jobs:
     name: OpenWrt ${{ matrix.release }} · ${{ matrix.label }}
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/agent-v')
     needs: quality
+    environment: ${{ startsWith(github.ref, 'refs/tags/agent-v') && 'rmm-release' || 'rmm-build' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
@@ -229,8 +240,8 @@ jobs:
       - name: Build agent and LuCI packages
         uses: docker/build-push-action@v6
         env:
-          OPENWRT_USIGN_SECRET_B64: ${{ secrets.OPENWRT_USIGN_SECRET_B64 }}
-          OPENWRT_APK_SECRET_B64: ${{ secrets.OPENWRT_APK_SECRET_B64 }}
+          OPENWRT_USIGN_SECRET_B64: ${{ startsWith(github.ref, 'refs/tags/agent-v') && secrets.OPENWRT_USIGN_SECRET_B64 || '' }}
+          OPENWRT_APK_SECRET_B64: ${{ startsWith(github.ref, 'refs/tags/agent-v') && secrets.OPENWRT_APK_SECRET_B64 || '' }}
         with:
           context: .
           file: deploy/luci-builder/Dockerfile
@@ -286,6 +297,7 @@ jobs:
     name: Publish agent GitHub release assets
     if: startsWith(github.ref, 'refs/tags/agent-v')
     needs: openwrt-packages
+    environment: rmm-release
     runs-on: ubuntu-24.04
     permissions:
       contents: write

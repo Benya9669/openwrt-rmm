@@ -149,7 +149,7 @@ func (s *Store) UpdateUserSecurity(ctx context.Context, userID string, disabled 
 		}
 	}
 	if disabled != nil && *disabled || passwordHash != "" || role != "" {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID); err != nil {
+		if err := revokeAccountAccess(ctx, tx, userID, ""); err != nil {
 			return model.User{}, false, err
 		}
 	}
@@ -211,12 +211,27 @@ SELECT id, username, display_name, email, role, disabled, created_at, updated_at
 	return user, err == nil, err
 }
 
-func (s *Store) CreateOperatorSession(ctx context.Context, tokenHash, userID string, expiresAt time.Time) error {
-	_, err := s.db.ExecContext(ctx, `
+func (s *Store) CreateOperatorSession(ctx context.Context, tokenHash, userID, verifiedHash string, expiresAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, hash, err := lockRecoveryAccount(ctx, tx, userID)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && hash != verifiedHash {
+		return ErrRecoveryAccountChanged
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO operator_sessions (token_hash, user_id, expires_at, created_at)
 VALUES (?, ?, ?, ?)
 `, tokenHash, userID, expiresAt.UTC().Format(time.RFC3339Nano), nowText())
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) AuthorizeOperatorSession(ctx context.Context, tokenHash string) (model.User, bool, error) {
@@ -238,25 +253,8 @@ func (s *Store) RevokeOperatorSession(ctx context.Context, tokenHash string) err
 	return err
 }
 
-func (s *Store) UpdateUserProfile(ctx context.Context, userID, displayName, email string) (model.User, bool, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return model.User{}, false, err
-	}
-	defer tx.Rollback()
-	if email != "" {
-		var inUse bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?)`, email, userID).Scan(&inUse); err != nil {
-			return model.User{}, false, err
-		}
-		if inUse {
-			return model.User{}, false, errors.New("email is already in use")
-		}
-	}
-	result, err := tx.ExecContext(ctx, `
-UPDATE users SET display_name = ?, email = ?, updated_at = ? WHERE id = ?
-`, strings.TrimSpace(displayName), email, nowText(), userID)
+func (s *Store) UpdateDisplayName(ctx context.Context, userID, displayName string) (model.User, bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE users SET display_name = ?, updated_at = ? WHERE id = ? AND disabled = 0`, strings.TrimSpace(displayName), nowText(), userID)
 	if err != nil {
 		return model.User{}, false, err
 	}
@@ -264,35 +262,65 @@ UPDATE users SET display_name = ?, email = ?, updated_at = ? WHERE id = ?
 	if err != nil || changed == 0 {
 		return model.User{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
-		return model.User{}, false, err
-	}
 	return s.GetUserByID(ctx, userID)
 }
 
-func (s *Store) UpdateOwnPassword(ctx context.Context, userID, passwordHash, currentSessionHash string) error {
+func (s *Store) UpdateOwnPassword(ctx context.Context, userID, previousHash, passwordHash, currentSessionHash string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`, passwordHash, nowText(), userID); err != nil {
+	result, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ? AND password_hash = ? AND disabled = 0`, passwordHash, nowText(), userID, previousHash)
+	if err != nil {
 		return err
 	}
-	if currentSessionHash == "" {
-		_, err = tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID)
-	} else {
-		_, err = tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ? AND token_hash != ?`, userID, currentSessionHash)
-	}
+	changed, err := result.RowsAffected()
 	if err != nil {
+		return err
+	}
+	if changed != 1 {
+		return ErrRecoveryAccountChanged
+	}
+	if err := revokeAccountAccess(ctx, tx, userID, currentSessionHash); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 func (s *Store) RevokeUserSessions(ctx context.Context, userID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, _, err := lockRecoveryAccount(ctx, tx, userID); err != nil {
+		return err
+	}
+	if err := revokeAccountAccess(ctx, tx, userID, ""); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func revokeAccountAccess(ctx context.Context, tx *sqliteTx, userID, keepSessionHash string) error {
+	if err := tunnelPolicyLock(ctx, tx); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ? AND token_hash <> ?`, userID, keepSessionHash); err != nil {
+		return err
+	}
+	for _, query := range []string{
+		`DELETE FROM device_access_grants WHERE user_id = ?`,
+		`DELETE FROM device_access_sessions WHERE user_id = ?`,
+		`DELETE FROM password_reset_tokens WHERE user_id = ?`,
+		`DELETE FROM contact_verifications WHERE user_id = ? AND channel = 'recovery_email'`,
+	} {
+		if _, err := tx.ExecContext(ctx, query, userID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) GetUserForPasswordReset(ctx context.Context, identifier string) (model.User, bool, error) {
@@ -324,22 +352,36 @@ LIMIT 2
 	return users[0], true, nil
 }
 
-func (s *Store) CreatePasswordReset(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+func (s *Store) CreatePasswordReset(ctx context.Context, userID, email, tokenHash string, expiresAt time.Time) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
+	currentEmail, _, err := lockRecoveryAccount(ctx, tx, userID)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && (currentEmail == "" || currentEmail != email) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE user_id = ?`, userID); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO password_reset_tokens (token_hash, user_id, expires_at, created_at)
 VALUES (?, ?, ?, ?)
 `, tokenHash, userID, expiresAt.UTC().Format(time.RFC3339Nano), nowText()); err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit()
+	return true, tx.Commit()
+}
+
+func (s *Store) PasswordResetValid(ctx context.Context, tokenHash string) (bool, error) {
+	var valid bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM password_reset_tokens t JOIN users u ON u.id = t.user_id
+WHERE t.token_hash = ? AND julianday(t.expires_at) > julianday(?) AND u.disabled = 0)`, tokenHash, nowText()).Scan(&valid)
+	return valid, err
 }
 
 func (s *Store) ResetPassword(ctx context.Context, tokenHash, passwordHash string) (bool, error) {
@@ -358,13 +400,23 @@ WHERE t.token_hash = ? AND julianday(t.expires_at) > julianday(?) AND u.disabled
 	} else if err != nil {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ? AND disabled = 0`, passwordHash, nowText(), userID); err != nil {
+	if _, _, err := lockRecoveryAccount(ctx, tx, userID); errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_sessions WHERE user_id = ?`, userID); err != nil {
+	consumed, err := tx.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE token_hash = ? AND user_id = ? AND julianday(expires_at) > julianday(?)`, tokenHash, userID, nowText())
+	if err != nil {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE user_id = ?`, userID); err != nil {
+	n, err := consumed.RowsAffected()
+	if err != nil || n != 1 {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`, passwordHash, nowText(), userID); err != nil {
+		return false, err
+	}
+	if err := revokeAccountAccess(ctx, tx, userID, ""); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -608,7 +660,7 @@ WHERE device_id = ?
 	return s.GetDevice(ctx, deviceID)
 }
 
-func (s *Store) CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, deviceID, remoteSessionID string, expiresAt time.Time) error {
+func (s *Store) CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, operatorSessionHash, deviceID, remoteSessionID string, expiresAt time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -616,6 +668,15 @@ func (s *Store) CreateDeviceAccessGrant(ctx context.Context, tokenHash, userID, 
 	defer tx.Rollback()
 	if err = tunnelPolicyLock(ctx, tx); err != nil {
 		return err
+	}
+	if operatorSessionHash != "" {
+		var active bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM operator_sessions WHERE token_hash = ? AND user_id = ? AND julianday(expires_at) > julianday(?))`, operatorSessionHash, userID, nowText()).Scan(&active); err != nil {
+			return err
+		}
+		if !active {
+			return ErrRecoveryAccountChanged
+		}
 	}
 	if err = enforceFleetAccess(ctx, tx, userID, deviceID, false, true, expiresAt); err != nil {
 		return err
@@ -727,6 +788,7 @@ func (s *Store) PurgeExpiredSecurityData(ctx context.Context) error {
 		`DELETE FROM enrollment_grants WHERE julianday(expires_at) <= julianday(?)`,
 		`DELETE FROM device_access_grants WHERE julianday(expires_at) <= julianday(?)`,
 		`DELETE FROM device_access_sessions WHERE julianday(expires_at) <= julianday(?)`,
+		`DELETE FROM contact_verifications WHERE channel = 'recovery_email' AND julianday(expires_at) <= julianday(?)`,
 	} {
 		if _, err := s.db.ExecContext(ctx, statement, now); err != nil {
 			return err

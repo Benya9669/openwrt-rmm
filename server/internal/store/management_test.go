@@ -289,7 +289,7 @@ func TestPermissionEditClosesRemoteSessionsAndGuardsLegacyAuditCommands(t *testi
 	if _, err = s.db.ExecContext(ctx, "UPDATE commands SET status='completed' WHERE id=?", startup.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.CreateDeviceAccessGrant(ctx, TokenHash("synthetic-access-grant"), owner.ID, ids[0], session.ID, time.Now().Add(30*time.Second)); err != nil {
+	if err = s.CreateDeviceAccessGrant(ctx, TokenHash("synthetic-access-grant"), owner.ID, "", ids[0], session.ID, time.Now().Add(30*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	old, found, err := s.CreateCommand(ctx, ids[0], "uci_commit", json.RawMessage(`{}`))
