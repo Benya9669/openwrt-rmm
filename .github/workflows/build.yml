@@ -23,6 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # An implicit push SHA replaces the local annotated tag with its commit.
+          ref: ${{ startsWith(github.ref, 'refs/tags/') && github.ref || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
@@ -39,6 +41,7 @@ jobs:
           RELEASE_OPENPGP_FINGERPRINTS: ${{ vars.RELEASE_OPENPGP_FINGERPRINTS }}
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_SHA}^{commit}")"
           bash scripts/verify-release-tag.sh "$GITHUB_REF_NAME"
           bash scripts/extract-release-notes.sh \
             "$GITHUB_REF_NAME" \

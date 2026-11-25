@@ -2134,6 +2134,30 @@ func (a *App) handleOpenCloudAccess(w http.ResponseWriter, r *http.Request) {
 	a.writeCloudAccessState(w, r, true)
 }
 
+func luciEndpoint(inventory json.RawMessage, requested string) (string, int, bool) {
+	var report struct {
+		Listeners map[string]int `json:"luci_listeners"`
+	}
+	if json.Unmarshal(inventory, &report) != nil {
+		report.Listeners = nil
+	}
+	if requested == "auto" {
+		for _, scheme := range []string{"https", "http"} {
+			if port := report.Listeners[scheme]; validTCPPort(port) {
+				return scheme, port, true
+			}
+		}
+		requested = "http"
+	}
+	if port := report.Listeners[requested]; validTCPPort(port) {
+		return requested, port, true
+	}
+	if requested == "https" {
+		return requested, 443, false
+	}
+	return "http", 80, false
+}
+
 func (a *App) writeCloudAccessState(w http.ResponseWriter, r *http.Request, create bool) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	deviceID := parts[2]
@@ -2159,8 +2183,12 @@ func (a *App) writeCloudAccessState(w http.ResponseWriter, r *http.Request, crea
 		writeCloudError(w, http.StatusInternalServerError, "server_error", "failed to load remote sessions")
 		return
 	}
+	preferred, _, reported := luciEndpoint(device.Inventory, "auto")
 	now := time.Now().UTC()
 	for _, session := range sessions {
+		if reported && session.LuCIScheme != preferred {
+			continue
+		}
 		if session.LuCIPort <= 0 {
 			continue
 		}
@@ -2214,7 +2242,7 @@ func (a *App) writeCloudAccessState(w http.ResponseWriter, r *http.Request, crea
 		ServerHost:      a.tunnelPublicHost,
 		ServerPort:      a.tunnelPublicPort,
 		LocalPort:       22,
-		LuCIScheme:      "http",
+		LuCIScheme:      "auto",
 	}, a.tunnelPublicHost)
 	if err != nil {
 		var createErr *remoteSessionCreateError
@@ -2342,15 +2370,18 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusForbidden, "remote access policy denies this request"}
 		}
 	}
+	device, deviceFound, err := a.store.GetDevice(ctx, deviceID)
+	if err != nil {
+		return model.RemoteSession{}, err
+	}
+	if !deviceFound {
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusNotFound, "device not found"}
+	}
 	if !policy.SSHAllowed || !policy.LuCIAllowed {
-		device, found, err := a.store.GetDevice(ctx, deviceID)
-		if err != nil {
-			return model.RemoteSession{}, err
-		}
 		var inventory struct {
 			Features []string `json:"rmm_features"`
 		}
-		if !found || json.Unmarshal(device.Inventory, &inventory) != nil || !containsString(inventory.Features, "remote_access_modes") {
+		if json.Unmarshal(device.Inventory, &inventory) != nil || !containsString(inventory.Features, "remote_access_modes") {
 			return model.RemoteSession{}, &remoteSessionCreateError{http.StatusConflict, "update agent for restricted access modes"}
 		}
 	}
@@ -2386,9 +2417,10 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 	if luciScheme == "" {
 		luciScheme = "http"
 	}
-	if luciScheme != "http" && luciScheme != "https" {
-		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "luci_scheme must be http or https"}
+	if luciScheme != "http" && luciScheme != "https" && luciScheme != "auto" {
+		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "luci_scheme must be auto, http or https"}
 	}
+	luciScheme, luciLocalPort, _ := luciEndpoint(device.Inventory, luciScheme)
 	if !validTCPPort(serverPort) || !validTCPPort(localPort) || (!autoRemotePort && !validTCPPort(remotePort)) {
 		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusBadRequest, "ports must be between 1 and 65535"}
 	}
@@ -2399,7 +2431,6 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 	expiresAt := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	var session model.RemoteSession
 	var found bool
-	var err error
 	for attempt := 0; attempt < 20; attempt++ {
 		if autoRemotePort {
 			remotePort = randomRemotePort()
@@ -2448,10 +2479,6 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 		return model.RemoteSession{}, &remoteSessionCreateError{http.StatusNotFound, "device not found"}
 	}
 
-	luciLocalPort := "80"
-	if session.LuCIScheme == "https" {
-		luciLocalPort = "443"
-	}
 	credentialMode := "legacy"
 	if a.tunnelAuthToken != "" {
 		credentialMode = "device"
@@ -2462,7 +2489,8 @@ func (a *App) createRemoteSession(ctx context.Context, actor, deviceID string, r
 		"server_port":      strconv.Itoa(session.ServerPort),
 		"remote_port":      strconv.Itoa(session.RemotePort),
 		"luci_port":        strconv.Itoa(session.LuCIPort),
-		"luci_local_port":  luciLocalPort,
+		"luci_local_port":  strconv.Itoa(luciLocalPort),
+		"luci_scheme":      session.LuCIScheme,
 		"local_host":       session.LocalHost,
 		"local_port":       strconv.Itoa(session.LocalPort),
 		"server_user":      "rmm-tunnel",

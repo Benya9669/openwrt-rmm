@@ -19,6 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Fetch the named tag object. The implicit push SHA is its peeled commit.
+          ref: ${{ github.ref }}
           fetch-depth: 0
           persist-credentials: false
       - name: Verify authorized OpenPGP signer
@@ -26,7 +28,9 @@ jobs:
         env:
           RELEASE_OPENPGP_PUBLIC_KEYS: ${{ vars.RELEASE_OPENPGP_PUBLIC_KEYS }}
           RELEASE_OPENPGP_FINGERPRINTS: ${{ vars.RELEASE_OPENPGP_FINGERPRINTS }}
-        run: bash scripts/verify-release-tag.sh "$GITHUB_REF_NAME"
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          bash scripts/verify-release-tag.sh "$GITHUB_REF_NAME"
 
   server:
     name: Test and build server image
@@ -118,7 +122,7 @@ jobs:
           build-args: |
             RMM_SERVER_VERSION=${{ steps.version.outputs.value }}
             RMM_SOURCE_REVISION=${{ github.sha }}
-            RMM_STABLE_AGENT_VERSION=0.11.1
+            RMM_STABLE_AGENT_VERSION=0.11.2
           cache-from: type=gha,scope=rmm-server
           cache-to: type=gha,mode=max,scope=rmm-server
           provenance: mode=max

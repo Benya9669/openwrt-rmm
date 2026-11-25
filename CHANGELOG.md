@@ -5,15 +5,17 @@ the release workflow fails when notes for a new tag have not been prepared.
 
 ## Unreleased
 
-## server-v0.16.0
+## server-v0.16.1
 
+- Quick LuCI access selects the HTTPS listener advertised by the router, including its configured port. HTTP-only routers keep using HTTP. The release workflow preserves the original signed tag during checkout.
 - Device policy saves stay bound to the selected router. Background refresh preserves unsaved group and tag edits. Switching routers clears the previous client list and ignores late responses.
 - Recovery email changes require the current password and a mailbox confirmation code. Revoking sessions also revokes LuCI access. Configure SMTP and verify delivery before relying on recovery.
 - The tunnel container checks the listening SSH socket without initiating a connection every 15 seconds.
 - Back up the database before upgrading. Upgrade the server and tunnel together. Configure per-device tunnel authorization or explicitly opt into the shared-key migration described in [Docker Compose](docs/docker-compose.md) before upgrading a deployment that uses shared keys.
 
-## agent-v0.11.1
+## agent-v0.11.2
 
+- Report the first uhttpd instance's configured HTTP and HTTPS ports in heartbeat inventory. Forward LuCI to its local bind address, including LAN-only and IPv6 loopback listeners.
 - A LuCI-only session checks the local web listener before starting a tunnel and reports the address when the connection fails. The local SSH server is no longer required for this mode.
 - The LuCI settings app starts and restarts the agent through two dedicated RPC methods. The settings role no longer needs general command execution. Update the LuCI app together with the agent packages.
 - The legacy shell agent checks session ownership of a tracked process before closing a tunnel.

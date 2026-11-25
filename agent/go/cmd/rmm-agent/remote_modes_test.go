@@ -8,6 +8,24 @@ import (
 	"testing"
 )
 
+func TestSelectLuCIListener(t *testing.T) {
+	local := map[string]bool{"192.168.1.1": true}
+	for _, tc := range []struct {
+		bindings string
+		want     luciListener
+	}{
+		{"[::]:443 0.0.0.0:8443", luciListener{"127.0.0.1", 8443}},
+		{"[::]:8443", luciListener{"::1", 8443}},
+		{"192.168.1.1:443", luciListener{"192.168.1.1", 443}},
+		{"80", luciListener{"127.0.0.1", 80}},
+		{"192.168.1.2:443 garbage 0.0.0.0:65536", luciListener{}},
+	} {
+		if got := selectLuCIListener(tc.bindings, local); got != tc.want {
+			t.Errorf("bindings %q: got %v, want %v", tc.bindings, got, tc.want)
+		}
+	}
+}
+
 func TestLuCIOnlyReportsUnavailableWebListener(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {

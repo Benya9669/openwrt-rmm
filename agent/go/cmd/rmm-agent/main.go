@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	agentVersion          = "0.11.1"
+	agentVersion          = "0.11.2"
 	maxUpdateManifestSize = 1 << 20
 )
 
@@ -529,6 +529,13 @@ func buildInventory(cfg config) map[string]any {
 		"neighbors":       neighbors(),
 		"wifi_clients":    wifiClients(),
 		"client_probes":   clientProbes(),
+	}
+	if listeners := configuredLuCIListeners(); len(listeners) > 0 {
+		ports := map[string]int{}
+		for scheme, listener := range listeners {
+			ports[scheme] = listener.port
+		}
+		inventory["luci_listeners"] = ports
 	}
 	if publicKey := tunnelPublicKey(cfg.TunnelIdentity); publicKey != "" {
 		inventory["tunnel_public_key"] = publicKey
@@ -1532,6 +1539,7 @@ type remoteSSHArgs struct {
 	RemotePort      int
 	LuCIPort        int
 	LuCILocalPort   int
+	LuCILocalHost   string
 	LocalHost       string
 	LocalPort       int
 	ServerUser      string
@@ -1599,6 +1607,12 @@ func remoteSSHReverseOutput(ctx context.Context, cfg config, args map[string]str
 	if !ok {
 		return validationOutput, 2
 	}
+	remoteArgs.LuCILocalHost = "127.0.0.1"
+	if remoteArgs.LuCIPort > 0 && (args["luci_scheme"] == "http" || args["luci_scheme"] == "https") {
+		if listener := configuredLuCIListeners()[args["luci_scheme"]]; listener.port == remoteArgs.LuCILocalPort {
+			remoteArgs.LuCILocalHost = listener.host
+		}
+	}
 	if remoteArgs.RemotePort > 0 {
 		localHost, err := selectRemoteSSHLocalHost(remoteArgs.LocalHost, remoteArgs.LocalPort, localInterfaceIPv4Candidates(), remoteSSHTargetReachable)
 		if err != nil {
@@ -1607,7 +1621,7 @@ func remoteSSHReverseOutput(ctx context.Context, cfg config, args map[string]str
 		remoteArgs.LocalHost = localHost
 	} else {
 		// LuCI-only sessions do not require a local SSH server.
-		address := net.JoinHostPort("127.0.0.1", strconv.Itoa(remoteArgs.LuCILocalPort))
+		address := net.JoinHostPort(remoteArgs.LuCILocalHost, strconv.Itoa(remoteArgs.LuCILocalPort))
 		conn, err := net.DialTimeout("tcp", address, time.Second)
 		if err != nil {
 			return fmt.Sprintf("LuCI listener %s unavailable: %v; check uhttpd and the selected LuCI scheme\n", address, err), 1
@@ -1660,7 +1674,7 @@ func remoteSSHReverseOutput(ctx context.Context, cfg config, args map[string]str
 	_, _ = fmt.Fprintln(&b, "remote ssh reverse started")
 	_, _ = fmt.Fprintf(&b, "session=%s pid=%d\n", remoteArgs.SessionID, pid)
 	_, _ = fmt.Fprintf(&b, "operator endpoint: %s:%d -> %s:%d\n", remoteArgs.ServerHost, remoteArgs.RemotePort, remoteArgs.LocalHost, remoteArgs.LocalPort)
-	_, _ = fmt.Fprintf(&b, "LuCI proxy endpoint: %s:%d -> 127.0.0.1:%d\n", remoteArgs.ServerHost, remoteArgs.LuCIPort, remoteArgs.LuCILocalPort)
+	_, _ = fmt.Fprintf(&b, "LuCI proxy endpoint: %s:%d -> %s\n", remoteArgs.ServerHost, remoteArgs.LuCIPort, net.JoinHostPort(remoteArgs.LuCILocalHost, strconv.Itoa(remoteArgs.LuCILocalPort)))
 	_, _ = fmt.Fprintf(&b, "log=%s\n", logFile)
 	return b.String(), 0
 }
@@ -1793,6 +1807,7 @@ func orderLocalInterfaceIPv4Candidates(values []localInterfaceIPv4) []string {
 }
 
 func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) {
+	luciTarget := net.JoinHostPort(valueDefault(args.LuCILocalHost, "127.0.0.1"), strconv.Itoa(args.LuCILocalPort))
 	if sshPath, err := exec.LookPath("ssh"); err == nil {
 		cmdArgs := []string{"-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "-o", "IdentitiesOnly=yes"}
 		if args.CredentialMode == "device" {
@@ -1818,7 +1833,7 @@ func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) 
 			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort))
 		}
 		if args.LuCIPort > 0 {
-			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort))
+			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:%s", args.LuCIPort, luciTarget))
 		}
 		cmdArgs = append(cmdArgs,
 			"-p", strconv.Itoa(args.ServerPort),
@@ -1838,7 +1853,7 @@ func remoteSSHCommand(cfg config, args remoteSSHArgs) (string, []string, error) 
 			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:%s:%d", args.RemotePort, args.LocalHost, args.LocalPort))
 		}
 		if args.LuCIPort > 0 {
-			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:127.0.0.1:%d", args.LuCIPort, args.LuCILocalPort))
+			cmdArgs = append(cmdArgs, "-R", fmt.Sprintf("0.0.0.0:%d:%s", args.LuCIPort, luciTarget))
 		}
 		cmdArgs = append(cmdArgs,
 			"-p", strconv.Itoa(args.ServerPort),

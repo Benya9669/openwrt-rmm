@@ -119,7 +119,7 @@ func TestReverseTunnelCloudLuCIE2E(t *testing.T) {
 	defer handler.(interface{ Shutdown(context.Context) error }).Shutdown(context.Background())
 	apiURL := fmt.Sprintf("http://127.0.0.1:%d", apiPort)
 	var upstreamDown atomic.Bool
-	luci := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	luci := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if upstreamDown.Load() {
 			conn, _, err := w.(http.Hijacker).Hijack()
 			if err == nil {
@@ -136,7 +136,7 @@ func TestReverseTunnelCloudLuCIE2E(t *testing.T) {
 		fmt.Fprint(w, "test LuCI over reverse SSH")
 	}))
 	defer luci.Close()
-	_, luciPort, _ := net.SplitHostPort(strings.TrimPrefix(luci.URL, "http://"))
+	_, luciPort, _ := net.SplitHostPort(luci.Listener.Addr().String())
 	localSSH, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestReverseTunnelCloudLuCIE2E(t *testing.T) {
 	wait("real agent heartbeat and device key", func() bool { ready, err := st.TunnelCredentialReady(ctx, device.DeviceID); return err == nil && ready })
 	startTunnel := func() model.RemoteSession {
 		t.Helper()
-		session, found, err := st.CreateRemoteSession(ctx, model.RemoteSession{DeviceID: device.DeviceID, Target: "ssh", Status: "requested", ServerHost: host, RemotePort: 22055, LuCIPort: 22155, LuCIScheme: "http", ExpiresAt: time.Now().Add(time.Minute)})
+		session, found, err := st.CreateRemoteSession(ctx, model.RemoteSession{DeviceID: device.DeviceID, Target: "ssh", Status: "requested", ServerHost: host, RemotePort: 22055, LuCIPort: 22155, LuCIScheme: "https", ExpiresAt: time.Now().Add(time.Minute)})
 		if err != nil || !found {
 			t.Fatalf("session: %v %v", found, err)
 		}

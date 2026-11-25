@@ -598,6 +598,13 @@ Sensitive command output keys are redacted before storage and display. Current r
 
 Remote sessions create a short-lived SSH reverse tunnel command for the agent.
 
+Quick cloud access chooses the router's reported HTTPS listener first, then HTTP.
+Manual sessions accept `luci_scheme` values `auto`, `http` and `https`.
+The Go agent reports the configured ports in heartbeat inventory under
+`luci_listeners` and resolves the local bind address on the router. Machines
+without this inventory use HTTP port 80 in automatic mode or port 443 for an
+explicit HTTPS request. An omitted manual scheme retains HTTP.
+
 ```http
 POST /api/devices/{device_id}/remote-sessions
 Authorization: Bearer <operator-api-token>

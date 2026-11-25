@@ -56,7 +56,7 @@ RMM_TELEGRAM_BOT_TOKEN=replace-with-the-token-from-botfather
 RMM_NOTIFICATION_MAX_ATTEMPTS=5
 RMM_NOTIFICATION_RETENTION_DAYS=90
 RMM_BACKUP_RETENTION_DAYS=90
-RMM_STABLE_AGENT_VERSION=0.11.1
+RMM_STABLE_AGENT_VERSION=0.11.2
 RMM_AGENT_RECONNECT_TIMEOUT_SECONDS=300
 RMM_UPDATE_MANIFEST_URL=https://packages.daemonlord.ru/update-manifest.json
 RMM_UPDATE_MANIFEST_SIGNATURE_URL=https://packages.daemonlord.ru/update-manifest.sig
@@ -77,7 +77,7 @@ For a production deployment, pin the server release in `.env`. The base Compose 
 the server and tunnel images published by the same `server-v*` tag:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.16.0
+RMM_RELEASE_VERSION=0.16.1
 ```
 
 ```powershell
@@ -154,7 +154,7 @@ tar tzf backups/tunnel-data.tgz | head
 Configure Arcane with the existing volume names and the exact image release:
 
 ```dotenv
-RMM_RELEASE_VERSION=0.16.0
+RMM_RELEASE_VERSION=0.16.1
 RMM_DATA_VOLUME=openwrt-rmm_rmm-data
 RMM_TUNNEL_DATA_VOLUME=openwrt-rmm_tunnel-data
 ```
@@ -341,4 +341,4 @@ replacing the command-signing key requires explicit agent re-enrollment because 
 
 ### Troubleshoot a LuCI upstream refusal
 
-If the proxy returns 502 and the agent logs a refused forwarded connection, check the web listener on the selected router with `uci -q show uhttpd | grep -E 'listen_http|listen_https'` and `netstat -lnt`. Confirm that the selected scheme matches the loopback listener (HTTP port 80 or HTTPS port 443). A successful heartbeat checks agent connectivity separately. Agent 0.11.1 reports an unavailable LuCI-only listener before opening the tunnel.
+If the proxy returns 502 and the agent logs a refused forwarded connection, check the router with `uci -q show uhttpd | grep -E 'listen_http|listen_https'` and `netstat -lnt`. With agent 0.11.2 and server 0.16.1 or later, wait for a heartbeat after editing uhttpd, then open a new LuCI session. Automatic mode prefers the HTTPS listener of the first uhttpd instance, including self-signed HTTPS. It uses the configured local address and port. For older agents, select HTTP or HTTPS manually to use loopback port 80 or 443. Heartbeats check agent connectivity independently of LuCI.

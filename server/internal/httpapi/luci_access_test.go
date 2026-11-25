@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,26 @@ import (
 
 	"rmm-openwrt/server/internal/model"
 )
+
+func TestAutoLuCISchemeAndPort(t *testing.T) {
+	for _, tc := range []struct {
+		report, requested, scheme string
+		port                      int
+	}{
+		{`{"https":8443,"http":80}`, "auto", "https", 8443},
+		{`{"http":8080}`, "auto", "http", 8080},
+		{`{"https":8443,"http":8080}`, "http", "http", 8080},
+		{`{"https":70000,"http":81}`, "auto", "http", 81},
+		{`{}`, "auto", "http", 80},
+		{`{}`, "https", "https", 443},
+	} {
+		report := json.RawMessage(`{"luci_listeners":` + tc.report + `}`)
+		scheme, port, _ := luciEndpoint(report, tc.requested)
+		if scheme != tc.scheme || port != tc.port {
+			t.Errorf("%s %s: got %s:%d, want %s:%d", report, tc.requested, scheme, port, tc.scheme, tc.port)
+		}
+	}
+}
 
 func TestWriteLuCIErrorRendersSafeBrowserPage(t *testing.T) {
 	app := &App{deviceDomain: "routers.example", publicScheme: "https", publicURL: "https://rmm.example"}
